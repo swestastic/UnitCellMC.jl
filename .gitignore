@@ -1,0 +1,6 @@
+Manifest.toml
+src/Models/XY.jl
+src/Models/Potts.jl
+src/Algorithms/Glauber.jl
+src/Algorithms/Wolff.jl
+src/Algorithms/SwendsenWang.jl

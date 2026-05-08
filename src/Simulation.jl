@@ -1,6 +1,6 @@
 function Run_Simulation(
     model::IsingModel,
-    algorithm::Metropolis,
+    algorithm::Union{Metropolis, Glauber},
     β::Float64,
     neighbor_table_map,
     N_warmup::Int,

@@ -36,7 +36,7 @@ N_measure = 5000
 J         = 1.0
 
 model     = IsingModel(J, Lx, Ly)
-algorithm = Metropolis()
+algorithm = Metropolis() # Can also swap this out for Glauber()
 
 # β sweep
 βs = collect(0.1:0.1:1.5)

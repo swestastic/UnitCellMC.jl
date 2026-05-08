@@ -1,7 +1,9 @@
+using Revise
 using UnitCellMC
 using LatticeUtilities: UnitCell, Bond, Lattice, build_neighbor_table, map_neighbor_table
 using Random
 using Plots
+
 
 # Setup lattice and geometry
 Lx = 4

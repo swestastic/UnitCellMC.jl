@@ -5,6 +5,7 @@ module UnitCellMC
 export ModelGeometry, IsingModel, Metropolis, Run_Simulation
 
 include("Geometry.jl")
+include("Simulation.jl")
 
 include("Models/Ising.jl")
 # include("Models/XY.jl")

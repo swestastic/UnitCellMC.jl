@@ -1,7 +1,7 @@
 
 name = "UnitCellMC"
 uuid = "11111111-2222-3333-4444-555555555555"
-authors = ["(none) <none@example.com>"]
+authors = ["(Kyle Corbett) <kylecorbet@gmail.com>"]
 version = "0.1.0"
 
 [deps]

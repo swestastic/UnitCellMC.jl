@@ -18,4 +18,4 @@ This is pretty barebones for now. It currently only supports the Ising model usi
 
 ## Acknowledgements
 
-Some of the bond code is borrowed from [SmoQyDQMC.jl](https://github.com/SmoQySuite/SmoQyDQMC.jl)]. 
+Some of the bond code is borrowed from [SmoQyDQMC.jl](https://github.com/SmoQySuite/SmoQyDQMC.jl). 

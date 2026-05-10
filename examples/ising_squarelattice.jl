@@ -33,6 +33,10 @@ neighbor_table_map = map_neighbor_table(neighbor_table)
 N_sites   = length(neighbor_table_map)
 N_warmup  = 5000
 N_measure = 5000
+N_bins    = 20
+
+@assert mod(N_measure, N_bins) == 0 "N_measure must be divisible by N_bins for proper binning of measurements."
+
 J         = 1.0
 
 model     = IsingModel(J, Lx, Ly)
@@ -48,20 +52,25 @@ measurement_container = Dict{String, Vector{Float64}}(
     "Magnetization" => Float64[]
 )
 
+
+
 for β in βs
-    mean_E, mean_M = Run_Simulation(
-        model, algorithm, β, neighbor_table_map, N_warmup, N_measure
+    global measurement_results  # make this accessible for error bars in plots
+
+    measurement_results = Run_Simulation(
+        model, algorithm, β, neighbor_table_map, N_warmup, N_measure, N_bins
     )
     push!(measurement_container["Beta"],          β)
     push!(measurement_container["J"],             J)
-    push!(measurement_container["Energy"],        mean_E / N_sites)
-    push!(measurement_container["Magnetization"], abs(mean_M) / N_sites)
+    push!(measurement_container["Energy"],        measurement_results["Energy"][1] / N_sites)
+    push!(measurement_container["Magnetization"], abs(measurement_results["Magnetization"][1]) / N_sites)
 end
 
 # Plots
 p1 = plot(
     measurement_container["Beta"],
     measurement_container["Energy"],
+    yerror = measurement_results["Energy"][2] ./ N_sites,  # error bars for energy
     xlabel = "β",
     ylabel = "⟨E⟩ / site",
     title  = "Ising Model — Energy vs β  ($(Lx)×$(Ly))",
@@ -73,6 +82,7 @@ p1 = plot(
 p2 = plot(
     measurement_container["Beta"],
     measurement_container["Magnetization"],
+    yerror = measurement_results["Magnetization"][2] ./ N_sites,  # error bars for magnetization
     xlabel = "β",
     ylabel = "⟨|M|⟩ / site",
     title  = "Ising Model — Magnetization vs β  ($(Lx)×$(Ly))",

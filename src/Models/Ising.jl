@@ -28,8 +28,3 @@ end
 function Calc_Magnetization(model::IsingModel)
     return Float64(sum(model.spins))
 end
-
-mutable struct Measurements
-    E::Float64
-    M::Float64
-end

@@ -2,7 +2,11 @@
 module UnitCellMC
 
 # export ModelGeometry, IsingModel, XYModel, PottsModel, Metropolis, Run_Simulation
-export ModelGeometry, IsingModel, Metropolis, Glauber, Run_Simulation, Process_Bins
+export ModelGeometry
+export IsingModel
+export Metropolis, Glauber
+export Run_Simulation
+export Process_Bins
 
 include("Geometry.jl")
 
@@ -13,7 +17,7 @@ include("Models/Ising.jl")
 include("Algorithms/MetropolisHastings.jl")
 include("Algorithms/Glauber.jl")
 
-include("Simulation.jl")
 include("Binning.jl")
+include("Simulation.jl")
 
 end # module

@@ -30,9 +30,10 @@ function Run_Simulation(
         MC_Step!(model, algorithm, β, neighbor_table_map)
     end
 
+    Acceptance_Counter = 0
     # measurement loop
     for meas in 1:N_measure
-        MC_Step!(model, algorithm, β, neighbor_table_map)
+        Acceptance_Counter += MC_Step!(model, algorithm, β, neighbor_table_map)
         Energy = Calc_Energy(model, neighbor_table_map)
         Magnetization = Calc_Magnetization(model)
         bins_container["Energy"][meas % N_bins + 1] += Energy
@@ -42,9 +43,7 @@ function Run_Simulation(
     end
 
     measurement_results = Process_Bins(bins_container, N_measure, N_bins, β)
+    measurement_results["Acceptance_Ratio"] = Vector{Float64}([Acceptance_Counter / (N_measure * N_sites), 0.0])
 
-
-    # println("β = $β  |  ⟨E⟩/site = $(round(mean_E/N_sites, digits=4))  |  ⟨|M|⟩/site = $(round(abs(mean_M)/N_sites, digits=4))")
-    println("β = $β | $measurement_results")
     return measurement_results
 end

@@ -1,4 +1,4 @@
-struct IsingModel
+mutable struct IsingModel
     spins::Vector{Int}
     J::Float64
     Lx::Int

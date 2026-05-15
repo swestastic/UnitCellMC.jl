@@ -1,8 +1,8 @@
-struct Metropolis end
+struct Glauber end
 
 function MC_Step!(
     model::IsingModel,
-    ::Metropolis,
+    ::Glauber,
     β::Float64,
     neighbor_table_map
 )
@@ -12,7 +12,7 @@ function MC_Step!(
         s            = model.spins[i]
         neighbor_sum = sum(model.spins[nbr] for nbr in neighbor_table_map[i].neighbors)
         ΔE           = 2 * model.J * s * neighbor_sum
-        if ΔE <= 0 || rand() < exp(-β * ΔE)
+        if rand() < 1 / (1 + exp(β * ΔE))
             model.spins[i] = -s
             Acceptance_On_Sweep += 1
         end

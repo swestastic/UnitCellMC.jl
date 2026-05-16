@@ -2,7 +2,7 @@
 name = "UnitCellMC"
 uuid = "11111111-2222-3333-4444-555555555555"
 authors = ["(Kyle Corbett) <kylecorbet@gmail.com>"]
-version = "0.1.0"
+version = "0.2.0"
 
 [deps]
 LatticeUtilities = "33fcf0eb-3ae3-43db-bfbc-1d92a3639bd1"

@@ -1,4 +1,4 @@
-import Statistics
+using Statistics
 
 function Process_Bins(
     # We have a Dict of measurement types in bins_container, where each key is a measurement type (e.g. "Energy", "Magnetization")
@@ -15,7 +15,7 @@ function Process_Bins(
 
     for (key, values) in bins_container
         Bin_avgs = values / N_measure * N_bins
-        Bin_totalavg = Statistics.mean(Bin_avgs)
+        Bin_totalavg = mean(Bin_avgs)
 
         processed_results[key] = [Bin_totalavg]
 
@@ -36,7 +36,7 @@ function Calc_Error_Bars(
     )
     ErrorBar = 0.0
     for i in 1:N_bins
-        ErrorBar +=  (Bin_avgs[i] - Statistics.mean(Bin_avgs))^2
+        ErrorBar +=  (Bin_avgs[i] - mean(Bin_avgs))^2
     end
     return sqrt(ErrorBar / N_bins) * sqrt(1 / (N_bins - 1))
 end

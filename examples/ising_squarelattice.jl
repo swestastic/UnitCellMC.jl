@@ -1,6 +1,6 @@
 using Revise
 using UnitCellMC
-using LatticeUtilities: UnitCell, Bond, Lattice, build_neighbor_table, map_neighbor_table
+using LatticeUtilities: UnitCell, Bond, Lattice, build_neighbor_table, map_neighbor_table, nsites
 using Random
 using Plots
 
@@ -24,13 +24,15 @@ model_geometry = ModelGeometry(unit_cell, lattice)
 bond_px = Bond(orbitals = (1,1), displacement = [1, 0])
 bond_py = Bond(orbitals = (1,1), displacement = [0, 1])
 
+bonds = [bond_px, bond_py]
+
 UnitCellMC.add_bond!(model_geometry, bond_px)
 UnitCellMC.add_bond!(model_geometry, bond_py)
 
-neighbor_table     = build_neighbor_table([bond_px, bond_py], unit_cell, lattice)
+neighbor_table     = build_neighbor_table(bonds, unit_cell, lattice)
 neighbor_table_map = map_neighbor_table(neighbor_table)
 
-N_sites   = length(neighbor_table_map)
+N_sites   = nsites(unit_cell, lattice)
 N_warmup  = 1_000
 N_measure = 1_000
 N_bins    = 20
@@ -152,8 +154,16 @@ p5 = plot(
     legend = false
 )
 
+pLattice = UnitCellMC.plot_lattice(
+    unit_cell,
+    lattice,
+    neighbor_table_map,
+    bonds
+)
+
 png(p1, "plots/ising_energy.png")
 png(p2, "plots/ising_magnetization.png")
 png(p3, "plots/ising_specific_heat.png")
 png(p4, "plots/ising_magnetic_susceptibility.png")
 png(p5, "plots/ising_acceptance_ratio.png")
+png(pLattice, "plots/lattice.png")

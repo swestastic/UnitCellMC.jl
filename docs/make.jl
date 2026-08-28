@@ -4,7 +4,6 @@ using Documenter
 makedocs(
     sitename = "UnitCellMC.jl",
     modules = [UnitCellMC],
-    remotes = nothing,
 
     pages = [
         "Home" => "index.md",
@@ -35,4 +34,9 @@ makedocs(
 
         "TODO / In Progress" => "todo_in_progress.md",
     ],
+)
+
+deploydocs(
+    repo = "github.com/swestastic/UnitCellMC.jl.git",
+    devbranch = "main",  # or "master" — match your default branch
 )

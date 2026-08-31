@@ -9,6 +9,8 @@ function initialize_state(
     geometry
     )
 
+    @assert length(model.J) == length(geometry.bonds) "length(model.J) = $(length(model.J)) does not match length(geometry.bonds) = $(length(geometry.bonds))"
+
     N = prod(geometry.lattice.L)
     spins = rand([-1, 1], N)
     energy = 0.0

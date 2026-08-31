@@ -41,7 +41,8 @@ n_sites = lu.nsites(unit_cell, lattice)
 
 #### Initialize State
 
-J = 1.0
+J1 = 1.0
+J = [J1]
 h = 0.0
 
 model = ucmc.IsingModel(J, h)

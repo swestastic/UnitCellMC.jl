@@ -1,26 +1,13 @@
 abstract type AbstractModel end
 
 struct IsingModel <: AbstractModel
-    J::Float64
+    J::Vector{Float64}   # one entry per bond template, same order as geometry.bonds
     h::Float64
 end
 
-function energy_change(
-    model::IsingModel,
-    state,
-    lattice,
-    site
-)
-    s = state.configuration[site]
-
-    neighbor_sum = sum(
-        state.configuration[j]
-        for j in neighbors(lattice, site)
-    )
-
-    ΔE = 2s * (model.J * neighbor_sum + model.h)
-
-    return ΔE
+function bond_strength(model::IsingModel, geometry::Geometry, bond_id::Int)
+    template_id = geometry.bond_id_to_template[bond_id]
+    return model.J[template_id]
 end
 
 function update!(

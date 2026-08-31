@@ -24,29 +24,21 @@ lattice = lu.Lattice(
     periodic = [true, true]
 )
 
-bond_1 = lu.Bond(
-    orbitals = (1, 1),
-    displacement = [0, 1]
-)
+bond_1 = lu.Bond(orbitals = (1, 1), displacement = [0, 1])
+bond_2 = lu.Bond(orbitals = (1, 1), displacement = [-1, 0])
 
-bond_2 = lu.Bond(
-    orbitals = (1, 1),
-    displacement = [-1, 0]
-)
+J1 = 1.0
+J2 = 1.0
 
 bonds = [bond_1, bond_2]
-
-geometry = ucmc.Geometry(
-    unit_cell,
-    lattice,
-    bonds
-)
+geometry = ucmc.Geometry(unit_cell, lattice, bonds)
 
 n_sites = lu.nsites(unit_cell, lattice)
 
 #### Initialize State
-
-J = 1.0
+J1 = 1.0
+J2 = 1.0
+J = [J1, J2]
 h = 0.0
 
 model = ucmc.IsingModel(J, h)

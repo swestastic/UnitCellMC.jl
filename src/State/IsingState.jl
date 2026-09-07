@@ -11,8 +11,9 @@ function initialize_state(
     geometry::Geometry
     )
 
-    @assert length(model.J) == length(geometry.bonds) "length(model.J) = $(length(model.J)) does not match length(geometry.bonds) = $(length(geometry.bonds))"
-
+length(model.J) == length(geometry.bonds) ||
+    throw(ArgumentError("length(model.J) = $(length(model.J)) does not match length(geometry.bonds) = $(length(geometry.bonds))"))
+    
     n_sites = lu.nsites(geometry.unit_cell, geometry.lattice)
     spins = rand([-1, 1], n_sites)
 

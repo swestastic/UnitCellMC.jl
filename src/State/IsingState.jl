@@ -1,21 +1,25 @@
-mutable struct IsingState{S} <: AbstractState
+import LatticeUtilities as lu
+
+mutable struct IsingState{S,T<:Real} <: AbstractState
     spins::S
-    energy::Float64
+    energy::T
     magnetization::Int64
 end
 
 function initialize_state(
     model,
-    geometry
+    geometry::Geometry
     )
 
     @assert length(model.J) == length(geometry.bonds) "length(model.J) = $(length(model.J)) does not match length(geometry.bonds) = $(length(geometry.bonds))"
 
-    N = prod(geometry.lattice.L)
-    spins = rand([-1, 1], N)
-    energy = 0.0
+    n_sites = lu.nsites(geometry.unit_cell, geometry.lattice)
+    spins = rand([-1, 1], n_sites)
 
-    for i in 1:N
+    T = promote_type(eltype(model.J), typeof(model.h))
+    energy = zero(T)
+
+    for i in 1:n_sites
         info = geometry.neighbor_table[i]
         for (bond_id, j) in zip(info.bonds, info.neighbors)
             J = bond_strength(model, geometry, bond_id)

@@ -1,29 +1,20 @@
+struct MetropolisAlgorithm <: AbstractAlgorithm end
+
 function step!(
-    ::Metropolis,
-    model::IsingModel,
+    alg::MetropolisAlgorithm,
+    model::AbstractModel,
     geometry::Geometry,
-    state::IsingState,
-    β::Float64
+    state::AbstractState,
+    β::Real
 )
-    site = rand(eachindex(state.spins))
-    s = state.spins[site]
-
-    info = geometry.neighbor_table[site]
-
-    # Weighted sum: J for each neighbor's bond type × that neighbor's spin
-    weighted_sum = sum(
-        bond_strength(model, geometry, bond_id) * state.spins[j]
-        for (bond_id, j) in zip(info.bonds, info.neighbors)
-    )
-
-    ΔE = 2 * s * (weighted_sum + model.h)
+    proposal = propose(alg, model, geometry, state)
+    ΔE = energy_difference(model, geometry, state, proposal)
 
     if ΔE <= 0.0 || rand() < exp(-β * ΔE)
-        state.spins[site] = -s
-        state.energy += ΔE
-        state.magnetization -= 2 * s
+        apply_update!(state, proposal, ΔE)
         return true
     end
 
     return false
 end
+

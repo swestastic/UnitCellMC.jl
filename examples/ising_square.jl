@@ -48,7 +48,7 @@ state = ucmc.initialize_state(model, geometry) # Generate random spin configurat
 #### Set simulation parameters
 
 n_thermalization = 10_000 # warmup / thermalization sweeps before measurements
-n_sweeps = 10_000 # number of sweeps (L**2 Metropolis steps per sweep) to perform measurements
+n_measurements = 10_000 # number of sweeps (L**2 Metropolis steps per sweep) to perform measurements
 n_unmeasured = 5 # number of unmeasured sweeps between each measurement to reduce autocorrelation
 n_bins = 100 # number of bins for jackknife error estimation
 
@@ -73,7 +73,7 @@ function run_simulation(algorithm, model, geometry, state, container::ucmc.Measu
         MC_Sweep!(algorithm, model, geometry, state, container, β)
     end
 
-    for _ in 1:parameters.n_sweeps
+    for _ in 1:parameters.n_measurements
         MC_Sweep!(algorithm, model, geometry, state, container, β)
         ucmc.measure!(container, state)
 
@@ -91,7 +91,7 @@ function sweep_βs(
     geometry,
     state,
     n_thermalization,
-    n_sweeps,
+    n_measurements,
     n_unmeasured,
     n_bins,
     βs;
@@ -103,13 +103,13 @@ function sweep_βs(
 
     for (i, β) in enumerate(βs)
 
-        parameters = ucmc.SimulationParameters(β, n_thermalization, n_sweeps, n_unmeasured, n_bins)
+        parameters = ucmc.SimulationParameters(β, n_thermalization, n_measurements, n_unmeasured, n_bins)
 
         if !simulated_annealing
             state = ucmc.initialize_state(model, geometry)
         end
 
-        container = ucmc.MeasurementContainer(model, geometry, n_sweeps, n_bins; measurements = measurements)
+        container = ucmc.MeasurementContainer(model, geometry, n_measurements, n_bins; measurements = measurements)
         container = run_simulation(algorithm, model, geometry, state, container, parameters)
 
         processed_results = ucmc.analyze(container, β, n_sites)
@@ -124,7 +124,7 @@ end
 
 sweep_results = sweep_βs(
     algorithm, model, geometry, state,
-    n_thermalization, n_sweeps, n_unmeasured, n_bins, βs;
+    n_thermalization, n_measurements, n_unmeasured, n_bins, βs;
     simulated_annealing = true,
     measurements = [:correlation] # enable correlation measurements
     # measurements = []

@@ -100,6 +100,8 @@ function sweep_βs(
 )
 
     sweep_results = Vector{Any}(undef, length(βs))
+    n_sites = lu.nsites(geometry.unit_cell, geometry.lattice)
+    L = geometry.lattice.L
 
     for (i, β) in enumerate(βs)
 
@@ -114,8 +116,13 @@ function sweep_βs(
 
         processed_results = ucmc.analyze(container, β, n_sites)
         sweep_results[i] = processed_results
-        ucmc.save_results(model, algorithm, L, β, processed_results, parameters)
+        # ucmc.save_results(model, algorithm, L, β, processed_results, parameters) # Use this to save results for each β separately, if desired
     end
+
+    ucmc.save_sweep_results(
+        sweep_results, βs, model, algorithm, L,
+        n_thermalization, n_measurements, n_unmeasured, n_bins
+    )
 
     return sweep_results
 end

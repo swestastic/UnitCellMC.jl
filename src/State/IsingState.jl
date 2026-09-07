@@ -13,8 +13,8 @@ function initialize_state(
 
 length(model.J) == length(geometry.bonds) ||
     throw(ArgumentError("length(model.J) = $(length(model.J)) does not match length(geometry.bonds) = $(length(geometry.bonds))"))
-    
-    n_sites = lu.nsites(geometry.unit_cell, geometry.lattice)
+
+    n_sites = geometry.n_sites
     spins = rand([-1, 1], n_sites)
 
     T = promote_type(eltype(model.J), typeof(model.h))

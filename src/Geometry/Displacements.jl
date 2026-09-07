@@ -8,9 +8,7 @@ function build_displacement_classes(geometry::Geometry{D}) where D
     valid_ranges  = NTuple{D,UnitRange{Int}}[]
     counts        = Int[]
 
-    Δranges = ntuple(D) do d
-        periodic[d] ? (0:(L[d]-1)) : (-(L[d]-1):(L[d]-1))
-    end
+    Δranges = ntuple(d -> 0:(L[d]-1), D)
 
     for oi in 1:n_orb, oj in 1:n_orb
         for Δl in Iterators.product(Δranges...)
@@ -24,7 +22,7 @@ function build_displacement_classes(geometry::Geometry{D}) where D
                 end
             end
             count = prod(length(r) for r in ranges)
-            count > 0 || continue
+            count > 0 || continue   # only possible when an open dim has no valid pairs
 
             push!(displacements, Δl)
             push!(orbitals, (oi, oj))

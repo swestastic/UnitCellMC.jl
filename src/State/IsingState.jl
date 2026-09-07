@@ -1,9 +1,9 @@
 import LatticeUtilities as lu
 
-mutable struct IsingState{S,T<:Real} <: AbstractState
+mutable struct IsingState{S,T<:Real,M<:Integer} <: AbstractState
     spins::S
     energy::T
-    magnetization::Int64
+    magnetization::M
 end
 
 function initialize_state(

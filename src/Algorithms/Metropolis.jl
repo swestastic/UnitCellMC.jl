@@ -10,7 +10,7 @@ function step!(
     proposal = propose(alg, model, geometry, state)
     ΔE = energy_difference(model, geometry, state, proposal)
 
-    if ΔE <= 0.0 || rand() < exp(-β * ΔE)
+    if ΔE <= 0.0 || log(rand()) < -β * ΔE
         apply_update!(state, proposal, ΔE)
         return true
     end

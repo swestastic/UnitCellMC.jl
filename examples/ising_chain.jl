@@ -1,212 +1,129 @@
 """
-This example code implements the 1D Ising model using the UnitCellMC.jl package. 
+This example code implements the 2D Ising model using the UnitCellMC.jl package. 
 It demonstrates how to set up the geometry, initialize the state, and perform 
 Metropolis Monte Carlo steps to simulate the system's evolution.
 """
+
+#### Import the necessary modules
 
 import UnitCellMC as ucmc
 import LatticeUtilities as lu
 
 #### Initialize Geometry
 
-L = [10]
+L = [8] # In this case this is [Lx, Ly] becuase the lattice_vectors are [̂x, ̂y]
 
 lattice_vectors = [[1.0]]
-basis_vectors = [[0.0]]
+basis_vectors = [[0.0]] # our unit cell is a single site at the origin
 
-unit_cell = lu.UnitCell(
+unit_cell = lu.UnitCell( 
     lattice_vecs = lattice_vectors,
     basis_vecs = basis_vectors
 )
 
 lattice = lu.Lattice(
     L = L,
-    periodic = [true]
+    periodic = [true] # periodic boundary conditions along ̂x
 )
 
-bond_1 = lu.Bond(
-    orbitals = (1, 1),
-    displacement = [1]
-)
-
+bond_1 = lu.Bond(orbitals = (1, 1), displacement = [1]) # bond along ̂x
 bonds = [bond_1]
 
-geometry = ucmc.Geometry(
-    unit_cell,
-    lattice,
-    bonds
-)
+geometry = ucmc.Geometry(unit_cell, lattice, bonds)
 
 n_sites = lu.nsites(unit_cell, lattice)
 
 #### Initialize State
-
-J = 1.0
-h = 0.0
+J1 = 1.0 # Coupling strength along ̂x
+J = [J1]
+h = 0.0 # External magnetic field strength
 
 model = ucmc.IsingModel(J, h)
-algorithm = ucmc.Metropolis()
+algorithm = ucmc.MetropolisAlgorithm()
 
-state = ucmc.initialize_state(model, geometry)
+state = ucmc.initialize_state(model, geometry) # Generate random spin configuration, calculate the initial energy and magnetization
 
 #### Set simulation parameters
 
-# β = 0.5
-n_thermalization = 10_000
-n_steps = 10_000
-n_unmeasured = 5
-n_bins = 100
+n_thermalization = 10_000 # warmup / thermalization sweeps before measurements
+n_measurements = 10_000 # number of sweeps (L Metropolis steps per sweep) to perform measurements
+n_unmeasured = 5 # number of unmeasured sweeps between each measurement to reduce autocorrelation
+n_bins = 100 # number of bins for jackknife error estimation
+
+function MC_Sweep!(
+    algorithm,
+    model,
+    geometry,
+    state,
+    container::ucmc.MeasurementContainer,
+    β
+)
+    for _ in 1:n_sites
+        ucmc.step!(algorithm, model, geometry, state, β)
+    end
+end
 
 #### Perform simulation
-function run_simulation(algorithm, model, geometry, state, parameters)
-    
+function run_simulation(algorithm, model, geometry, state, container::ucmc.MeasurementContainer, parameters)
     β = parameters.β
 
-    measurements = ucmc.MeasurementContainer(model, parameters.n_steps, parameters.n_bins)
-
-    # thermalization steps
     for _ in 1:parameters.n_thermalization
-        ucmc.step!(algorithm, model, geometry, state, β)
+        MC_Sweep!(algorithm, model, geometry, state, container, β)
     end
 
-    for _ in 1:parameters.n_steps
-        ucmc.step!(algorithm, model, geometry, state, β)
+    for _ in 1:parameters.n_measurements
+        MC_Sweep!(algorithm, model, geometry, state, container, β)
+        ucmc.measure!(container, state)
 
-        ucmc.measure!(measurements, model, state)
-
-        for __ in 1:parameters.n_unmeasured
-            ucmc.step!(algorithm, model, geometry, state, β)
+        for __ in 1:parameters.n_unmeasured           
+            MC_Sweep!(algorithm, model, geometry, state, container, β)
         end
-
     end
 
-    return measurements
+    return container
 end
 
 function sweep_βs(
-    algorithm, 
-    model, 
-    geometry, 
-    state, 
-    n_thermalization, 
-    n_steps, 
-    n_unmeasured, 
-    n_bins, 
+    algorithm,
+    model,
+    geometry,
+    state,
+    n_thermalization,
+    n_measurements,
+    n_unmeasured,
+    n_bins,
     βs;
-    simulated_annealing = true
-    )
+    simulated_annealing = true,
+    measurements = Symbol[]
+)
 
     sweep_results = Vector{Any}(undef, length(βs))
 
     for (i, β) in enumerate(βs)
 
-        parameters = ucmc.SimulationParameters(
-            β,
-            n_thermalization,
-            n_steps,
-            n_unmeasured,
-            n_bins
-        )
+        parameters = ucmc.SimulationParameters(β, n_thermalization, n_measurements, n_unmeasured, n_bins)
 
-        if !simulated_annealing 
+        if !simulated_annealing
             state = ucmc.initialize_state(model, geometry)
         end
 
-        results = run_simulation(
-            algorithm,
-            model,
-            geometry,
-            state,
-            parameters
-        )
+        container = ucmc.MeasurementContainer(model, geometry, n_measurements, n_bins; measurements = measurements)
+        container = run_simulation(algorithm, model, geometry, state, container, parameters)
 
-        processed_results = ucmc.analyze(results, model, β, n_sites)
-
+        processed_results = ucmc.analyze(container, β, n_sites)
         sweep_results[i] = processed_results
+        ucmc.save_results(model, algorithm, L, β, processed_results, parameters)
     end
 
     return sweep_results
 end
 
-βs = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+βs = collect(0.1:0.1:1.0) # 10 temperatures from β = 0.1 to β = 1.0
 
 sweep_results = sweep_βs(
-    algorithm, 
-    model, 
-    geometry, 
-    state, 
-    n_thermalization, 
-    n_steps, 
-    n_unmeasured, 
-    n_bins, 
-    βs;
-    simulated_annealing = true
+    algorithm, model, geometry, state,
+    n_thermalization, n_measurements, n_unmeasured, n_bins, βs;
+    simulated_annealing = true,
+    measurements = [:correlation] # enable correlation measurements
+    # measurements = []
 )
-
-
-#### Plotting
-
-primary_avg(results, name::Symbol) = [r.primary[name][1] for r in results]
-primary_err(results, name::Symbol) = [r.primary[name][2] for r in results]
-
-derived_avg(results, name::Symbol) = [getproperty(r.derived, name) for r in results]
-derived_err(results, err_name::Symbol) = [getproperty(r.derived, err_name) for r in results]
-
-energies = primary_avg(sweep_results, :energy)
-energy_errors = primary_err(sweep_results, :energy)
-
-magnetizations = primary_avg(sweep_results, :magnetization)
-magnetization_errors = primary_err(sweep_results, :magnetization)
-
-specific_heats = derived_avg(sweep_results, :specific_heat)
-specific_heat_errors = derived_err(sweep_results, :specific_heat_err)
-
-susceptibilities = derived_avg(sweep_results, :susceptibility)
-susceptibility_errors = derived_err(sweep_results, :susceptibility_err)
-
-using Plots
-energyPlot = plot(
-    1.0 ./ βs,
-    energies / n_sites,
-    yerror = energy_errors / n_sites,
-    xlabel = "Temperature (T)",
-    ylabel = "Average Energy per Site",
-    title = "Average Energy vs Temperature",
-    legend = false
-)
-
-magnetizationPlot = plot(
-    1.0 ./ βs,
-    magnetizations / n_sites,
-    yerror = magnetization_errors / n_sites,
-    xlabel = "Temperature (T)",
-    ylabel = "Average Magnetization per Site",
-    title = "Average Magnetization vs Temperature",
-    legend = false
-)
-
-susceptibilityPlot = plot(
-    1.0 ./ βs,
-    susceptibilities / n_sites,
-    yerror = susceptibility_errors / n_sites,
-    xlabel = "Temperature (T)",
-    ylabel = "⟨ χ ⟩ / N",
-    title = "Susceptibility vs Temperature",
-    legend = false
-)
-
-specificHeatPlot = plot(
-    1.0 ./ βs,
-    specific_heats / n_sites,
-    yerror = specific_heat_errors / n_sites,
-    xlabel = "Temperature (T)",
-    ylabel = "⟨ C_v ⟩ / N",
-    title = "Specific Heat vs Temperature",
-    legend = false
-)
-
-display(energyPlot)
-display(magnetizationPlot)
-display(susceptibilityPlot)
-display(specificHeatPlot)
-

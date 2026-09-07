@@ -28,7 +28,7 @@ function jackknife_samples(bin_values::Vector{T}) where T
     return [(total .- v) ./ (n - 1) for v in bin_values]
 end
 
-function jackknife_stats(f::Function, jk_sample_sets::Vector{Float64}...)
+function jackknife_stats(f::Function, jk_sample_sets::AbstractVector{<:Real}...)
     n = length(jk_sample_sets[1])
     vals = [f((s[i] for s in jk_sample_sets)...) for i in 1:n]
     v̄ = Statistics.mean(vals)

@@ -34,8 +34,9 @@ function energy_difference(
     info = geometry.neighbor_table[site]
 
     weighted_sum = sum(
-        bond_strength(model, geometry, bond_id) * state.spins[j]
-        for (bond_id, j) in zip(info.bonds, info.neighbors)
+        (bond_strength(model, geometry, bond_id) * state.spins[j]
+         for (bond_id, j) in zip(info.bonds, info.neighbors));
+        init = zero(eltype(state.spins))
     )
 
     return 2 * s * (weighted_sum + model.h)

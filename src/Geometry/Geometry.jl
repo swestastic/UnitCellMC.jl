@@ -20,6 +20,13 @@ function Geometry(
     bonds::Vector{Bond{D}}
 ) where {D,T}
 
+    if isempty(bonds)
+        bond_id_to_template = Int[]
+        Nsites = LatticeUtilities.nsites(unit_cell, lattice)
+        neighbor_table_map = Dict(i => (bonds=Int[], neighbors=Int[]) for i in 1:Nsites)
+        return Geometry(unit_cell, lattice, bonds, bond_id_to_template, neighbor_table_map)
+    end
+
     per_template_tables = [
         LatticeUtilities.build_neighbor_table([bond], unit_cell, lattice)
         for bond in bonds

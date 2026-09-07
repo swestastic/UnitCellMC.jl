@@ -31,7 +31,7 @@ bonds = [bond_1]
 
 geometry = ucmc.Geometry(unit_cell, lattice, bonds)
 
-n_sites = lu.nsites(unit_cell, lattice)
+n_sites = geometry.n_sites
 
 #### Initialize State
 J1 = 1.0 # Coupling strength along ̂x
@@ -98,6 +98,8 @@ function sweep_βs(
 )
 
     sweep_results = Vector{Any}(undef, length(βs))
+    n_sites = geometry.n_sites
+    L = geometry.lattice.L
 
     for (i, β) in enumerate(βs)
 
@@ -112,8 +114,13 @@ function sweep_βs(
 
         processed_results = ucmc.analyze(container, β, n_sites)
         sweep_results[i] = processed_results
-        ucmc.save_results(model, algorithm, L, β, processed_results, parameters)
+        # ucmc.save_results(model, algorithm, L, β, processed_results, parameters) # Use this to save results for each β separately, if desired
     end
+
+    ucmc.save_sweep_results(
+        sweep_results, βs, model, algorithm, L,
+        n_thermalization, n_measurements, n_unmeasured, n_bins
+    )
 
     return sweep_results
 end

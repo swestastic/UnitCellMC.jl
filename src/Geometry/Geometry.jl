@@ -12,19 +12,20 @@ struct Geometry{D,T<:AbstractFloat,N}
     bonds::Vector{Bond{D}}
     bond_id_to_template::Vector{Int}
     neighbor_table::Dict{Int,NeighborInfo}
+    n_sites::Int
 end
-
 function Geometry(
     unit_cell::UnitCell{D,T},
     lattice::Lattice{D},
     bonds::Vector{Bond{D}}
 ) where {D,T}
 
+    n_sites = LatticeUtilities.nsites(unit_cell, lattice)
+
     if isempty(bonds)
         bond_id_to_template = Int[]
-        Nsites = LatticeUtilities.nsites(unit_cell, lattice)
-        neighbor_table_map = Dict(i => (bonds=Int[], neighbors=Int[]) for i in 1:Nsites)
-        return Geometry(unit_cell, lattice, bonds, bond_id_to_template, neighbor_table_map)
+        neighbor_table_map = Dict(i => (bonds=Int[], neighbors=Int[]) for i in 1:n_sites)
+        return Geometry(unit_cell, lattice, bonds, bond_id_to_template, neighbor_table_map, n_sites)
     end
 
     per_template_tables = [
@@ -40,7 +41,7 @@ function Geometry(
     neighbor_table = reduce(hcat, per_template_tables)
     neighbor_table_map = LatticeUtilities.map_neighbor_table(neighbor_table)
 
-    return Geometry(unit_cell, lattice, bonds, bond_id_to_template, neighbor_table_map)
+    return Geometry(unit_cell, lattice, bonds, bond_id_to_template, neighbor_table_map, n_sites)
 end
 
 include("Displacements.jl")

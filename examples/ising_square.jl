@@ -32,7 +32,7 @@ bonds = [bond_1, bond_2]
 
 geometry = ucmc.Geometry(unit_cell, lattice, bonds)
 
-n_sites = lu.nsites(unit_cell, lattice)
+n_sites = geometry.n_sites
 
 #### Initialize State
 J1 = 1.0 # Coupling strength along ̂x
@@ -100,7 +100,7 @@ function sweep_βs(
 )
 
     sweep_results = Vector{Any}(undef, length(βs))
-    n_sites = lu.nsites(geometry.unit_cell, geometry.lattice)
+    n_sites = geometry.n_sites
     L = geometry.lattice.L
 
     for (i, β) in enumerate(βs)

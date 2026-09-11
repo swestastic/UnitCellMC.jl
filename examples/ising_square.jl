@@ -58,34 +58,34 @@ function MC_Sweep!(
     geometry,
     state,
     container::ucmc.MeasurementContainer,
-    β
+    T
 )
     for _ in 1:n_sites
-        ucmc.step!(algorithm, model, geometry, state, β)
+        ucmc.step!(algorithm, model, geometry, state, T)
     end
 end
 
 #### Perform simulation
 function run_simulation(algorithm, model, geometry, state, container::ucmc.MeasurementContainer, parameters)
-    β = parameters.β
+    T = parameters.T
 
     for _ in 1:parameters.n_thermalization
-        MC_Sweep!(algorithm, model, geometry, state, container, β)
+        MC_Sweep!(algorithm, model, geometry, state, container, T)
     end
 
     for _ in 1:parameters.n_measurements
-        MC_Sweep!(algorithm, model, geometry, state, container, β)
+        MC_Sweep!(algorithm, model, geometry, state, container, T)
         ucmc.measure!(container, state)
 
         for __ in 1:parameters.n_unmeasured           
-            MC_Sweep!(algorithm, model, geometry, state, container, β)
+            MC_Sweep!(algorithm, model, geometry, state, container, T)
         end
     end
 
     return container
 end
 
-function sweep_βs(
+function sweep_Ts(
     algorithm,
     model,
     geometry,
@@ -94,18 +94,18 @@ function sweep_βs(
     n_measurements,
     n_unmeasured,
     n_bins,
-    βs;
+    Ts;
     simulated_annealing = true,
     measurements = Symbol[]
 )
 
-    sweep_results = Vector{Any}(undef, length(βs))
+    sweep_results = Vector{Any}(undef, length(Ts))
     n_sites = geometry.n_sites
     L = geometry.lattice.L
 
-    for (i, β) in enumerate(βs)
+    for (i, T) in enumerate(Ts)
 
-        parameters = ucmc.SimulationParameters(β, n_thermalization, n_measurements, n_unmeasured, n_bins)
+        parameters = ucmc.SimulationParameters(T, n_thermalization, n_measurements, n_unmeasured, n_bins)
 
         if !simulated_annealing
             state = ucmc.initialize_state(model, geometry)
@@ -114,24 +114,24 @@ function sweep_βs(
         container = ucmc.MeasurementContainer(model, geometry, n_measurements, n_bins; measurements = measurements)
         container = run_simulation(algorithm, model, geometry, state, container, parameters)
 
-        processed_results = ucmc.analyze(container, β, n_sites)
+        processed_results = ucmc.analyze(container, T, n_sites)
         sweep_results[i] = processed_results
-        # ucmc.save_results(model, algorithm, L, β, processed_results, parameters) # Use this to save results for each β separately, if desired
+        # ucmc.save_results(model, algorithm, L, T, processed_results, parameters) # Use this to save results for each T separately, if desired
     end
 
     ucmc.save_sweep_results(
-        sweep_results, βs, model, algorithm, L,
+        sweep_results, Ts, model, algorithm, L,
         n_thermalization, n_measurements, n_unmeasured, n_bins
     )
 
     return sweep_results
 end
 
-βs = collect(0.1:0.1:1.0) # 10 temperatures from β = 0.1 to β = 1.0
+Ts = collect(0.1:0.1:1.0) # 10 temperatures from T = 0.1 to T = 1.0
 
-sweep_results = sweep_βs(
+sweep_results = sweep_Ts(
     algorithm, model, geometry, state,
-    n_thermalization, n_measurements, n_unmeasured, n_bins, βs;
+    n_thermalization, n_measurements, n_unmeasured, n_bins, Ts;
     simulated_annealing = true,
     measurements = [:correlation] # enable correlation measurements
     # measurements = []

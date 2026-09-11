@@ -1,20 +1,20 @@
 using CSV
 using DataFrames
 
-function results_dirname(model, algorithm, L, β; root::AbstractString = "results")
+function results_dirname(model, algorithm, L, T; root::AbstractString = "results")
     model_name = string(nameof(typeof(model)))
     alg_name   = string(nameof(typeof(algorithm)))
     L_str      = join(L, "x")
-    β_str      = string(round(β, digits = 6))
-    return joinpath(root, "$(model_name)_$(alg_name)_L$(L_str)_beta$(β_str)")
+    T_str      = string(round(T, digits = 6))
+    return joinpath(root, "$(model_name)_$(alg_name)_L$(L_str)_temp$(T_str)")
 end
 
-function save_metadata(dir, model, algorithm, L, β, parameters)
+function save_metadata(dir, model, algorithm, L, T, parameters)
     open(joinpath(dir, "metadata.txt"), "w") do io
         println(io, "model = ", model)
         println(io, "algorithm = ", algorithm)
         println(io, "L = ", L)
-        println(io, "beta = ", β)
+        println(io, "temperature = ", T)
         println(io, "parameters = ", parameters)
     end
     return nothing
@@ -93,10 +93,10 @@ function save_correlations(dir, results)
     return nothing
 end
 
-function save_results(model, algorithm, L, β, results, parameters; root::AbstractString = "results")
-    dir = results_dirname(model, algorithm, L, β; root = root)
+function save_results(model, algorithm, L, T, results, parameters; root::AbstractString = "results")
+    dir = results_dirname(model, algorithm, L, T; root = root)
     mkpath(dir)
-    save_metadata(dir, model, algorithm, L, β, parameters)
+    save_metadata(dir, model, algorithm, L, T, parameters)
     save_measurements(dir, results)
     save_correlations(dir, results)
     return dir
@@ -111,12 +111,12 @@ function sweep_dirname(model, algorithm, L; root::AbstractString = "results")
     return joinpath(root, "$(model_name)_$(alg_name)_L$(L_str)_sweep")
 end
 
-function save_sweep_metadata(dir, model, algorithm, L, βs, n_thermalization, n_measurements, n_unmeasured, n_bins)
+function save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins)
     open(joinpath(dir, "metadata.txt"), "w") do io
         println(io, "model = ", model)
         println(io, "algorithm = ", algorithm)
         println(io, "L = ", L)
-        println(io, "betas = ", βs)
+        println(io, "temperatures = ", Ts)
         println(io, "n_thermalization = ", n_thermalization)
         println(io, "n_measurements = ", n_measurements)
         println(io, "n_unmeasured = ", n_unmeasured)
@@ -126,27 +126,27 @@ function save_sweep_metadata(dir, model, algorithm, L, βs, n_thermalization, n_
 end
 
 function save_sweep_results(
-    sweep_results, βs, model, algorithm, L,
+    sweep_results, Ts, model, algorithm, L,
     n_thermalization, n_measurements, n_unmeasured, n_bins;
     root::AbstractString = "results"
 )
-    length(sweep_results) == length(βs) ||
-        throw(ArgumentError("sweep_results ($(length(sweep_results))) and βs ($(length(βs))) must have the same length"))
+    length(sweep_results) == length(Ts) ||
+        throw(ArgumentError("sweep_results ($(length(sweep_results))) and Ts ($(length(Ts))) must have the same length"))
 
     dir = sweep_dirname(model, algorithm, L; root = root)
     mkpath(dir)
-    save_sweep_metadata(dir, model, algorithm, L, βs, n_thermalization, n_measurements, n_unmeasured, n_bins)
+    save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins)
 
-    measurement_dfs = map(zip(βs, sweep_results)) do (β, results)
+    measurement_dfs = map(zip(Ts, sweep_results)) do (T, results)
         names, values, errors = measurement_rows(results)
-        DataFrame(beta = β, observable = names, value = values, error = errors)
+        DataFrame(temperature = T, observable = names, value = values, error = errors)
     end
     CSV.write(joinpath(dir, "measurement_results.csv"), reduce(vcat, measurement_dfs))
 
-    correlation_dfs = map(zip(βs, sweep_results)) do (β, results)
+    correlation_dfs = map(zip(Ts, sweep_results)) do (T, results)
         df = correlation_rows(results)
         df === nothing && return nothing
-        insertcols!(df, 1, :beta => β)
+        insertcols!(df, 1, :temperature => T)
         df
     end
     filter!(!isnothing, correlation_dfs)

@@ -43,7 +43,7 @@ function correlation_entry(model, geometry)
 
     derived = DerivedObservable(
         (:correlation_connected, :correlation_connected_err, :correlation_classes),
-        (jk, β, N) -> begin
+        (jk, T, N) -> begin
             connected = [
                 jackknife_stats((c, m) -> c - m^2, [s[r] for s in jk[:correlation]], jk[:magnetization])
                 for r in 1:n_disp

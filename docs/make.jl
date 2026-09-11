@@ -33,10 +33,12 @@ makedocs(
         ],
 
         "TODO / In Progress" => "todo_in_progress.md",
+
+        "Verification and Validation" => "verifications.md",
     ],
 )
 
 deploydocs(
     repo = "github.com/swestastic/UnitCellMC.jl.git",
-    devbranch = "main",  # or "master" — match your default branch
+    devbranch = "main",
 )

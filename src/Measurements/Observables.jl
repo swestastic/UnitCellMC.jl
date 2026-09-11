@@ -19,8 +19,8 @@ DerivedObservable(names::Tuple{Vararg{Symbol}}, compute::Function; depends_on::T
 
 function DerivedObservable(value_name::Symbol, err_name::Symbol, depends_on::Tuple{Vararg{Symbol}}, f::Function)
     names = (value_name, err_name)
-    compute = (jk, β, N) -> begin
-        v, err = jackknife_stats((args...) -> f(args...; β = β, N = N), (jk[k] for k in depends_on)...)
+    compute = (jk, T, N) -> begin
+        v, err = jackknife_stats((args...) -> f(args...; T = T, N = N), (jk[k] for k in depends_on)...)
         NamedTuple{names}((v, err))
     end
     return DerivedObservable(names, compute, depends_on)

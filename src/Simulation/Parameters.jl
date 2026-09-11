@@ -1,5 +1,5 @@
 struct SimulationParameters{T<:Real}
-    β::T
+    T::T
     n_thermalization::Int
     n_measurements::Int
     n_unmeasured::Int

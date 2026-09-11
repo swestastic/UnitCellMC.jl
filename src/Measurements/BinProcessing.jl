@@ -36,7 +36,7 @@ function jackknife_stats(f::Function, jk_sample_sets::AbstractVector{<:Real}...)
     return v̄, sqrt(variance)
 end
 
-function analyze(container::MeasurementContainer, β, N)
+function analyze(container::MeasurementContainer, T, N)
     bin_means = container.data
 
     primary = Dict(name => average_and_error(means) for (name, means) in pairs(bin_means))
@@ -44,7 +44,7 @@ function analyze(container::MeasurementContainer, β, N)
 
     derived = NamedTuple()
     for d in container.derived
-        derived = merge(derived, d.compute(jk, β, N))
+        derived = merge(derived, d.compute(jk, T, N))
     end
 
     return (primary = primary, derived = derived)

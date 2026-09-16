@@ -6,11 +6,11 @@ struct SimulationParameters{T<:Real}
     n_bins::Int
 
     function SimulationParameters{T}(T_val, n_thermalization, n_measurements, n_unmeasured, n_bins) where {T<:Real}
-        T_val >= 0 || throw(ArgumentError("T must be >= 0, got $T_val"))
+        T_val > 0 || throw(ArgumentError("T must be > 0, got $T_val"))
         n_thermalization >= 0 || throw(ArgumentError("n_thermalization must be >= 0, got $n_thermalization"))
         n_measurements >= 0 || throw(ArgumentError("n_measurements must be >= 0, got $n_measurements"))
         n_unmeasured >= 0 || throw(ArgumentError("n_unmeasured must be >= 0, got $n_unmeasured"))
-        n_bins >= 0 || throw(ArgumentError("n_bins must be >= 0, got $n_bins"))
+        n_bins >= 1 || throw(ArgumentError("n_bins must be >= 1, got $n_bins"))
         new{T}(T_val, n_thermalization, n_measurements, n_unmeasured, n_bins)
     end
 end

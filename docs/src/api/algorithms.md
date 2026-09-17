@@ -1,3 +1,7 @@
 # Algorithms
 
-## Metropolis-Hastings
+```@docs
+UnitCellMC.SpinUpdate
+UnitCellMC.MetropolisAlgorithm
+UnitCellMC.step!
+```

@@ -30,6 +30,7 @@ makedocs(
             "Geometry" => "api/geometry.md",
             "Simulation" => "api/simulation.md",
             "Measurements" => "api/measurements.md",
+            "IO" => "api/io.md",
         ],
 
         "TODO / In Progress" => "todo_in_progress.md",

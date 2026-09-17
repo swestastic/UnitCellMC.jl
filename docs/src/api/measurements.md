@@ -18,6 +18,10 @@ UnitCellMC.correlation_instantaneous
 UnitCellMC.correlation_entry
 ```
 
+```@meta
+CollapsedDocStrings = true
+```
+
 ```@docs
 UnitCellMC.measure!
 ```

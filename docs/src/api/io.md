@@ -1,5 +1,9 @@
 # IO
 
+```@meta
+CollapsedDocStrings = true
+```
+
 ```@docs
 UnitCellMC.results_dirname
 UnitCellMC.save_metadata

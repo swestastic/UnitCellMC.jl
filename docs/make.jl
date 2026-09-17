@@ -15,22 +15,23 @@ makedocs(
             "2D Ising Model" => "tutorials/ising_2d.md",
         ],
 
-        "Concepts" => [
-            "Geometry" => "concepts/geometry.md",
-            "Models" => "concepts/models.md",
-            "State" => "concepts/state.md",
-            "Algorithms" => "concepts/algorithms.md",
-            "Simulation" => "concepts/simulation.md",
-            "Measurements" => "concepts/measurements.md",
-        ],
+        # "Concepts" => [
+        #     "Geometry" => "concepts/geometry.md",
+        #     "Models" => "concepts/models.md",
+        #     "State" => "concepts/state.md",
+        #     "Algorithms" => "concepts/algorithms.md",
+        #     "Simulation" => "concepts/simulation.md",
+        #     "Measurements" => "concepts/measurements.md",
+        # ],
 
         "API Reference" => [
-            "Models" => "api/models.md",
             "Algorithms" => "api/algorithms.md",
             "Geometry" => "api/geometry.md",
-            "Simulation" => "api/simulation.md",
-            "Measurements" => "api/measurements.md",
             "IO" => "api/io.md",
+            "Measurements" => "api/measurements.md",
+            "Models" => "api/models.md",
+            "Simulation" => "api/simulation.md",
+            "State" => "api/state.md",
         ],
 
         "TODO / In Progress" => "todo_in_progress.md",

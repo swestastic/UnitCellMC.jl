@@ -1,5 +1,9 @@
 # Models
 
+```@meta
+CollapsedDocStrings = true
+```
+
 ```@docs
 UnitCellMC.IsingModel
 UnitCellMC.bond_strength

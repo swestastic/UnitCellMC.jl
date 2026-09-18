@@ -1,3 +1,11 @@
 # Algorithms
 
-## Metropolis-Hastings
+```@meta
+CollapsedDocStrings = true
+```
+
+```@docs
+UnitCellMC.SpinUpdate
+UnitCellMC.MetropolisAlgorithm
+UnitCellMC.step!
+```

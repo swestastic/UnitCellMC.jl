@@ -10,11 +10,15 @@ We implement an exact enumeration system for small Ising systems, which reuses t
 
 The Hamiltonian of the Ising model:
 
-$$ H(\{S\}) = -J \sum_{\langle i,j \rangle} S_i S_j - \sum_{i=1}^{N} h_i S_i, $$
+```math
+H(\{S\}) = -J \sum_{\langle i,j \rangle} S_i S_j - \sum_{i=1}^{N} h_i S_i,
+```
 
 Partition function:
 
-$$ Z(\beta) = \sum_{\{S\}} e^{-\beta H(\{S\})}. $$
+```math
+Z(\beta) = \sum_{\{S\}} e^{-\beta H(\{S\})}.
+```
 
 When we perform exact enumeration, we calculate the energy $H(\{S\})$ for every state and accumulate its Boltzmann weight $e^{-\beta H( \{ S \})}$ into Z.
 
@@ -42,27 +46,40 @@ end
 
 We can calculate the expectation value of an observable as follows
 
-$$ \langle \mathcal{O} \rangle = \frac{1}{Z} \sum_{\{S\}} \mathcal{O}(\{S\}) e^{-\beta H(\{S\})}. $$
+```math
+\langle \mathcal{O} \rangle = \frac{1}{Z} \sum_{\{S\}} \mathcal{O}(\{S\}) e^{-\beta H(\{S\})}.
+```
 
 Some examples:
 
 **Energy:**
 
-$$ \langle E \rangle = \frac{1}{Z} \sum_{\{S\}} H(\{S\}) , e^{-\beta H(\{S\})} = -\frac{\partial \ln Z}{\partial \beta}. $$
+```math
+\langle E \rangle = \frac{1}{Z} \sum_{\{S\}} H(\{S\}) , e^{-\beta H(\{S\})} = -\frac{\partial \ln Z}{\partial \beta}.
+```
 
 **Specific Heat:**
 
-$$ C_v = \frac{\partial \langle E \rangle}{\partial T} = \beta^2 \left( \langle E^2 \rangle - \langle E \rangle^2 \right). $$
+```math
+C_v = \frac{\partial \langle E \rangle}{\partial T} = \beta^2 \left( \langle E^2 \rangle - \langle E \rangle^2 \right).
+```
 
 **Magnetization:**
 
-$$ \langle M \rangle = \frac{1}{Z} \sum_{\{S\}} M(\{S\})  e^{-\beta H(\{S\})}, $$
+```math
+\langle M \rangle = \frac{1}{Z} \sum_{\{S\}} M(\{S\})  e^{-\beta H(\{S\})},
+```
+
 where $M(\{S\}) = \sum_i S_i$ is the instantaneous magnetization of a configuration.
 
 Note: at $h=0$, every configuration $\{S\}$ has a degenerate partner $\{-S\}$ with the same energy, for any temperature. Exact enumeration sums over both of these with equal Boltzmann weights, giving $\langle M \rangle = 0$.
 
-Typically a single MC run will have $\langle M \rangle = 0$ for $T>T_c$, and $\langle M \rangle = \pm1$ for $T < T_c$. averaging over many runs will recover the result where $\langle M \rangle = 0$ for all $T$.
+Typically, a single MC run will have $\langle M \rangle = 0$ for $T>T_c$, and $\langle M \rangle = \pm1$ for $T < T_c$. Averaging over many runs will recover the result where $\langle M \rangle = 0$ for all $T$.
 
 **Susceptibility**
-$$ \chi = \beta \left( \langle M^2 \rangle - \langle M \rangle^2 \right), $$
+
+```math
+\chi = \beta \left( \langle M^2 \rangle - \langle M \rangle^2 \right),
+```
+
 which, at $h=0$, reduces to $\chi = \beta \langle M^2 \rangle$ due to the symmetry above.

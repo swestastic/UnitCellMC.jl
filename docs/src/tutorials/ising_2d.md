@@ -4,9 +4,10 @@ Download this example as a complete [Julia script](https://github.com/swestastic
 
 In this example we will simulate the Ising model with nearest-neighbor interactions on a square lattice. The Hamiltonian for the Ising model is given by
 
-$$
+```math
 H = -\sum_{\langle i, j \rangle} J_{ij} \sigma_i \sigma_j - \sum_i h_i \sigma_i,
-$$
+```
+
 where $J_{ij}$ is the coupling strength between sites $i$ and $j$. $\sigma_i$ is the value of site $i$ ($\pm1$). $h_i$ is the magnetic field strength at site $i$.
 
 ## Import Packages

@@ -11,8 +11,8 @@ makedocs(
         "Getting Started" => "getting_started.md",
 
         "Tutorials" => [
-            "1D Ising Model" => "tutorials/ising_1d.md",
-            "2D Ising Model" => "tutorials/ising_2d.md",
+            # "1D Ising Model" => "tutorials/ising_1d.md",
+            "Square Lattice Ising Model" => "tutorials/ising_2d.md",
         ],
 
         # "Concepts" => [

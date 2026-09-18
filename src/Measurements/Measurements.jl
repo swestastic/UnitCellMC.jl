@@ -6,14 +6,15 @@ include("Optional.jl")
 include("BinProcessing.jl")
 
 """
-    measure!(measurements::MeasurementContainer, state)
+    measure!(measurements::MeasurementContainer, state; diagnostics)
 
 Take one measurement of `state` and accumulate it into `measurements`,
 flushing a completed bin into `data` once `bin_size` measurements have been
 accumulated.
 
 Each observable in `measurements.observables` is evaluated on `state` via
-its `value` function, and the results are added elementwise into
+its `value` function, and the supplied algorithm diagnostic values are added
+to the same named tuple. The results are added elementwise into
 `measurements.bin_sums`. Once `measurements.bin_count` reaches
 `measurements.bin_size`, the accumulated sums are averaged (dividing by
 `bin_size`) and pushed onto the corresponding vector in `measurements.data`,
@@ -24,14 +25,23 @@ after which `bin_sums` is reset to zero (via each observable's `zero()`) and
 
 - `measurements`: The `MeasurementContainer` to update in place.
 - `state`: The current configuration to measure, passed to each observable's
-  `value` function.
+    `value` function.
+- `diagnostics`: A named tuple of per-sweep algorithm statistics. Its names
+    must match the `diagnostics` requested when the container was constructed.
 
 # Returns
 
 `nothing`. `measurements` is mutated in place.
 """
-function measure!(measurements::MeasurementContainer, state)
-    values = NamedTuple(o.name => o.value(state) for o in measurements.observables)
+function measure!(measurements::MeasurementContainer, state; diagnostics = NamedTuple())
+    diagnostic_names = propertynames(diagnostics)
+    diagnostic_names == Tuple(measurements.diagnostics) ||
+        throw(ArgumentError("Expected diagnostics $(Tuple(measurements.diagnostics)), got $diagnostic_names"))
+
+    values = merge(
+        NamedTuple(o.name => o.value(state) for o in measurements.observables),
+        diagnostics
+    )
 
     measurements.bin_count += 1
     measurements.bin_sums = map(+, measurements.bin_sums, values)
@@ -41,7 +51,10 @@ function measure!(measurements::MeasurementContainer, state)
             push!(bins, s / measurements.bin_size)
             bins
         end
-        measurements.bin_sums = NamedTuple(o.name => o.zero() for o in measurements.observables)
+        measurements.bin_sums = merge(
+            NamedTuple(o.name => o.zero() for o in measurements.observables),
+            NamedTuple(name => 0.0 for name in measurements.diagnostics)
+        )
         measurements.bin_count = 0
     end
     return nothing

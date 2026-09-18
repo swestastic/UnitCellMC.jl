@@ -119,9 +119,12 @@ function MC_Sweep!(
     container::ucmc.MeasurementContainer,
     T
 )
+    statistic = ucmc.UpdateStatistic(ucmc.diagnostic_name(algorithm))
     for _ in 1:n_sites
-        ucmc.step!(algorithm, model, geometry, state, T)
+        result = ucmc.step!(algorithm, model, geometry, state, T)
+        ucmc.record!(statistic, ucmc.diagnostic_value(algorithm, result))
     end
+    return statistic
 end
 ```
 
@@ -136,8 +139,9 @@ function run_simulation(algorithm, model, geometry, state, container::ucmc.Measu
     end
 
     for _ in 1:parameters.n_measurements
-        MC_Sweep!(algorithm, model, geometry, state, container, T)
-        ucmc.measure!(container, state)
+        statistic = MC_Sweep!(algorithm, model, geometry, state, container, T)
+        diagnostics = NamedTuple{(statistic.name,)}((ucmc.value(statistic),))
+        ucmc.measure!(container, state; diagnostics)
 
         for __ in 1:parameters.n_unmeasured           
             MC_Sweep!(algorithm, model, geometry, state, container, T)
@@ -155,7 +159,10 @@ end
 If your only interest is in gathering data for a single temperature, you'll need to create a container for storing the measurement results. Then we can run the simulation.
 
 ```julia
-container = ucmc.MeasurementContainer(model, geometry, n_measurements, n_bins; measurements = Symbol[]) # Alternatively, set measurements = [:correlation] to calculate 2 site correlation functions as well.
+container = ucmc.MeasurementContainer(model, geometry, n_measurements, n_bins;
+    measurements = Symbol[],
+    diagnostics = [:acceptance_ratio]
+) # Alternatively, set measurements = [:correlation] to calculate 2 site correlation functions as well.
 container = run_simulation(algorithm, model, geometry, state, container, parameters)
 ```
 
@@ -202,7 +209,10 @@ function sweep_Ts(
             state = ucmc.initialize_state(model, geometry)
         end
 
-        container = ucmc.MeasurementContainer(model, geometry, n_measurements, n_bins; measurements = measurements)
+        container = ucmc.MeasurementContainer(model, geometry, n_measurements, n_bins;
+            measurements = measurements,
+            diagnostics = [:acceptance_ratio]
+        )
         container = run_simulation(algorithm, model, geometry, state, container, parameters)
 
         processed_results = ucmc.analyze(container, T, n_sites)

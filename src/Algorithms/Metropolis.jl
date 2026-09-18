@@ -32,7 +32,8 @@ applied in place via [`apply_update!`](@ref).
 
 # Returns
 
-`true` if the proposed move was accepted and applied, `false` otherwise.
+A [`MetropolisUpdateResult`](@ref) describing whether the proposal was
+accepted.
 """
 function step!(
     alg::MetropolisAlgorithm,
@@ -48,9 +49,9 @@ function step!(
 
     if ΔE <= 0.0 || log(rand()) < - ΔE / T
         apply_update!(state, proposal, ΔE)
-        return true
+        return MetropolisUpdateResult(true)
     end
 
-    return false
+    return MetropolisUpdateResult(false)
 end
 

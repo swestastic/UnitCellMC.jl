@@ -23,6 +23,8 @@ the codebase).
 - `observables::Vector{Observable}`: The raw observables being measured.
 - `derived::Vector{DerivedObservable}`: The derived quantities to compute
   from the raw observables once binning is complete.
+- `diagnostics::Vector{Symbol}`: Names of per-sweep algorithm diagnostics
+  accumulated alongside the raw observables.
 
 Construct with [`MeasurementContainer(model, geometry, n_measurements,
 n_bins; measurements)`](@ref).
@@ -34,10 +36,12 @@ mutable struct MeasurementContainer{T, S}
     bin_size::Int
     observables::Vector{Observable}
     derived::Vector{DerivedObservable}
+    diagnostics::Vector{Symbol}
 end
 
 """
-    MeasurementContainer(model, geometry, n_measurements, n_bins; measurements = Symbol[])
+    MeasurementContainer(model, geometry, n_measurements, n_bins;
+      measurements = Symbol[], diagnostics = Symbol[])
 
 Build an empty [`MeasurementContainer`](@ref) for `model`, sized for
 `n_measurements` total measurements grouped into `n_bins` bins.
@@ -61,6 +65,8 @@ observable's initial `data` and `bin_sums` entries are built from its
   (required for jackknife error estimates).
 - `measurements`: Names of optional observables/derived quantities to
   include in addition to the model's default set.
+- `diagnostics`: Names of per-sweep algorithm diagnostics to include in the
+  binned results. These values are supplied to [`measure!`](@ref).
 
 # Throws
 
@@ -79,7 +85,8 @@ function MeasurementContainer(
     geometry,
     n_measurements,
     n_bins;
-    measurements = Symbol[]
+    measurements = Symbol[],
+    diagnostics = Symbol[]
 )
     n_measurements > 0 || throw(ArgumentError("n_measurements must be positive, got $n_measurements"))
     n_bins >= 2 || throw(ArgumentError("n_bins must be at least 2 for jackknife error estimates, got $n_bins"))
@@ -92,12 +99,22 @@ function MeasurementContainer(
     obs = vcat(observables(model, geometry), opt_obs)
     der = vcat(derived_observables(model, geometry), opt_der)
 
+    observable_names = [o.name for o in obs]
+    isempty(intersect(observable_names, diagnostics)) ||
+      throw(ArgumentError("Diagnostic names must not duplicate observable names"))
+
     validate_dependencies(obs, der)
 
-    data     = NamedTuple(o.name => o.template() for o in obs)
-    bin_sums = NamedTuple(o.name => o.zero()     for o in obs)
+    data = merge(
+      NamedTuple(o.name => o.template() for o in obs),
+      NamedTuple(name => Float64[] for name in diagnostics)
+    )
+    bin_sums = merge(
+      NamedTuple(o.name => o.zero() for o in obs),
+      NamedTuple(name => 0.0 for name in diagnostics)
+    )
 
-    return MeasurementContainer(data, bin_sums, 0, n_measurements ÷ n_bins, obs, der)
+    return MeasurementContainer(data, bin_sums, 0, n_measurements ÷ n_bins, obs, der, diagnostics)
 end
 
 """

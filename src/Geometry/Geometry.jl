@@ -94,4 +94,34 @@ function Geometry(
     return Geometry(unit_cell, lattice, bonds, bond_id_to_template, neighbor_table_map, n_sites)
 end
 
+"""
+    validate_model_geometry(model::AbstractModel, geometry::Geometry)
+
+Validate the basic compatibility between a model's bond/coupling data and the
+lattice geometry. This is intentionally generic: models that carry a vector of
+bond couplings (for example `J`) must have the same length as the geometry's
+bond templates, and every concrete bond index in `geometry.bond_id_to_template`
+must refer to a valid entry in that coupling vector.
+
+Models that do not provide a bond-coupling vector can extend this method to add
+more specialized checks.
+"""
+function validate_model_geometry(model::AbstractModel, geometry::Geometry)
+    coupling_names = (:J, :couplings)
+    coupling_field = findfirst(name -> hasproperty(model, name), coupling_names)
+    coupling_field === nothing && return nothing
+
+    couplings = getproperty(model, coupling_names[coupling_field])
+    length(couplings) == length(geometry.bonds) || throw(ArgumentError(
+        "length(model.$(coupling_names[coupling_field])) = $(length(couplings)) does not match length(geometry.bonds) = $(length(geometry.bonds))"
+    ))
+
+    for (bond_id, template_id) in enumerate(geometry.bond_id_to_template)
+        1 <= template_id <= length(couplings) || throw(ArgumentError(
+            "bond_id_to_template[$bond_id] = $template_id is out of bounds for model.$(coupling_names[coupling_field]) of length $(length(couplings))"
+        ))
+    end
+    return nothing
+end
+
 include("Displacements.jl")

@@ -59,8 +59,7 @@ function initialize_state(
     geometry::Geometry
     )
 
-length(model.J) == length(geometry.bonds) ||
-    throw(ArgumentError("length(model.J) = $(length(model.J)) does not match length(geometry.bonds) = $(length(geometry.bonds))"))
+    validate_model_geometry(model, geometry)
 
     n_sites = geometry.n_sites
     spins = rand([-1, 1], n_sites)

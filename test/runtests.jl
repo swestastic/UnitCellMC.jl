@@ -78,6 +78,22 @@ end
     @test haskey(result.primary, :magnetization)
 end
 
+@testset "Model/geometry validation" begin
+    geometry = square_geometry(2)
+    valid_model = ucmc.IsingModel([1.0, 1.0], 0.0)
+
+    @test_throws ArgumentError ucmc.initialize_state(ucmc.IsingModel([1.0], 0.0), geometry)
+
+    bad_geometry = ucmc.Geometry(
+        geometry.unit_cell,
+        geometry.lattice,
+        [lu.Bond(orbitals = (1, 1), displacement = [1, 0])],
+    )
+    @test_throws ArgumentError ucmc.validate_model_geometry(valid_model, bad_geometry)
+
+    @test_throws ArgumentError ucmc.bond_strength(valid_model, geometry, 100)
+end
+
 @testset "Optional correlation observable" begin
     geometry = square_geometry(2)
     model = ucmc.IsingModel([1.0, 1.0], 0.0)

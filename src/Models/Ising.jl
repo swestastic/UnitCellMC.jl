@@ -33,6 +33,9 @@ up via the bond's template in `geometry`.
 - `bond_id`: Index of the bond to look up.
 """
 function bond_strength(model::IsingModel, geometry::Geometry, bond_id::Int)
+    1 <= bond_id <= length(geometry.bond_id_to_template) || throw(ArgumentError(
+        "bond_id = $bond_id is out of bounds for geometry.bond_id_to_template of length $(length(geometry.bond_id_to_template))"
+    ))
     template_id = geometry.bond_id_to_template[bond_id]
     return model.J[template_id]
 end

@@ -101,3 +101,18 @@ end
     @test haskey(result.primary, :correlation)
     @test haskey(result.derived, :correlation_connected)
 end
+
+@testset "Sweep save edge cases" begin
+    model = ucmc.IsingModel([1.0, 1.0], 0.0)
+    algorithm = ucmc.MetropolisAlgorithm()
+    L = [2, 2]
+    root = mktempdir()
+
+    empty_dir = ucmc.save_sweep_results([], Float64[], model, algorithm, L, 0, 0, 0, 1; root = root)
+    @test isdir(empty_dir)
+    @test isfile(joinpath(empty_dir, "metadata.txt"))
+    @test !isfile(joinpath(empty_dir, "measurement_results.csv"))
+    @test !isfile(joinpath(empty_dir, "correlation_results.csv"))
+
+    @test_throws ArgumentError ucmc.save_sweep_results([Dict()], [1.0, 2.0], model, algorithm, L, 0, 0, 0, 1; root = root)
+end

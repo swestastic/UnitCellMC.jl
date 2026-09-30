@@ -82,6 +82,29 @@ end
     @test_throws ArgumentError ucmc.step!(algorithm, field_model, geometry, field_state, 2.0)
 end
 
+@testset "Swendsen-Wang updates keep invariants" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], 0.0)
+    state = ucmc.initialize_state(model, geometry)
+    algorithm = ucmc.SwendsenWangAlgorithm()
+
+    for _ in 1:50
+        result = ucmc.step!(algorithm, model, geometry, state, 2.0)
+        @test result.cluster_count in 1:geometry.n_sites
+        @test result.updated_sites == geometry.n_sites
+        @test ucmc.diagnostic_name(algorithm) == :cluster_count
+        @test ucmc.diagnostic_value(algorithm, result) == result.cluster_count
+        @test length(state.spins) == geometry.n_sites
+        @test all(s in (-1, 1) for s in state.spins)
+        @test state.magnetization == sum(state.spins)
+        @test state.energy ≈ spin_energy(model, geometry, state.spins)
+    end
+
+    field_model = ucmc.IsingModel([1.0, 1.0], 0.5)
+    field_state = ucmc.initialize_state(field_model, geometry)
+    @test_throws ArgumentError ucmc.step!(algorithm, field_model, geometry, field_state, 2.0)
+end
+
 @testset "MeasurementContainer and analysis" begin
     geometry = square_geometry(2)
     model = ucmc.IsingModel([1.0, 1.0], 0.0)

@@ -31,3 +31,14 @@ zero-field ferromagnetic Ising model:
 The cluster traversal is independent of the model. A model supplies the bond
 activation probability and the operation that applies a completed cluster, so
 other discrete or continuous spin models can reuse the algorithm interface.
+
+## Swendsen-Wang Cluster
+
+The Swendsen-Wang algorithm builds all clusters before updating the state:
+
+- Activate each compatible bond with probability $1-e^{-2J_{ij}/T}$.
+- Find the connected components of the activated-bond graph.
+- Assign each cluster a new allowed orientation.
+
+As with Wolff, bond activation and cluster mutation are model hooks. The
+algorithm itself only handles bond traversal and connected-component finding.

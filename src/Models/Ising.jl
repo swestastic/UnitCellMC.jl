@@ -198,3 +198,30 @@ function apply_cluster!(
     state.magnetization += spin_change
     return nothing
 end
+
+"""Randomly orient Swendsen-Wang clusters and refresh Ising observables."""
+function apply_clusters!(
+    model::IsingModel,
+    geometry::Geometry,
+    state::IsingState,
+    clusters::Vector{Vector{Int}}
+)
+    for cluster in clusters
+        rand(Bool) || continue
+        for site in cluster
+            state.spins[site] = -state.spins[site]
+        end
+    end
+
+    state.energy = zero(state.energy)
+    for site in 1:geometry.n_sites
+        info = geometry.neighbor_table[site]
+        for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+            state.energy += -0.5 * bond_strength(model, geometry, bond_id) *
+                state.spins[site] * state.spins[neighbor]
+        end
+        state.energy += -model.h * state.spins[site]
+    end
+    state.magnetization = sum(state.spins)
+    return nothing
+end

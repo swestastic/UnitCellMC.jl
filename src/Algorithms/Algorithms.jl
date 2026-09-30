@@ -21,4 +21,5 @@ end
 
 include("Metropolis.jl")
 include("Wolff.jl")
+include("SwendsenWang.jl")
 include("Diagnostics.jl")

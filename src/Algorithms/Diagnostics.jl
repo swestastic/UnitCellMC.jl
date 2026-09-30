@@ -26,3 +26,5 @@ diagnostic_name(::MetropolisAlgorithm) = :acceptance_ratio
 diagnostic_value(::MetropolisAlgorithm, result::MetropolisUpdateResult) = result.accepted ? 1.0 : 0.0
 diagnostic_name(::WolffAlgorithm) = :cluster_size
 diagnostic_value(::WolffAlgorithm, result::WolffUpdateResult) = result.cluster_size
+diagnostic_name(::SwendsenWangAlgorithm) = :cluster_count
+diagnostic_value(::SwendsenWangAlgorithm, result::SwendsenWangUpdateResult) = result.cluster_count

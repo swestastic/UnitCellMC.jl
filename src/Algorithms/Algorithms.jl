@@ -1,4 +1,5 @@
 include("Metropolis.jl")
+include("Diagnostics.jl")
 
 """
     SpinUpdate{T}

@@ -41,7 +41,8 @@ J = [J1, J2]
 h = 0.0 # External magnetic field strength
 
 model = ucmc.IsingModel(J, h)
-algorithm = ucmc.MetropolisAlgorithm()
+# algorithm = ucmc.MetropolisAlgorithm()
+algorithm = ucmc.WolffAlgorithm() # Use Wolff cluster algorithm for updates
 
 state = ucmc.initialize_state(model, geometry) # Generate random spin configuration, calculate the initial energy and magnetization
 
@@ -117,7 +118,8 @@ function sweep_Ts(
 
         container = ucmc.MeasurementContainer(model, geometry, n_measurements, n_bins;
             measurements = measurements,
-            diagnostics = [:acceptance_ratio]
+            # diagnostics = [:acceptance_ratio]
+            diagnostics = [:cluster_size]
         )
         container = run_simulation(algorithm, model, geometry, state, container, parameters)
 

@@ -1,6 +1,3 @@
-include("Metropolis.jl")
-include("Diagnostics.jl")
-
 """
     SpinUpdate{T}
 
@@ -15,3 +12,13 @@ struct SpinUpdate{T}
     site::Int
     new_value::T
 end
+
+abstract type AbstractUpdateResult end
+
+struct MetropolisUpdateResult <: AbstractUpdateResult
+    accepted::Bool
+end
+
+include("Metropolis.jl")
+include("Wolff.jl")
+include("Diagnostics.jl")

@@ -17,3 +17,17 @@ A Monte-Carlo step is as follows.
   <!-- - **XY model**: $\Delta E = -\sum_j J_{ij} [\cos(\phi_i-\theta_j) - \cos(\theta_i - \theta_j)] - h [\cos(\phi_i)-\cos(\theta_i)]$. -->
 - Draw a random number $r\in[0,1]$
 - Accept the update with probability $\text{min}(1,e^{-\beta\Delta E})$, where $\beta=\frac{1}{T}$.
+
+## Wolff Cluster
+
+The Wolff algorithm grows and flips one connected cluster at a time. For the
+zero-field ferromagnetic Ising model:
+
+- Select a random seed site.
+- Visit neighboring sites with the same spin.
+- Add each such neighbor with probability $1-e^{-2J_{ij}/T}$.
+- Flip every spin in the completed cluster.
+
+The cluster traversal is independent of the model. A model supplies the bond
+activation probability and the operation that applies a completed cluster, so
+other discrete or continuous spin models can reuse the algorithm interface.

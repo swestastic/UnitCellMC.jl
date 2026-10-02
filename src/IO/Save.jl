@@ -307,6 +307,13 @@ function save_sweep_results(
     n_thermalization, n_measurements, n_unmeasured, n_bins;
     root::AbstractString = "results"
 )
+    if isempty(sweep_results) && isempty(Ts)
+        dir = sweep_dirname(model, algorithm, L; root = root)
+        mkpath(dir)
+        save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins)
+        return dir
+    end
+
     length(sweep_results) == length(Ts) ||
         throw(ArgumentError("sweep_results ($(length(sweep_results))) and Ts ($(length(Ts))) must have the same length"))
 
@@ -315,12 +322,21 @@ function save_sweep_results(
     save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins)
 
     measurement_dfs = map(zip(Ts, sweep_results)) do (T, results)
+        results === nothing && return nothing
         names, values, errors = measurement_rows(results)
+        isempty(names) && return nothing
         DataFrame(temperature = T, observable = names, value = values, error = errors)
     end
-    CSV.write(joinpath(dir, "measurement_results.csv"), reduce(vcat, measurement_dfs))
+    filter!(!isnothing, measurement_dfs)
+    measurement_path = joinpath(dir, "measurement_results.csv")
+    if isempty(measurement_dfs)
+        isfile(measurement_path) && rm(measurement_path)
+    else
+        CSV.write(measurement_path, reduce(vcat, measurement_dfs))
+    end
 
     correlation_dfs = map(zip(Ts, sweep_results)) do (T, results)
+        results === nothing && return nothing
         df = correlation_rows(results)
         df === nothing && return nothing
         insertcols!(df, 1, :temperature => T)

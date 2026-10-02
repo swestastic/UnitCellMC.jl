@@ -1,21 +1,4 @@
 """
-    AbstractUpdateResult
-
-Algorithm-specific information produced by one Monte Carlo update. Unlike a
-configuration observable, an update result describes the transition itself.
-"""
-abstract type AbstractUpdateResult end
-
-"""
-    MetropolisUpdateResult
-
-Result of one Metropolis update, recording whether the proposal was accepted.
-"""
-struct MetropolisUpdateResult <: AbstractUpdateResult
-    accepted::Bool
-end
-
-"""
     UpdateStatistic
 
 Accumulate a scalar statistic over updates in one sweep. The same type can
@@ -29,6 +12,12 @@ end
 
 UpdateStatistic(name::Symbol) = UpdateStatistic(name, 0.0, 0)
 
+function reset!(statistic::UpdateStatistic)
+    statistic.total = 0.0
+    statistic.count = 0
+    return statistic
+end
+
 function record!(statistic::UpdateStatistic, value::Real)
     statistic.total += value
     statistic.count += 1
@@ -39,5 +28,12 @@ function value(statistic::UpdateStatistic)
     statistic.count > 0 || throw(ArgumentError("Cannot read an empty update statistic"))
     return statistic.total / statistic.count
 end
-diagnostic_name(::MetropolisAlgorithm) = :acceptance_ratio
-diagnostic_value(::MetropolisAlgorithm, result::MetropolisUpdateResult) = result.accepted ? 1.0 : 0.0
+
+diagnostic_values(::MetropolisAlgorithm, result::MetropolisUpdateResult) =
+    (acceptance_ratio = result.accepted ? 1.0 : 0.0,)
+diagnostic_values(::WolffAlgorithm, result::WolffUpdateResult) =
+    (cluster_size = result.cluster_size,)
+diagnostic_values(::SwendsenWangAlgorithm, result::SwendsenWangUpdateResult) = (
+    cluster_count = result.cluster_count,
+    largest_cluster_fraction = result.largest_cluster_fraction,
+)

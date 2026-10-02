@@ -41,7 +41,9 @@ J = [J1, J2]
 h = 0.0 # External magnetic field strength
 
 model = ucmc.IsingModel(J, h)
-algorithm = ucmc.MetropolisAlgorithm()
+# algorithm = ucmc.MetropolisAlgorithm()
+# algorithm = ucmc.WolffAlgorithm() 
+algorithm = ucmc.SwendsenWangAlgorithm()
 
 state = ucmc.initialize_state(model, geometry) # Generate random spin configuration, calculate the initial energy and magnetization
 
@@ -58,31 +60,39 @@ function MC_Sweep!(
     geometry,
     state,
     container::ucmc.MeasurementContainer,
-    T
+    T,
+    stats
 )
-    statistic = ucmc.UpdateStatistic(ucmc.diagnostic_name(algorithm))
+    foreach(ucmc.reset!, stats)
     for _ in 1:n_sites
         result = ucmc.step!(algorithm, model, geometry, state, T)
-        ucmc.record!(statistic, ucmc.diagnostic_value(algorithm, result))
+        diagnostic_values = ucmc.diagnostic_values(algorithm, result)
+        for (index, name) in enumerate(container.diagnostics)
+            ucmc.record!(stats[index], getproperty(diagnostic_values, name))
+        end
     end
-    return statistic
+    return stats
 end
 
 #### Perform simulation
 function run_simulation(algorithm, model, geometry, state, container::ucmc.MeasurementContainer, parameters)
     T = parameters.T
+    stats = [ucmc.UpdateStatistic(name) for name in container.diagnostics]
 
     for _ in 1:parameters.n_thermalization
-        MC_Sweep!(algorithm, model, geometry, state, container, T)
+        MC_Sweep!(algorithm, model, geometry, state, container, T, stats)
     end
 
     for _ in 1:parameters.n_measurements
-        statistic = MC_Sweep!(algorithm, model, geometry, state, container, T)
-        diagnostics = NamedTuple{(statistic.name,)}((ucmc.value(statistic),))
+        MC_Sweep!(algorithm, model, geometry, state, container, T, stats)
+        diagnostics = NamedTuple(
+            name => ucmc.value(stats[index])
+            for (index, name) in enumerate(container.diagnostics)
+        )
         ucmc.measure!(container, state; diagnostics)
 
         for __ in 1:parameters.n_unmeasured           
-            MC_Sweep!(algorithm, model, geometry, state, container, T)
+            MC_Sweep!(algorithm, model, geometry, state, container, T, stats)
         end
     end
 
@@ -100,7 +110,8 @@ function sweep_Ts(
     n_bins,
     Ts;
     simulated_annealing = true,
-    measurements = Symbol[]
+    measurements = Symbol[],
+    diagnostics = Symbol[]
 )
 
     sweep_results = Vector{Any}(undef, length(Ts))
@@ -117,7 +128,7 @@ function sweep_Ts(
 
         container = ucmc.MeasurementContainer(model, geometry, n_measurements, n_bins;
             measurements = measurements,
-            diagnostics = [:acceptance_ratio]
+            diagnostics = diagnostics
         )
         container = run_simulation(algorithm, model, geometry, state, container, parameters)
 
@@ -137,9 +148,23 @@ end
 Ts = collect(3.0:-0.1:1.0) # 10 temperatures from T = 0.1 to T = 1.0
 
 sweep_results = sweep_Ts(
-    algorithm, model, geometry, state,
-    n_thermalization, n_measurements, n_unmeasured, n_bins, Ts;
+    ucmc.SwendsenWangAlgorithm(), 
+    model, 
+    geometry, 
+    state,
+    n_thermalization, 
+    n_measurements, 
+    n_unmeasured, 
+    n_bins, 
+    Ts;
     simulated_annealing = true,
-    measurements = [:correlation] # enable correlation measurements
-    # measurements = []
-)
+    measurements = [
+        :connected_correlation,
+        :abs_magnetization, 
+        :abs_magnetization_squared, 
+        :magnetization_fourth, 
+        :binder_cumulant], # model-specific observables
+    # diagnostics = [:acceptance_ratio] # Metropolis algorithm
+    # diagnostics = [:cluster_size] # Wolff algorithm
+    diagnostics = [:cluster_count, :largest_cluster_fraction] # Swendsen-Wang algorithm
+) 

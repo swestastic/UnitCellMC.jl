@@ -33,6 +33,9 @@ up via the bond's template in `geometry`.
 - `bond_id`: Index of the bond to look up.
 """
 function bond_strength(model::IsingModel, geometry::Geometry, bond_id::Int)
+    1 <= bond_id <= length(geometry.bond_id_to_template) || throw(ArgumentError(
+        "bond_id = $bond_id is out of bounds for geometry.bond_id_to_template of length $(length(geometry.bond_id_to_template))"
+    ))
     template_id = geometry.bond_id_to_template[bond_id]
     return model.J[template_id]
 end
@@ -97,12 +100,11 @@ function energy_difference(
     s = state.spins[site]
     info = geometry.neighbor_table[site]
 
-    weighted_sum = sum(
-        bond_strength(model, geometry, bond_id) * state.spins[j]
-         for (bond_id, j) in zip(info.bonds, info.neighbors)
-         if j != site;
-        init = zero(eltype(state.spins))
-    )
+    weighted_sum = zero(promote_type(eltype(state.spins), eltype(model.J)))
+    for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+        neighbor == site && continue
+        weighted_sum += bond_strength(model, geometry, bond_id) * state.spins[neighbor]
+    end
 
     return (s - proposal.new_value) * (weighted_sum + model.h)
 end
@@ -129,5 +131,96 @@ function apply_update!(
     state.spins[site] = proposal.new_value
     state.energy += ΔE
     state.magnetization += proposal.new_value - s
+    return nothing
+end
+
+"""
+    cluster_bond_probability(model, geometry, state, site, neighbor, bond_id, T)
+
+Return the Wolff bond-activation probability for a ferromagnetic Ising bond.
+Only equal neighboring spins can join the cluster.
+"""
+function cluster_bond_probability(
+    model::IsingModel,
+    geometry::Geometry,
+    state::IsingState,
+    site::Int,
+    neighbor::Int,
+    bond_id::Int,
+    T::Real
+)
+    J = bond_strength(model, geometry, bond_id)
+    J >= 0 || throw(ArgumentError(
+        "WolffAlgorithm requires non-negative Ising couplings; got J = $J"
+    ))
+    state.spins[site] == state.spins[neighbor] || return 0.0
+    return -expm1(-2 * J / T)
+end
+
+function validate_cluster_model(
+    model::IsingModel,
+    ::Geometry,
+    ::IsingState,
+    ::Real
+)
+    iszero(model.h) || throw(ArgumentError(
+        "WolffAlgorithm requires a zero external field; got h = $(model.h)"
+    ))
+    return nothing
+end
+
+"""Flip a Wolff cluster and update the cached Ising observables."""
+function apply_cluster!(
+    model::IsingModel,
+    geometry::Geometry,
+    state::IsingState,
+    cluster::Vector{Int}
+)
+    spin_change = zero(eltype(state.spins))
+
+    for site in cluster
+        state.spins[site] = -state.spins[site]
+        spin_change += 2 * state.spins[site]
+    end
+
+    new_energy = zero(state.energy)
+    for site in 1:geometry.n_sites
+        info = geometry.neighbor_table[site]
+        for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+            new_energy += -0.5 * bond_strength(model, geometry, bond_id) *
+                state.spins[site] * state.spins[neighbor]
+        end
+        new_energy += -model.h * state.spins[site]
+    end
+
+    state.energy = new_energy
+    state.magnetization += spin_change
+    return nothing
+end
+
+"""Randomly orient Swendsen-Wang clusters and refresh Ising observables."""
+function apply_clusters!(
+    model::IsingModel,
+    geometry::Geometry,
+    state::IsingState,
+    clusters::Vector{Vector{Int}}
+)
+    for cluster in clusters
+        rand(Bool) || continue
+        for site in cluster
+            state.spins[site] = -state.spins[site]
+        end
+    end
+
+    state.energy = zero(state.energy)
+    for site in 1:geometry.n_sites
+        info = geometry.neighbor_table[site]
+        for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+            state.energy += -0.5 * bond_strength(model, geometry, bond_id) *
+                state.spins[site] * state.spins[neighbor]
+        end
+        state.energy += -model.h * state.spins[site]
+    end
+    state.magnetization = sum(state.spins)
     return nothing
 end

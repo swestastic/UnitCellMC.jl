@@ -33,6 +33,8 @@ UnitCellMC.DerivedObservable
 
 ```@docs
 UnitCellMC.optional_observables
+UnitCellMC.abs_magnetization_entry
+UnitCellMC.binder_cumulant_entry
 ```
 
 ```@docs

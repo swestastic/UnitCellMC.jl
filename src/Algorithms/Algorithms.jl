@@ -13,8 +13,24 @@ struct SpinUpdate{T}
     new_value::T
 end
 
+"""
+    AbstractUpdateResult
+
+Abstract supertype for the result returned by each Monte Carlo update
+algorithm.
+"""
 abstract type AbstractUpdateResult end
 
+"""
+    MetropolisUpdateResult
+
+Result of one Metropolis update, recording whether the proposed move was
+accepted.
+
+# Fields
+
+- `accepted::Bool`: Whether the proposed update was applied to the state.
+"""
 struct MetropolisUpdateResult <: AbstractUpdateResult
     accepted::Bool
 end

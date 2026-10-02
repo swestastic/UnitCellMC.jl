@@ -159,7 +159,7 @@ sweep_results = sweep_Ts(
     Ts;
     simulated_annealing = true,
     measurements = [
-        :correlation, 
+        :connected_correlation,
         :abs_magnetization, 
         :abs_magnetization_squared, 
         :magnetization_fourth, 

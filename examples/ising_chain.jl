@@ -146,6 +146,6 @@ sweep_results = sweep_Ts(
     algorithm, model, geometry, state,
     n_thermalization, n_measurements, n_unmeasured, n_bins, Ts;
     simulated_annealing = true,
-    measurements = [:correlation] # enable correlation measurements
+    measurements = [:connected_correlation] # enable connected correlation measurements
     # measurements = []
 )

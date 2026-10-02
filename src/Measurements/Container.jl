@@ -94,9 +94,12 @@ function MeasurementContainer(
     n_measurements % n_bins == 0 ||
         throw(ArgumentError("n_measurements ($n_measurements) must be divisible by n_bins ($n_bins)"))
 
-    opt_obs, opt_der = optional_observables(model, geometry, measurements)
-
     implicit_measurements = Symbol[]
+    requested_measurements = collect(measurements)
+    if :connected_correlation in measurements && :raw_correlation ∉ measurements
+      push!(implicit_measurements, :raw_correlation)
+      push!(requested_measurements, :raw_correlation)
+    end
     if (:abs_magnetization in measurements || :magnetization_abs in measurements) &&
        :abs_magnetization_squared ∉ measurements
       push!(implicit_measurements, :abs_magnetization_squared)
@@ -109,6 +112,8 @@ function MeasurementContainer(
       "Additional measurements $(implicit_measurements) are included by the " *
       "requested measurements $(measurements)."
     )
+
+    opt_obs, opt_der = optional_observables(model, geometry, requested_measurements)
 
     obs = unique(observable -> observable.name, vcat(observables(model, geometry), opt_obs))
     der = unique(derived -> derived.names, vcat(derived_observables(model, geometry), opt_der))

@@ -162,7 +162,8 @@ If your only interest is in gathering data for a single temperature, you'll need
 container = ucmc.MeasurementContainer(model, geometry, n_measurements, n_bins;
     measurements = Symbol[],
     diagnostics = [:acceptance_ratio]
-) # Alternatively, set measurements = [:correlation] to calculate 2 site correlation functions as well.
+) # Alternatively, set measurements = [:raw_correlation] or [:connected_correlation]
+) # to calculate 2-site correlation functions as well.
 container = run_simulation(algorithm, model, geometry, state, container, parameters)
 ```
 
@@ -241,7 +242,7 @@ sweep_results = sweep_Ts(
     algorithm, model, geometry, state,
     n_thermalization, n_measurements, n_unmeasured, n_bins, Ts;
     simulated_annealing = true,
-    measurements = [:correlation] # enable correlation measurements
+    measurements = [:connected_correlation] # enable connected correlation measurements
     # measurements = []
 )
 ```

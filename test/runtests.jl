@@ -158,26 +158,36 @@ end
     @test_throws ArgumentError ucmc.bond_strength(valid_model, geometry, 100)
 end
 
-@testset "Optional correlation observable" begin
+@testset "Optional correlation observables" begin
     geometry = square_geometry(2)
     model = ucmc.IsingModel([1.0, 1.0], 0.0)
-    state = ucmc.initialize_state(model, geometry)
-    container = ucmc.MeasurementContainer(
+    raw_container = ucmc.MeasurementContainer(
         model,
         geometry,
         4,
         2;
-        measurements = [:correlation],
-        diagnostics = [:acceptance_ratio],
+        measurements = [:raw_correlation],
     )
+    @test :correlation in keys(raw_container.data)
+    @test !any(:correlation_connected in derived.names for derived in raw_container.derived)
 
+    connected_container = ucmc.MeasurementContainer(
+        model,
+        geometry,
+        4,
+        2;
+        measurements = [:connected_correlation],
+    )
+    @test :correlation in keys(connected_container.data)
+    @test any(:correlation_connected in derived.names for derived in connected_container.derived)
+
+    state = ucmc.initialize_state(model, geometry)
     for _ in 1:4
         result = ucmc.step!(ucmc.MetropolisAlgorithm(), model, geometry, state, 2.0)
-        ucmc.measure!(container, state; diagnostics = (acceptance_ratio = result.accepted ? 1.0 : 0.0,))
+        ucmc.measure!(connected_container, state)
     end
 
-    @test :correlation in keys(container.data)
-    result = ucmc.analyze(container, 2.0, geometry.n_sites)
+    result = ucmc.analyze(connected_container, 2.0, geometry.n_sites)
     @test haskey(result.primary, :correlation)
     @test haskey(result.derived, :correlation_connected)
 end

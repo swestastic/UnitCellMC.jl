@@ -89,10 +89,12 @@ function optional_observables(model, geometry, measurements)
     obs = Observable[]
     der = DerivedObservable[]
 
-    if :correlation in measurements
+    raw_correlation_requested =
+        :raw_correlation in measurements || :connected_correlation in measurements
+    if raw_correlation_requested
         o, d = correlation_entry(model, geometry)
         push!(obs, o)
-        push!(der, d)
+        :connected_correlation in measurements && push!(der, d)
     end
     abs_magnetization_requested =
         :abs_magnetization in measurements || :magnetization_abs in measurements

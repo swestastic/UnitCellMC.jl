@@ -1,4 +1,16 @@
 """
+    magnetization_value(state)
+
+Return the scalar magnetization represented by `state`, using the stored total
+magnetization for an [`IsingState`](@ref) and the magnitude of the two
+components for an [`XYState`](@ref).
+"""
+magnetization_value(state::IsingState) = state.magnetization
+magnetization_value(state::XYState) = hypot(state.magnetization_x, state.magnetization_y)
+binder_denominator(::IsingModel) = 3.0
+binder_denominator(::XYModel) = 2.0
+
+"""
     abs_magnetization_entry(model, geometry)
 
 Build the optional absolute-magnetization observables for an Ising model.
@@ -7,11 +19,6 @@ The resulting raw observables are `:abs_magnetization` and
 `:abs_magnetization_squared`, which are useful when the sign-symmetric
 magnetization distribution would obscure the finite-size scaling signal.
 """
-magnetization_value(state::IsingState) = state.magnetization
-magnetization_value(state::XYState) = hypot(state.magnetization_x, state.magnetization_y)
-binder_denominator(::IsingModel) = 3.0
-binder_denominator(::XYModel) = 2.0
-
 function abs_magnetization_entry(model, geometry)
     n_sites = geometry.n_sites
     obs = Observable[

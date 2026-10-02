@@ -11,13 +11,14 @@ In the future we'd like to add some further functionality to this package.
 
 ## Algorithms
 
-- Wolff Cluster
-- Swendsen-Wang Cluster
-- Glauber/Heatbath
+- Glauber
+- Heatbath
 
 ## Functionality
 
-- Define $J$ by bond rather than for the entire lattice
-- Two-point correlation functions
-- File outputs (CSV)
-- Checkpointing (JLD2)
+- Define $h$ by site in unit cell rather than for the entire lattice
+- Checkpointing (JLD2 or HDF5)
+
+## Optimizations
+
+- Calculate energy difference across bonds (wolff, swendsen-wang). This would prevent having to recalculate the energy of the entire lattice after every cluster move.

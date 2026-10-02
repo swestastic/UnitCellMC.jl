@@ -10,12 +10,14 @@ struct SwendsenWangAlgorithm <: AbstractAlgorithm end
 """
     SwendsenWangUpdateResult
 
-Result of one Swendsen-Wang update, recording the number of clusters and sites
-that were passed to the model mutation hook.
+Result of one Swendsen-Wang update, recording the number of clusters, the
+number of sites updated, and the fraction of sites contained in the largest
+cluster.
 """
 struct SwendsenWangUpdateResult <: AbstractUpdateResult
     cluster_count::Int
     updated_sites::Int
+    largest_cluster_fraction::Float64
 end
 
 function apply_clusters!(::AbstractModel, ::Any, ::AbstractState, ::Vector{Vector{Int}})
@@ -94,7 +96,9 @@ function step!(
         push!(get!(clusters_by_root, root, Int[]), site)
     end
     clusters = collect(values(clusters_by_root))
+    largest_cluster_size = isempty(clusters) ? 0 : maximum(length, clusters)
+    largest_cluster_fraction = geometry.n_sites > 0 ? largest_cluster_size / geometry.n_sites : 0.0
 
     apply_clusters!(model, geometry, state, clusters)
-    return SwendsenWangUpdateResult(length(clusters), geometry.n_sites)
+    return SwendsenWangUpdateResult(length(clusters), geometry.n_sites, largest_cluster_fraction)
 end

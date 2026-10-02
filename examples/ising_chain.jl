@@ -56,31 +56,39 @@ function MC_Sweep!(
     geometry,
     state,
     container::ucmc.MeasurementContainer,
-    T
+    T,
+    stats
 )
-    statistic = ucmc.UpdateStatistic(ucmc.diagnostic_name(algorithm))
+    foreach(ucmc.reset!, stats)
     for _ in 1:n_sites
         result = ucmc.step!(algorithm, model, geometry, state, T)
-        ucmc.record!(statistic, ucmc.diagnostic_value(algorithm, result))
+        diagnostic_values = ucmc.diagnostic_values(algorithm, result)
+        for (index, name) in enumerate(container.diagnostics)
+            ucmc.record!(stats[index], getproperty(diagnostic_values, name))
+        end
     end
-    return statistic
+    return stats
 end
 
 #### Perform simulation
 function run_simulation(algorithm, model, geometry, state, container::ucmc.MeasurementContainer, parameters)
     T = parameters.T
+    stats = [ucmc.UpdateStatistic(name) for name in container.diagnostics]
 
     for _ in 1:parameters.n_thermalization
-        MC_Sweep!(algorithm, model, geometry, state, container, T)
+        MC_Sweep!(algorithm, model, geometry, state, container, T, stats)
     end
 
     for _ in 1:parameters.n_measurements
-        statistic = MC_Sweep!(algorithm, model, geometry, state, container, T)
-        diagnostics = NamedTuple{(statistic.name,)}((ucmc.value(statistic),))
+        MC_Sweep!(algorithm, model, geometry, state, container, T, stats)
+        diagnostics = NamedTuple(
+            name => ucmc.value(stats[index])
+            for (index, name) in enumerate(container.diagnostics)
+        )
         ucmc.measure!(container, state; diagnostics)
 
         for __ in 1:parameters.n_unmeasured           
-            MC_Sweep!(algorithm, model, geometry, state, container, T)
+            MC_Sweep!(algorithm, model, geometry, state, container, T, stats)
         end
     end
 

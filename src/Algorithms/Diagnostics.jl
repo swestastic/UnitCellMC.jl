@@ -12,6 +12,12 @@ end
 
 UpdateStatistic(name::Symbol) = UpdateStatistic(name, 0.0, 0)
 
+function reset!(statistic::UpdateStatistic)
+    statistic.total = 0.0
+    statistic.count = 0
+    return statistic
+end
+
 function record!(statistic::UpdateStatistic, value::Real)
     statistic.total += value
     statistic.count += 1
@@ -22,9 +28,12 @@ function value(statistic::UpdateStatistic)
     statistic.count > 0 || throw(ArgumentError("Cannot read an empty update statistic"))
     return statistic.total / statistic.count
 end
-diagnostic_name(::MetropolisAlgorithm) = :acceptance_ratio
-diagnostic_value(::MetropolisAlgorithm, result::MetropolisUpdateResult) = result.accepted ? 1.0 : 0.0
-diagnostic_name(::WolffAlgorithm) = :cluster_size
-diagnostic_value(::WolffAlgorithm, result::WolffUpdateResult) = result.cluster_size
-diagnostic_name(::SwendsenWangAlgorithm) = :cluster_count
-diagnostic_value(::SwendsenWangAlgorithm, result::SwendsenWangUpdateResult) = result.cluster_count
+
+diagnostic_values(::MetropolisAlgorithm, result::MetropolisUpdateResult) =
+    (acceptance_ratio = result.accepted ? 1.0 : 0.0,)
+diagnostic_values(::WolffAlgorithm, result::WolffUpdateResult) =
+    (cluster_size = result.cluster_size,)
+diagnostic_values(::SwendsenWangAlgorithm, result::SwendsenWangUpdateResult) = (
+    cluster_count = result.cluster_count,
+    largest_cluster_fraction = result.largest_cluster_fraction,
+)

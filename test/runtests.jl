@@ -69,8 +69,7 @@ end
     for _ in 1:50
         result = ucmc.step!(algorithm, model, geometry, state, 2.0)
         @test result.cluster_size in 1:geometry.n_sites
-        @test ucmc.diagnostic_name(algorithm) == :cluster_size
-        @test ucmc.diagnostic_value(algorithm, result) == result.cluster_size
+        @test ucmc.diagnostic_values(algorithm, result) == (cluster_size = result.cluster_size,)
         @test length(state.spins) == geometry.n_sites
         @test all(s in (-1, 1) for s in state.spins)
         @test state.magnetization == sum(state.spins)
@@ -92,8 +91,11 @@ end
         result = ucmc.step!(algorithm, model, geometry, state, 2.0)
         @test result.cluster_count in 1:geometry.n_sites
         @test result.updated_sites == geometry.n_sites
-        @test ucmc.diagnostic_name(algorithm) == :cluster_count
-        @test ucmc.diagnostic_value(algorithm, result) == result.cluster_count
+        @test 0.0 < result.largest_cluster_fraction <= 1.0
+        diagnostics = ucmc.diagnostic_values(algorithm, result)
+        @test propertynames(diagnostics) == (:cluster_count, :largest_cluster_fraction)
+        @test diagnostics.cluster_count == result.cluster_count
+        @test 0.0 < diagnostics.largest_cluster_fraction <= 1.0
         @test length(state.spins) == geometry.n_sites
         @test all(s in (-1, 1) for s in state.spins)
         @test state.magnetization == sum(state.spins)
@@ -121,6 +123,23 @@ end
     result = ucmc.analyze(container, 2.0, geometry.n_sites)
     @test haskey(result.primary, :energy)
     @test haskey(result.primary, :magnetization)
+
+    sw_container = ucmc.MeasurementContainer(
+        model,
+        geometry,
+        4,
+        2;
+        diagnostics = [:cluster_count, :largest_cluster_fraction],
+    )
+    for _ in 1:4
+        result = ucmc.step!(ucmc.SwendsenWangAlgorithm(), model, geometry, state, 2.0)
+        ucmc.measure!(sw_container, state; diagnostics = (
+            cluster_count = result.cluster_count,
+            largest_cluster_fraction = result.largest_cluster_fraction,
+        ))
+    end
+    @test haskey(sw_container.data, :cluster_count)
+    @test haskey(sw_container.data, :largest_cluster_fraction)
 end
 
 @testset "Model/geometry validation" begin
@@ -161,6 +180,47 @@ end
     result = ucmc.analyze(container, 2.0, geometry.n_sites)
     @test haskey(result.primary, :correlation)
     @test haskey(result.derived, :correlation_connected)
+end
+
+@testset "Optional magnetization and Binder observables" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], 0.0)
+    state = ucmc.initialize_state(model, geometry)
+    container = ucmc.MeasurementContainer(
+        model,
+        geometry,
+        4,
+        2;
+        measurements = [:abs_magnetization, :binder_cumulant],
+        diagnostics = [:acceptance_ratio],
+    )
+
+    for _ in 1:4
+        result = ucmc.step!(ucmc.MetropolisAlgorithm(), model, geometry, state, 2.0)
+        ucmc.measure!(container, state; diagnostics = (acceptance_ratio = result.accepted ? 1.0 : 0.0,))
+    end
+
+    @test :abs_magnetization in keys(container.data)
+    @test :magnetization_fourth in keys(container.data)
+    result = ucmc.analyze(container, 2.0, geometry.n_sites)
+    @test haskey(result.primary, :abs_magnetization)
+    @test haskey(result.derived, :binder_cumulant)
+
+    duplicate_container = ucmc.MeasurementContainer(
+        model,
+        geometry,
+        4,
+        2;
+        measurements = [
+            :abs_magnetization,
+            :abs_magnetization_squared,
+            :binder_cumulant,
+            :magnetization_fourth,
+        ],
+    )
+    @test length(duplicate_container.observables) == length(unique(
+        observable.name for observable in duplicate_container.observables
+    ))
 end
 
 @testset "Sweep save edge cases" begin

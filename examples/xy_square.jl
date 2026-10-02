@@ -40,10 +40,26 @@ J2 = 1.0 # Coupling strength along ̂y
 J = [J1, J2]
 h = [0.0] # External magnetic field strength per unit-cell site
 
-model = ucmc.IsingModel(J, h)
+model = ucmc.XYModel(J, h)
 # algorithm = ucmc.MetropolisAlgorithm()
-# algorithm = ucmc.WolffAlgorithm() 
-algorithm = ucmc.SwendsenWangAlgorithm()
+algorithm = ucmc.WolffAlgorithm() 
+# algorithm = ucmc.SwendsenWangAlgorithm()
+
+measurements = [
+    :raw_correlation,
+    :connected_correlation,
+    :abs_magnetization, 
+    :abs_magnetization_squared, 
+    :magnetization_fourth, 
+    :binder_cumulant
+]
+if typeof(algorithm) <: ucmc.MetropolisAlgorithm
+    diagnostics = [:acceptance_ratio]
+elseif typeof(algorithm) <: ucmc.WolffAlgorithm
+    diagnostics = [:cluster_size]
+elseif typeof(algorithm) <: ucmc.SwendsenWangAlgorithm
+    diagnostics = [:cluster_count, :largest_cluster_fraction]
+end
 
 state = ucmc.initialize_state(model, geometry) # Generate random spin configuration, calculate the initial energy and magnetization
 
@@ -148,7 +164,7 @@ end
 Ts = collect(3.0:-0.1:1.0) # 10 temperatures from T = 0.1 to T = 1.0
 
 sweep_results = sweep_Ts(
-    ucmc.SwendsenWangAlgorithm(), 
+    algorithm, 
     model, 
     geometry, 
     state,
@@ -158,13 +174,6 @@ sweep_results = sweep_Ts(
     n_bins, 
     Ts;
     simulated_annealing = true,
-    measurements = [
-        :connected_correlation,
-        :abs_magnetization, 
-        :abs_magnetization_squared, 
-        :magnetization_fourth, 
-        :binder_cumulant], # model-specific observables
-    # diagnostics = [:acceptance_ratio] # Metropolis algorithm
-    # diagnostics = [:cluster_size] # Wolff algorithm
-    diagnostics = [:cluster_count, :largest_cluster_fraction] # Swendsen-Wang algorithm
+    measurements = measurements,
+    diagnostics = diagnostics
 ) 

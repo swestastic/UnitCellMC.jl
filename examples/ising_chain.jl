@@ -36,7 +36,7 @@ n_sites = geometry.n_sites
 #### Initialize State
 J1 = 1.0 # Coupling strength along ̂x
 J = [J1]
-h = 0.0 # External magnetic field strength
+h = [0.0] # External magnetic field strength per unit-cell site
 
 model = ucmc.IsingModel(J, h)
 algorithm = ucmc.MetropolisAlgorithm()

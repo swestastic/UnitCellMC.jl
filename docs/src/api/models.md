@@ -6,6 +6,7 @@ CollapsedDocStrings = true
 
 ```@docs
 UnitCellMC.IsingModel
+UnitCellMC.XYModel
 UnitCellMC.bond_strength
 UnitCellMC.local_operator
 UnitCellMC.operator_product

@@ -75,8 +75,9 @@ Precomputes the displacement classes once (via
 [`build_displacement_classes`](@ref)) and wraps them in an
 [`Observable`](@ref) named `:correlation` (sampled per measurement with
 [`correlation_instantaneous`](@ref)) and a [`DerivedObservable`](@ref) that
-computes the connected correlation `⟨C⟩ - ⟨m⟩²` per displacement class via
-jackknife resampling (see [`jackknife_stats`](@ref)), along with the
+computes the connected correlation via jackknife resampling (see
+[`jackknife_stats`](@ref)). For Ising it subtracts `⟨m⟩²`; for XY it
+subtracts `⟨m_x⟩² + ⟨m_y⟩²`. The result also includes the
 [`CorrelationClass`](@ref) list labeling each entry.
 
 # Arguments
@@ -91,7 +92,7 @@ An `(observable, derived)` tuple:
   `Vector{Float64}` (one value per displacement class) each measurement.
 - `derived`: A `DerivedObservable` computing `:correlation_connected`,
   `:correlation_connected_err`, and `:correlation_classes` from `:correlation`
-  and `:magnetization` (its declared `depends_on`).
+    and the Cartesian magnetization components (their declared `depends_on`).
 """
 function correlation_entry(model, geometry)
     disp = build_displacement_classes(geometry)
@@ -112,17 +113,35 @@ function correlation_entry(model, geometry)
     derived = DerivedObservable(
         (:correlation_connected, :correlation_connected_err, :correlation_classes),
         (jk, T, N) -> begin
-            connected = [
-                jackknife_stats((c, m) -> c - m^2, [s[r] for s in jk[:correlation]], jk[:magnetization])
-                for r in 1:n_disp
-            ]
+            connected = if model isa XYModel
+                [
+                    jackknife_stats(
+                        (c, mx, my) -> c - mx^2 - my^2,
+                        [s[r] for s in jk[:correlation]],
+                        jk[:magnetization_x],
+                        jk[:magnetization_y],
+                    )
+                    for r in 1:n_disp
+                ]
+            else
+                [
+                    jackknife_stats(
+                        (c, m) -> c - m^2,
+                        [s[r] for s in jk[:correlation]],
+                        jk[:magnetization],
+                    )
+                    for r in 1:n_disp
+                ]
+            end
             (
                 correlation_connected     = first.(connected),
                 correlation_connected_err = last.(connected),
                 correlation_classes       = classes,
             )
         end;
-        depends_on = (:correlation, :magnetization),
+        depends_on = model isa XYModel ?
+            (:correlation, :magnetization_x, :magnetization_y) :
+            (:correlation, :magnetization),
     )
 
     return observable, derived

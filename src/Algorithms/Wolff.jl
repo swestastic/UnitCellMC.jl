@@ -19,6 +19,7 @@ end
 
 cluster_seed(::AbstractModel, geometry, ::AbstractState) = rand(1:geometry.n_sites)
 validate_cluster_model(::AbstractModel, ::Any, ::AbstractState, ::Real) = nothing
+cluster_context(::AbstractModel, ::Any, ::AbstractState, ::Real) = nothing
 
 function cluster_bond_probability(
     ::AbstractModel,
@@ -32,9 +33,15 @@ function cluster_bond_probability(
     throw(MethodError(cluster_bond_probability, ()))
 end
 
+cluster_bond_probability(model, geometry, state, site, neighbor, bond_id, T, ::Nothing) =
+    cluster_bond_probability(model, geometry, state, site, neighbor, bond_id, T)
+
 function apply_cluster!(::AbstractModel, ::Any, ::AbstractState, ::Vector{Int})
     throw(MethodError(apply_cluster!, ()))
 end
+
+apply_cluster!(model, geometry, state, cluster, ::Nothing) =
+    apply_cluster!(model, geometry, state, cluster)
 
 """
     step!(WolffAlgorithm(), model, geometry, state, T)
@@ -52,6 +59,7 @@ function step!(
 )
     T > 0 || throw(ArgumentError("Temperature must be positive, got $T"))
     validate_cluster_model(model, geometry, state, T)
+    context = cluster_context(model, geometry, state, T)
 
     seed = cluster_seed(model, geometry, state)
     1 <= seed <= geometry.n_sites || throw(ArgumentError(
@@ -72,7 +80,7 @@ function step!(
             in_cluster[neighbor] && continue
 
             probability = cluster_bond_probability(
-                model, geometry, state, site, neighbor, bond_id, T
+                model, geometry, state, site, neighbor, bond_id, T, context
             )
             0 <= probability <= 1 || throw(ArgumentError(
                 "cluster_bond_probability returned $probability; expected a value in [0, 1]"
@@ -86,6 +94,6 @@ function step!(
         end
     end
 
-    apply_cluster!(model, geometry, state, cluster)
+    apply_cluster!(model, geometry, state, cluster, context)
     return WolffUpdateResult(length(cluster))
 end

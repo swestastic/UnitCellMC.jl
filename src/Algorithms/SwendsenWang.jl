@@ -69,6 +69,7 @@ function step!(
 )
     T > 0 || throw(ArgumentError("Temperature must be positive, got $T"))
     validate_cluster_model(model, geometry, state, T)
+    context = cluster_context(model, geometry, state, T)
 
     parents = collect(1:geometry.n_sites)
     ranks = zeros(UInt8, geometry.n_sites)
@@ -79,7 +80,7 @@ function step!(
             neighbor > site || continue
 
             probability = cluster_bond_probability(
-                model, geometry, state, site, neighbor, bond_id, T
+                model, geometry, state, site, neighbor, bond_id, T, context
             )
             0 <= probability <= 1 || throw(ArgumentError(
                 "cluster_bond_probability returned $probability; expected a value in [0, 1]"
@@ -99,6 +100,6 @@ function step!(
     largest_cluster_size = isempty(clusters) ? 0 : maximum(length, clusters)
     largest_cluster_fraction = geometry.n_sites > 0 ? largest_cluster_size / geometry.n_sites : 0.0
 
-    apply_clusters!(model, geometry, state, clusters)
+    apply_clusters!(model, geometry, state, clusters, context)
     return SwendsenWangUpdateResult(length(clusters), geometry.n_sites, largest_cluster_fraction)
 end

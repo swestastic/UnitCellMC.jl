@@ -1,6 +1,10 @@
 struct IsingModel{T<:Real} <: AbstractModel
     J::Vector{T}   # one entry per bond template, same order as geometry.bonds
-    h::T
+    h::Vector{T}    # one value per site in the unit cell
+
+    function IsingModel{T}(J::Vector{T}, h::Vector{T}) where {T<:Real}
+        return new{T}(J, h)
+    end
 end
 
 """
@@ -13,12 +17,28 @@ An Ising model with bond strengths `J` and external field `h`.
 - `J`: Bond strengths, one value per bond template. Its length is checked
     against `geometry.bonds` by [`initialize_state`](@ref), since the
     constructor does not receive a geometry.
-- `h`: External magnetic field.
+- `h`: External magnetic field, one value per site in the unit cell.
 """
-function IsingModel(J::Vector{<:Real}, h::Real)
-    T = promote_type(eltype(J), typeof(h))
-    return IsingModel(convert(Vector{T}, J), convert(T, h))
+function IsingModel(J::Vector{<:Real}, h::AbstractVector{<:Real})
+    T = promote_type(eltype(J), eltype(h))
+    return IsingModel{T}(convert(Vector{T}, J), convert(Vector{T}, h))
 end
+
+function validate_model_geometry(model::IsingModel, geometry::Geometry)
+    invoke(validate_model_geometry, Tuple{AbstractModel, Geometry}, model, geometry)
+
+    n_orbitals = LatticeUtilities.norbits(geometry.unit_cell)
+    length(model.h) == n_orbitals || throw(ArgumentError(
+        "length(model.h) = $(length(model.h)) does not match the number of sites in the unit cell = $n_orbitals"
+    ))
+    return nothing
+end
+
+function field_strength(model::IsingModel, geometry::Geometry, site::Int)
+    return model.h[LatticeUtilities.site_to_orbital(site, geometry.unit_cell)]
+end
+
+iszero_field(h::AbstractVector) = all(iszero, h)
 
 """
     bond_strength(model, geometry, bond_id)
@@ -106,7 +126,7 @@ function energy_difference(
         weighted_sum += bond_strength(model, geometry, bond_id) * state.spins[neighbor]
     end
 
-    return (s - proposal.new_value) * (weighted_sum + model.h)
+    return (s - proposal.new_value) * (weighted_sum + field_strength(model, geometry, site))
 end
 
 """
@@ -163,7 +183,7 @@ function validate_cluster_model(
     ::IsingState,
     ::Real
 )
-    iszero(model.h) || throw(ArgumentError(
+    iszero_field(model.h) || throw(ArgumentError(
         "WolffAlgorithm requires a zero external field; got h = $(model.h)"
     ))
     return nothing
@@ -190,7 +210,7 @@ function apply_cluster!(
             new_energy += -0.5 * bond_strength(model, geometry, bond_id) *
                 state.spins[site] * state.spins[neighbor]
         end
-        new_energy += -model.h * state.spins[site]
+        new_energy += -field_strength(model, geometry, site) * state.spins[site]
     end
 
     state.energy = new_energy
@@ -219,8 +239,11 @@ function apply_clusters!(
             state.energy += -0.5 * bond_strength(model, geometry, bond_id) *
                 state.spins[site] * state.spins[neighbor]
         end
-        state.energy += -model.h * state.spins[site]
+        state.energy += -field_strength(model, geometry, site) * state.spins[site]
     end
     state.magnetization = sum(state.spins)
     return nothing
 end
+
+apply_clusters!(model, geometry, state, clusters, ::Nothing) =
+    apply_clusters!(model, geometry, state, clusters)

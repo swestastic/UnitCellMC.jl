@@ -65,3 +65,34 @@ derived_observables(::IsingModel, geometry) = [
     DerivedObservable(:susceptibility, :susceptibility_err, (:magnetization, :magnetization_squared),
         (m, m2; T, N) -> N * (m2 - m^2) / T),
 ]
+
+observables(::XYModel, geometry) = begin
+    n_sites = geometry.n_sites
+    [
+        Observable(:energy, state -> state.energy / n_sites),
+        Observable(:energy_squared, state -> (state.energy / n_sites)^2),
+        Observable(:magnetization_x, state -> state.magnetization_x / n_sites),
+        Observable(:magnetization_x_squared, state -> (state.magnetization_x / n_sites)^2),
+        Observable(:magnetization_y, state -> state.magnetization_y / n_sites),
+        Observable(:magnetization_y_squared, state -> (state.magnetization_y / n_sites)^2),
+        Observable(:magnetization, state -> hypot(state.magnetization_x, state.magnetization_y) / n_sites),
+        Observable(:magnetization_squared, state -> (
+            (state.magnetization_x^2 + state.magnetization_y^2) / n_sites^2
+        )),
+    ]
+end
+
+derived_observables(::XYModel, geometry) = [
+    DerivedObservable(:specific_heat, :specific_heat_err, (:energy, :energy_squared),
+        (e, e2; T, N) -> N * (e2 - e^2) / T^2),
+    DerivedObservable(:susceptibility_x, :susceptibility_x_err,
+        (:magnetization_x, :magnetization_x_squared),
+        (mx, mx2; T, N) -> N * (mx2 - mx^2) / T),
+    DerivedObservable(:susceptibility_y, :susceptibility_y_err,
+        (:magnetization_y, :magnetization_y_squared),
+        (my, my2; T, N) -> N * (my2 - my^2) / T),
+    DerivedObservable(:susceptibility, :susceptibility_err,
+        (:magnetization_x, :magnetization_x_squared,
+            :magnetization_y, :magnetization_y_squared),
+        (mx, mx2, my, my2; T, N) -> N * (mx2 - mx^2 + my2 - my^2) / T),
+]

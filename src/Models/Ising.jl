@@ -244,3 +244,6 @@ function apply_clusters!(
     state.magnetization = sum(state.spins)
     return nothing
 end
+
+apply_clusters!(model, geometry, state, clusters, ::Nothing) =
+    apply_clusters!(model, geometry, state, clusters)

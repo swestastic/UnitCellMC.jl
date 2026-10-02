@@ -37,6 +37,19 @@ function spin_energy(model, geometry, spins)
     return energy
 end
 
+function xy_energy(model, geometry, angles)
+    energy = zero(promote_type(eltype(model.J), eltype(model.h)))
+    for i in 1:geometry.n_sites
+        info = geometry.neighbor_table[i]
+        for (bond_id, j) in zip(info.bonds, info.neighbors)
+            J = ucmc.bond_strength(model, geometry, bond_id)
+            energy += -0.5 * J * cos(angles[i] - angles[j])
+        end
+        energy += -ucmc.field_strength(model, geometry, i) * cos(angles[i])
+    end
+    return energy
+end
+
 @testset "Site-resolved Ising fields" begin
     geometry = two_orbital_geometry(2)
     model = ucmc.IsingModel([1.0, 2.0], [0.5, -0.25])
@@ -75,6 +88,69 @@ end
     @test all(s in (-1, 1) for s in state.spins)
     @test state.magnetization == sum(state.spins)
     @test state.energy ≈ spin_energy(model, geometry, state.spins)
+end
+
+@testset "XY state and updates" begin
+    geometry = two_orbital_geometry(2)
+    model = ucmc.XYModel([1.0, 2.0], [0.5, -0.25])
+    state = ucmc.initialize_state(model, geometry)
+
+    @test length(state.angles) == geometry.n_sites
+    @test state.energy ≈ xy_energy(model, geometry, state.angles)
+    @test state.magnetization_x ≈ sum(cos, state.angles)
+    @test state.magnetization_y ≈ sum(sin, state.angles)
+
+    for _ in 1:50
+        ucmc.step!(ucmc.MetropolisAlgorithm(), model, geometry, state, 2.0)
+        @test state.energy ≈ xy_energy(model, geometry, state.angles)
+        @test state.magnetization_x ≈ sum(cos, state.angles)
+        @test state.magnetization_y ≈ sum(sin, state.angles)
+    end
+
+    @test_throws ArgumentError ucmc.initialize_state(
+        ucmc.XYModel([1.0, 2.0], [0.5]), geometry
+    )
+end
+
+@testset "XY cluster updates and measurements" begin
+    geometry = square_geometry(2)
+    model = ucmc.XYModel([1.0, 1.0], [0.0])
+    state = ucmc.initialize_state(model, geometry)
+
+    for algorithm in (ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
+        for _ in 1:10
+            ucmc.step!(algorithm, model, geometry, state, 2.0)
+            @test state.energy ≈ xy_energy(model, geometry, state.angles)
+        end
+    end
+
+    container = ucmc.MeasurementContainer(model, geometry, 4, 2)
+    @test :magnetization_x in keys(container.data)
+    @test :magnetization_y in keys(container.data)
+    values = Dict(observable.name => observable.value(state) for observable in container.observables)
+    @test values[:magnetization] ≈ hypot(state.magnetization_x, state.magnetization_y) / geometry.n_sites
+    @test values[:magnetization_squared] ≈ values[:magnetization]^2
+    susceptibility = only(filter(derived -> derived.names == (:susceptibility, :susceptibility_err), container.derived))
+    @test susceptibility.depends_on == (
+        :magnetization_x, :magnetization_x_squared,
+        :magnetization_y, :magnetization_y_squared,
+    )
+    for _ in 1:4
+        ucmc.measure!(container, state)
+    end
+    @test :susceptibility_x in keys(ucmc.analyze(container, 2.0, geometry.n_sites).derived)
+end
+
+@testset "XY cluster reflection" begin
+    geometry = square_geometry(2)
+    model = ucmc.XYModel([1.0, 1.0], [0.0])
+    state = ucmc.XYState([0.0, π / 2, 0.0, π / 2], 0.0, 0.0, 0.0)
+    ucmc.apply_cluster!(model, geometry, state, [1], 0.0)
+
+    @test state.angles[1] ≈ π
+    @test cos(state.angles[1]) == -1.0
+    @test state.magnetization_x ≈ sum(cos, state.angles)
+    @test state.magnetization_y ≈ sum(sin, state.angles)
 end
 
 @testset "Metropolis updates keep invariants" begin

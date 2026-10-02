@@ -7,11 +7,16 @@ The resulting raw observables are `:abs_magnetization` and
 `:abs_magnetization_squared`, which are useful when the sign-symmetric
 magnetization distribution would obscure the finite-size scaling signal.
 """
+magnetization_value(state::IsingState) = state.magnetization
+magnetization_value(state::XYState) = hypot(state.magnetization_x, state.magnetization_y)
+binder_denominator(::IsingModel) = 3.0
+binder_denominator(::XYModel) = 2.0
+
 function abs_magnetization_entry(model, geometry)
     n_sites = geometry.n_sites
     obs = Observable[
-        Observable(:abs_magnetization, state -> abs(state.magnetization) / n_sites),
-        Observable(:abs_magnetization_squared, state -> (abs(state.magnetization) / n_sites)^2),
+        Observable(:abs_magnetization, state -> abs(magnetization_value(state)) / n_sites),
+        Observable(:abs_magnetization_squared, state -> (abs(magnetization_value(state)) / n_sites)^2),
     ]
     return obs, DerivedObservable[]
 end
@@ -28,8 +33,9 @@ cumulant formula, with a zero-second-moment guard to avoid division by zero.
 """
 function binder_cumulant_entry(model, geometry)
     n_sites = geometry.n_sites
+    denominator = binder_denominator(model)
     obs = Observable[
-        Observable(:magnetization_fourth, state -> (state.magnetization / n_sites)^4),
+        Observable(:magnetization_fourth, state -> (magnetization_value(state) / n_sites)^4),
     ]
 
     compute = function (jk, T, N)
@@ -40,7 +46,7 @@ function binder_cumulant_entry(model, geometry)
                 if m2_i == 0.0
                     return 0.0
                 end
-                return 1.0 - m4_i / (3.0 * m2_i^2)
+                return 1.0 - m4_i / (denominator * m2_i^2)
             end,
             m2,
             m4,
@@ -110,7 +116,7 @@ function optional_observables(model, geometry, measurements)
         append!(der, d)
     end
     if :magnetization_fourth in measurements && !binder_requested
-        o = [Observable(:magnetization_fourth, state -> (state.magnetization / geometry.n_sites)^4)]
+        o = [Observable(:magnetization_fourth, state -> (magnetization_value(state) / geometry.n_sites)^4)]
         append!(obs, o)
     end
     # future: :structure_factor in measurements && (push! obs/der similarly)

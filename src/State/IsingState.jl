@@ -64,7 +64,7 @@ function initialize_state(
     n_sites = geometry.n_sites
     spins = rand([-1, 1], n_sites)
 
-    T = promote_type(eltype(model.J), typeof(model.h))
+    T = promote_type(eltype(model.J), eltype(model.h))
     energy = zero(T)
 
     for i in 1:n_sites
@@ -73,7 +73,7 @@ function initialize_state(
             J = bond_strength(model, geometry, bond_id)
             energy += -0.5 * J * spins[i] * spins[j]
         end
-        energy += -model.h * spins[i]
+        energy += -field_strength(model, geometry, i) * spins[i]
     end
 
     magnetization = sum(spins)

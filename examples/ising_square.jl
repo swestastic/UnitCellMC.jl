@@ -11,7 +11,7 @@ import LatticeUtilities as lu
 
 #### Initialize Geometry
 
-L = [8, 8] # In this case this is [Lx, Ly] becuase the lattice_vectors are [̂x, ̂y]
+L = [4, 4] # In this case this is [Lx, Ly] becuase the lattice_vectors are [̂x, ̂y]
 
 lattice_vectors = [[1.0, 0.0], [0.0, 1.0]] # [x̂, ŷ] in 2D
 basis_vectors = [[0.0, 0.0]] # our unit cell is a single site at the origin
@@ -38,7 +38,7 @@ n_sites = geometry.n_sites
 J1 = 1.0 # Coupling strength along ̂x
 J2 = 1.0 # Coupling strength along ̂y
 J = [J1, J2]
-h = 0.0 # External magnetic field strength
+h = [0.0] # External magnetic field strength per unit-cell site
 
 model = ucmc.IsingModel(J, h)
 # algorithm = ucmc.MetropolisAlgorithm()

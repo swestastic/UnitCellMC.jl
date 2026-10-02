@@ -13,17 +13,49 @@ function square_geometry(L::Int)
     return ucmc.Geometry(unit_cell, lattice, [bond_x, bond_y])
 end
 
+function two_orbital_geometry(L::Int)
+    unit_cell = lu.UnitCell(
+        lattice_vecs = [[1.0, 0.0], [0.0, 1.0]],
+        basis_vecs = [[0.0, 0.0], [0.5, 0.5]],
+    )
+    lattice = lu.Lattice(L = [L, L], periodic = [true, true])
+    bond_1 = lu.Bond(orbitals = (1, 1), displacement = [1, 0])
+    bond_2 = lu.Bond(orbitals = (2, 2), displacement = [1, 0])
+    return ucmc.Geometry(unit_cell, lattice, [bond_1, bond_2])
+end
+
 function spin_energy(model, geometry, spins)
-    energy = zero(promote_type(eltype(model.J), typeof(model.h)))
+    energy = zero(promote_type(eltype(model.J), eltype(model.h)))
     for i in 1:geometry.n_sites
         info = geometry.neighbor_table[i]
         for (bond_id, j) in zip(info.bonds, info.neighbors)
             J = ucmc.bond_strength(model, geometry, bond_id)
             energy += -0.5 * J * spins[i] * spins[j]
         end
-        energy += -model.h * spins[i]
+        energy += -ucmc.field_strength(model, geometry, i) * spins[i]
     end
     return energy
+end
+
+@testset "Site-resolved Ising fields" begin
+    geometry = two_orbital_geometry(2)
+    model = ucmc.IsingModel([1.0, 2.0], [0.5, -0.25])
+    state = ucmc.initialize_state(model, geometry)
+
+    @test length(model.h) == lu.norbits(geometry.unit_cell)
+    @test state.energy ≈ spin_energy(model, geometry, state.spins)
+
+    for _ in 1:20
+        ucmc.step!(ucmc.MetropolisAlgorithm(), model, geometry, state, 2.0)
+        @test state.energy ≈ spin_energy(model, geometry, state.spins)
+    end
+
+    @test_throws ArgumentError ucmc.initialize_state(
+        ucmc.IsingModel([1.0, 2.0], [0.5]), geometry
+    )
+    @test_throws ArgumentError ucmc.initialize_state(
+        ucmc.IsingModel([1.0, 2.0], [0.5, -0.25, 0.0]), geometry
+    )
 end
 
 @testset "SimulationParameters validation" begin
@@ -36,7 +68,7 @@ end
 
 @testset "Ising state initialization" begin
     geometry = square_geometry(2)
-    model = ucmc.IsingModel([1.0, 1.0], 0.0)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
     state = ucmc.initialize_state(model, geometry)
 
     @test length(state.spins) == geometry.n_sites
@@ -47,7 +79,7 @@ end
 
 @testset "Metropolis updates keep invariants" begin
     geometry = square_geometry(2)
-    model = ucmc.IsingModel([1.0, 1.0], 0.0)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
     state = ucmc.initialize_state(model, geometry)
 
     for _ in 1:50
@@ -62,7 +94,7 @@ end
 
 @testset "Wolff updates keep invariants" begin
     geometry = square_geometry(2)
-    model = ucmc.IsingModel([1.0, 1.0], 0.0)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
     state = ucmc.initialize_state(model, geometry)
     algorithm = ucmc.WolffAlgorithm()
 
@@ -76,14 +108,14 @@ end
         @test state.energy ≈ spin_energy(model, geometry, state.spins)
     end
 
-    field_model = ucmc.IsingModel([1.0, 1.0], 0.5)
+    field_model = ucmc.IsingModel([1.0, 1.0], [0.5])
     field_state = ucmc.initialize_state(field_model, geometry)
     @test_throws ArgumentError ucmc.step!(algorithm, field_model, geometry, field_state, 2.0)
 end
 
 @testset "Swendsen-Wang updates keep invariants" begin
     geometry = square_geometry(2)
-    model = ucmc.IsingModel([1.0, 1.0], 0.0)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
     state = ucmc.initialize_state(model, geometry)
     algorithm = ucmc.SwendsenWangAlgorithm()
 
@@ -102,14 +134,14 @@ end
         @test state.energy ≈ spin_energy(model, geometry, state.spins)
     end
 
-    field_model = ucmc.IsingModel([1.0, 1.0], 0.5)
+    field_model = ucmc.IsingModel([1.0, 1.0], [0.5])
     field_state = ucmc.initialize_state(field_model, geometry)
     @test_throws ArgumentError ucmc.step!(algorithm, field_model, geometry, field_state, 2.0)
 end
 
 @testset "MeasurementContainer and analysis" begin
     geometry = square_geometry(2)
-    model = ucmc.IsingModel([1.0, 1.0], 0.0)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
     state = ucmc.initialize_state(model, geometry)
     container = ucmc.MeasurementContainer(model, geometry, 4, 2; diagnostics = [:acceptance_ratio])
 
@@ -144,9 +176,9 @@ end
 
 @testset "Model/geometry validation" begin
     geometry = square_geometry(2)
-    valid_model = ucmc.IsingModel([1.0, 1.0], 0.0)
+    valid_model = ucmc.IsingModel([1.0, 1.0], [0.0])
 
-    @test_throws ArgumentError ucmc.initialize_state(ucmc.IsingModel([1.0], 0.0), geometry)
+    @test_throws ArgumentError ucmc.initialize_state(ucmc.IsingModel([1.0], [0.0]), geometry)
 
     bad_geometry = ucmc.Geometry(
         geometry.unit_cell,
@@ -160,7 +192,7 @@ end
 
 @testset "Optional correlation observables" begin
     geometry = square_geometry(2)
-    model = ucmc.IsingModel([1.0, 1.0], 0.0)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
     raw_container = ucmc.MeasurementContainer(
         model,
         geometry,
@@ -194,7 +226,7 @@ end
 
 @testset "Optional magnetization and Binder observables" begin
     geometry = square_geometry(2)
-    model = ucmc.IsingModel([1.0, 1.0], 0.0)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
     state = ucmc.initialize_state(model, geometry)
     container = ucmc.MeasurementContainer(
         model,
@@ -234,7 +266,7 @@ end
 end
 
 @testset "Sweep save edge cases" begin
-    model = ucmc.IsingModel([1.0, 1.0], 0.0)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
     algorithm = ucmc.MetropolisAlgorithm()
     L = [2, 2]
     root = mktempdir()

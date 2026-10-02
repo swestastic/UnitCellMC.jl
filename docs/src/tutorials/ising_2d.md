@@ -71,7 +71,7 @@ Here we'll initialize our Ising model state. We can define a coupling strength $
 J1 = 1.0 # Coupling strength along ̂x
 J2 = 1.0 # Coupling strength along ̂y
 J = [J1, J2]
-h = 0.0 # External magnetic field strength
+h = [0.0] # External magnetic field strength per unit-cell site
 ```
 
 We then create an `IsingModel` object to hold these values for reference. Finally, we'll create an `IsingState` object which generates a random `state.spins` array, and the energy $E$ and magnetization $M$ of the initial configuration are calculated.

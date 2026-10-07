@@ -82,16 +82,21 @@ function apply_update!(state::XYState, proposal::SpinUpdate, ΔE::Real)
 end
 
 validate_cluster_model(model::XYModel, ::Geometry, ::XYState, ::Real) = begin
-    iszero_field(model.h) || throw(ArgumentError(
-        "XY cluster algorithms require a zero external field; got h = $(model.h)"
-    ))
     all(>=(0), model.J) || throw(ArgumentError(
         "XY cluster algorithms require non-negative couplings; got J = $(model.J)"
     ))
     nothing
 end
 
-cluster_context(::XYModel, ::Geometry, ::XYState, ::Real) = 2π * rand()
+mutable struct XYClusterContext
+    reflection_axis::Float64
+    ghost_attached::Bool
+end
+
+cluster_context(::XYModel, ::Geometry, ::XYState, ::Real) =
+    XYClusterContext(2π * rand(), false)
+
+cluster_ghost_count(::XYModel, ::Geometry, ::XYState, ::XYClusterContext) = 2
 
 function cluster_bond_probability(
     model::XYModel,
@@ -109,6 +114,47 @@ function cluster_bond_probability(
     return -expm1(-2 * bond_strength(model, geometry, bond_id) * projection_product / T)
 end
 
+function cluster_bond_probability(
+    model::XYModel,
+    geometry::Geometry,
+    state::XYState,
+    site::Int,
+    neighbor::Int,
+    bond_id::Int,
+    T::Real,
+    context::XYClusterContext,
+)
+    return cluster_bond_probability(
+        model, geometry, state, site, neighbor, bond_id, T,
+        context.reflection_axis
+    )
+end
+
+function cluster_ghost_probability(
+    model::XYModel,
+    geometry::Geometry,
+    state::XYState,
+    site::Int,
+    ghost::Int,
+    T::Real,
+    context::XYClusterContext,
+)
+    ghost in 1:2 || throw(ArgumentError("XY ghost index must be 1 or 2; got $ghost"))
+    field = field_strength(model, geometry, site)
+    field == 0 && return 0.0
+    sign(field) == (ghost == 1 ? 1 : -1) || return 0.0
+    ghost_angle = ghost == 1 ? 0.0 : π
+    projection_product = cos(state.angles[site] - context.reflection_axis) *
+        cos(ghost_angle - context.reflection_axis)
+    projection_product > 0 || return 0.0
+    return -expm1(-2 * abs(field) * projection_product / T)
+end
+
+function cluster_ghost_attached!(context::XYClusterContext, ::Int)
+    context.ghost_attached = true
+    return nothing
+end
+
 function apply_cluster!(
     model::XYModel,
     geometry::Geometry,
@@ -123,6 +169,19 @@ function apply_cluster!(
     return nothing
 end
 
+function apply_cluster!(
+    model::XYModel,
+    geometry::Geometry,
+    state::XYState,
+    cluster::Vector{Int},
+    context::XYClusterContext,
+)
+    context.ghost_attached || apply_cluster!(
+        model, geometry, state, cluster, context.reflection_axis
+    )
+    return nothing
+end
+
 function apply_clusters!(
     model::XYModel,
     geometry::Geometry,
@@ -134,6 +193,26 @@ function apply_clusters!(
         rand(Bool) || continue
         for site in cluster
             state.angles[site] = mod(2 * reflection_axis + π - state.angles[site], 2π)
+        end
+    end
+    _refresh_xy_state!(model, geometry, state)
+    return nothing
+end
+
+function apply_clusters!(
+    model::XYModel,
+    geometry::Geometry,
+    state::XYState,
+    clusters::Vector{Vector{Int}},
+    context::XYClusterContext,
+)
+    for cluster in clusters
+        any(site -> site > geometry.n_sites, cluster) && continue
+        rand(Bool) || continue
+        for site in cluster
+            state.angles[site] = mod(
+                2 * context.reflection_axis + π - state.angles[site], 2π
+            )
         end
     end
     _refresh_xy_state!(model, geometry, state)

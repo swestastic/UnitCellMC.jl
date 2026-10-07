@@ -71,8 +71,10 @@ function step!(
     validate_cluster_model(model, geometry, state, T)
     context = cluster_context(model, geometry, state, T)
 
-    parents = collect(1:geometry.n_sites)
-    ranks = zeros(UInt8, geometry.n_sites)
+    ghost_count = cluster_ghost_count(model, geometry, state, context)
+    total_sites = geometry.n_sites + ghost_count
+    parents = collect(1:total_sites)
+    ranks = zeros(UInt8, total_sites)
 
     for site in 1:geometry.n_sites
         info = geometry.neighbor_table[site]
@@ -89,6 +91,19 @@ function step!(
             probability > 0 && rand() < probability &&
                 _sw_union!(parents, ranks, site, neighbor)
         end
+
+        for ghost in 1:ghost_count
+            probability = cluster_ghost_probability(
+                model, geometry, state, site, ghost, T, context
+            )
+            0 <= probability <= 1 || throw(ArgumentError(
+                "cluster_ghost_probability returned $probability; expected a value in [0, 1]"
+            ))
+
+            probability > 0 && rand() < probability && _sw_union!(
+                parents, ranks, site, geometry.n_sites + ghost
+            )
+        end
     end
 
     clusters_by_root = Dict{Int,Vector{Int}}()
@@ -96,8 +111,16 @@ function step!(
         root = _sw_find!(parents, site)
         push!(get!(clusters_by_root, root, Int[]), site)
     end
+    for ghost in 1:ghost_count
+        root = _sw_find!(parents, geometry.n_sites + ghost)
+        haskey(clusters_by_root, root) && push!(
+            clusters_by_root[root], geometry.n_sites + ghost
+        )
+    end
     clusters = collect(values(clusters_by_root))
-    largest_cluster_size = isempty(clusters) ? 0 : maximum(length, clusters)
+    largest_cluster_size = isempty(clusters) ? 0 : maximum(
+        cluster -> count(≤(geometry.n_sites), cluster), clusters
+    )
     largest_cluster_fraction = geometry.n_sites > 0 ? largest_cluster_size / geometry.n_sites : 0.0
 
     apply_clusters!(model, geometry, state, clusters, context)

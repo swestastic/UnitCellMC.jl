@@ -38,8 +38,6 @@ function field_strength(model::IsingModel, geometry::Geometry, site::Int)
     return model.h[LatticeUtilities.site_to_orbital(site, geometry.unit_cell)]
 end
 
-iszero_field(h::AbstractVector) = all(iszero, h)
-
 """
     bond_strength(model, geometry, bond_id)
 
@@ -177,14 +175,44 @@ function cluster_bond_probability(
     return -expm1(-2 * J / T)
 end
 
+mutable struct IsingClusterContext
+    ghost_attached::Bool
+end
+
+cluster_context(::IsingModel, ::Geometry, ::IsingState, ::Real) =
+    IsingClusterContext(false)
+
+cluster_ghost_count(::IsingModel, ::Geometry, ::IsingState, ::IsingClusterContext) = 2
+
+function cluster_ghost_probability(
+    model::IsingModel,
+    geometry::Geometry,
+    state::IsingState,
+    site::Int,
+    ghost::Int,
+    T::Real,
+    ::IsingClusterContext,
+)
+    ghost in 1:2 || throw(ArgumentError("Ising ghost index must be 1 or 2; got $ghost"))
+    ghost_spin = ghost == 1 ? 1 : -1
+    field = field_strength(model, geometry, site)
+    state.spins[site] == ghost_spin || return 0.0
+    return -expm1(-2 * abs(field) / T) * (sign(field) == ghost_spin)
+end
+
+function cluster_ghost_attached!(context::IsingClusterContext, ::Int)
+    context.ghost_attached = true
+    return nothing
+end
+
 function validate_cluster_model(
     model::IsingModel,
     ::Geometry,
     ::IsingState,
     ::Real
 )
-    iszero_field(model.h) || throw(ArgumentError(
-        "WolffAlgorithm requires a zero external field; got h = $(model.h)"
+    all(>=(0), model.J) || throw(ArgumentError(
+        "Ising cluster algorithms require non-negative couplings; got J = $(model.J)"
     ))
     return nothing
 end
@@ -218,6 +246,17 @@ function apply_cluster!(
     return nothing
 end
 
+function apply_cluster!(
+    model::IsingModel,
+    geometry::Geometry,
+    state::IsingState,
+    cluster::Vector{Int},
+    context::IsingClusterContext,
+)
+    context.ghost_attached || apply_cluster!(model, geometry, state, cluster)
+    return nothing
+end
+
 """Randomly orient Swendsen-Wang clusters and refresh Ising observables."""
 function apply_clusters!(
     model::IsingModel,
@@ -232,6 +271,30 @@ function apply_clusters!(
         end
     end
 
+    _refresh_ising_state!(model, geometry, state)
+    return nothing
+end
+
+function apply_clusters!(
+    model::IsingModel,
+    geometry::Geometry,
+    state::IsingState,
+    clusters::Vector{Vector{Int}},
+    ::IsingClusterContext,
+)
+    for cluster in clusters
+        any(site -> site > geometry.n_sites, cluster) && continue
+        rand(Bool) || continue
+        for site in cluster
+            state.spins[site] = -state.spins[site]
+        end
+    end
+
+    _refresh_ising_state!(model, geometry, state)
+    return nothing
+end
+
+function _refresh_ising_state!(model::IsingModel, geometry::Geometry, state::IsingState)
     state.energy = zero(state.energy)
     for site in 1:geometry.n_sites
         info = geometry.neighbor_table[site]

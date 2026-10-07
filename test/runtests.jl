@@ -63,6 +63,15 @@ end
         @test state.energy ≈ spin_energy(model, geometry, state.spins)
     end
 
+    for algorithm in (ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
+        cluster_state = ucmc.initialize_state(model, geometry)
+        for _ in 1:20
+            ucmc.step!(algorithm, model, geometry, cluster_state, 2.0)
+            @test cluster_state.magnetization == sum(cluster_state.spins)
+            @test cluster_state.energy ≈ spin_energy(model, geometry, cluster_state.spins)
+        end
+    end
+
     @test_throws ArgumentError ucmc.initialize_state(
         ucmc.IsingModel([1.0, 2.0], [0.5]), geometry
     )
@@ -121,6 +130,18 @@ end
         for _ in 1:10
             ucmc.step!(algorithm, model, geometry, state, 2.0)
             @test state.energy ≈ xy_energy(model, geometry, state.angles)
+        end
+    end
+
+    field_geometry = two_orbital_geometry(2)
+    field_model = ucmc.XYModel([1.0, 2.0], [0.5, -0.25])
+    for algorithm in (ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
+        field_state = ucmc.initialize_state(field_model, field_geometry)
+        for _ in 1:20
+            ucmc.step!(algorithm, field_model, field_geometry, field_state, 2.0)
+            @test field_state.energy ≈ xy_energy(field_model, field_geometry, field_state.angles)
+            @test field_state.magnetization_x ≈ sum(cos, field_state.angles)
+            @test field_state.magnetization_y ≈ sum(sin, field_state.angles)
         end
     end
 
@@ -186,7 +207,12 @@ end
 
     field_model = ucmc.IsingModel([1.0, 1.0], [0.5])
     field_state = ucmc.initialize_state(field_model, geometry)
-    @test_throws ArgumentError ucmc.step!(algorithm, field_model, geometry, field_state, 2.0)
+    for _ in 1:20
+        result = ucmc.step!(algorithm, field_model, geometry, field_state, 2.0)
+        @test result.cluster_size in 1:geometry.n_sites
+        @test field_state.magnetization == sum(field_state.spins)
+        @test field_state.energy ≈ spin_energy(field_model, geometry, field_state.spins)
+    end
 end
 
 @testset "Swendsen-Wang updates keep invariants" begin
@@ -212,7 +238,12 @@ end
 
     field_model = ucmc.IsingModel([1.0, 1.0], [0.5])
     field_state = ucmc.initialize_state(field_model, geometry)
-    @test_throws ArgumentError ucmc.step!(algorithm, field_model, geometry, field_state, 2.0)
+    for _ in 1:20
+        result = ucmc.step!(algorithm, field_model, geometry, field_state, 2.0)
+        @test result.cluster_count in 1:geometry.n_sites
+        @test field_state.magnetization == sum(field_state.spins)
+        @test field_state.energy ≈ spin_energy(field_model, geometry, field_state.spins)
+    end
 end
 
 @testset "MeasurementContainer and analysis" begin

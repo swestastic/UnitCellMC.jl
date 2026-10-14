@@ -8,8 +8,8 @@ include("Geometry/Geometry.jl")
 include("State/State.jl")
 include("Algorithms/Algorithms.jl")
 include("Models/Models.jl")
-include("Simulation/Simulation.jl")
 include("Measurements/Measurements.jl")
+include("Simulation/Simulation.jl")
 include("IO/IO.jl")
 
 end

@@ -389,3 +389,83 @@ end
 
     @test_throws ArgumentError ucmc.save_sweep_results([Dict()], [1.0, 2.0], model, algorithm, L, 0, 0, 0, 1; root = root)
 end
+
+@testset "steps_per_sweep" begin
+    geometry = square_geometry(4)
+    @test ucmc.steps_per_sweep(ucmc.MetropolisAlgorithm(), geometry) == geometry.n_sites
+    @test ucmc.steps_per_sweep(ucmc.WolffAlgorithm(), geometry) == 1
+    @test ucmc.steps_per_sweep(ucmc.SwendsenWangAlgorithm(), geometry) == 1
+end
+
+@testset "MC_Sweep! update counts" begin
+    geometry = square_geometry(4)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    state = ucmc.initialize_state(model, geometry)
+    n_sites = geometry.n_sites
+
+    container = ucmc.MeasurementContainer(model, geometry, 10, 2; diagnostics = [:acceptance_ratio])
+    stats = [ucmc.UpdateStatistic(:acceptance_ratio)]
+    ucmc.MC_Sweep!(ucmc.MetropolisAlgorithm(), model, geometry, state, container, 2.0, stats)
+    @test stats[1].count == n_sites
+    @test 0.0 <= ucmc.value(stats[1]) <= 1.0
+
+    container = ucmc.MeasurementContainer(model, geometry, 10, 2; diagnostics = [:cluster_size])
+    stats = [ucmc.UpdateStatistic(:cluster_size)]
+    ucmc.MC_Sweep!(ucmc.WolffAlgorithm(), model, geometry, state, container, 2.0, stats)
+    @test stats[1].count == 1
+    @test 1 <= ucmc.value(stats[1]) <= n_sites
+
+    container = ucmc.MeasurementContainer(model, geometry, 10, 2;
+        diagnostics = [:cluster_count, :largest_cluster_fraction])
+    stats = [ucmc.UpdateStatistic(:cluster_count), ucmc.UpdateStatistic(:largest_cluster_fraction)]
+    ucmc.MC_Sweep!(ucmc.SwendsenWangAlgorithm(), model, geometry, state, container, 2.0, stats)
+    @test stats[1].count == 1
+    @test stats[2].count == 1
+    @test ucmc.value(stats[1]) >= 1
+    @test 0.0 < ucmc.value(stats[2]) <= 1.0
+end
+
+@testset "run_simulation fills bins" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    state = ucmc.initialize_state(model, geometry)
+    parameters = ucmc.SimulationParameters(2.0, 5, 20, 2, 4)
+
+    container = ucmc.MeasurementContainer(model, geometry, 20, 4; diagnostics = [:acceptance_ratio])
+    result = ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state, container, parameters)
+    @test result === container
+    @test length(container.data.energy) == 4
+    @test length(container.data.acceptance_ratio) == 4
+    @test all(v -> 0.0 <= v <= 1.0, container.data.acceptance_ratio)
+
+    # empty diagnostics path
+    state = ucmc.initialize_state(model, geometry)
+    container = ucmc.MeasurementContainer(model, geometry, 20, 4)
+    ucmc.run_simulation(ucmc.WolffAlgorithm(), model, geometry, state, container, parameters)
+    @test length(container.data.energy) == 4
+    @test !haskey(pairs(container.data), :acceptance_ratio)
+end
+
+@testset "sweep_Ts end-to-end" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    state = ucmc.initialize_state(model, geometry)
+    Ts = [3.0, 1.0]
+    root = mktempdir()
+
+    sweep_results = ucmc.sweep_Ts(
+        ucmc.WolffAlgorithm(), model, geometry, state,
+        3, 6, 1, 3, Ts;
+        simulated_annealing = true,
+        diagnostics = [:cluster_size],
+        root = root
+    )
+
+    @test length(sweep_results) == length(Ts)
+    @test all(r -> haskey(r.primary, :energy), sweep_results)
+    @test all(r -> haskey(r.primary, :cluster_size), sweep_results)
+
+    dir = ucmc.sweep_dirname(model, ucmc.WolffAlgorithm(), geometry.lattice.L; root = root)
+    @test isdir(dir)
+    @test isfile(joinpath(dir, "measurement_results.csv"))
+end

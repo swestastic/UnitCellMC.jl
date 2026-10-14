@@ -16,4 +16,6 @@ UnitCellMC.apply_update!
 UnitCellMC.cluster_bond_probability
 UnitCellMC.apply_cluster!
 UnitCellMC.apply_clusters!
+UnitCellMC._reflect_xy_clusters!
+UnitCellMC._flip_ising_clusters!
 ```

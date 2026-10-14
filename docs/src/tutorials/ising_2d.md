@@ -173,4 +173,6 @@ sweep_results = ucmc.sweep_Ts(
 )
 ```
 
+To average over several independent simulation runs at each temperature, set the `n_runs` keyword (e.g. `n_runs = 20`). The bins of all runs are merged before the jackknife analysis, so the reported error bars reflect the variance between independent runs as well as within them. Each run anneals its own configuration across the temperature sweep when `simulated_annealing = true`, and is re-initialized randomly at every temperature otherwise. The runs execute in parallel over Julia threads; start Julia with `--threads auto` to benefit, and each run uses its own thread-local RNG stream regardless of thread count.
+
 Now you should see an output folder with results saved in a CSV format, which can easily be used for plotting.

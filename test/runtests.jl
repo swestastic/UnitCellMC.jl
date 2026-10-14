@@ -469,3 +469,58 @@ end
     @test isdir(dir)
     @test isfile(joinpath(dir, "measurement_results.csv"))
 end
+
+@testset "merge_containers pools run bins" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    parameters = ucmc.SimulationParameters(2.0, 2, 8, 1, 4)
+
+    containers = map(1:2) do _
+        state = ucmc.initialize_state(model, geometry)
+        container = ucmc.MeasurementContainer(model, geometry, 8, 4; diagnostics = [:acceptance_ratio])
+        ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state, container, parameters)
+    end
+
+    merged = ucmc.merge_containers(containers)
+    @test length(merged.data.energy) == 8 # 2 runs * 4 bins per run
+    @test merged.data.energy == vcat(containers[1].data.energy, containers[2].data.energy)
+    @test length(merged.data.acceptance_ratio) == 8
+
+    # analysis works on the pooled bins
+    results = ucmc.analyze(merged, 2.0, geometry.n_sites)
+    @test haskey(results.primary, :energy)
+
+    # mismatched containers and empty input are rejected
+    mismatched = ucmc.MeasurementContainer(model, geometry, 8, 4; diagnostics = [:cluster_size])
+    @test_throws ArgumentError ucmc.merge_containers([first(containers), mismatched])
+    @test_throws ArgumentError ucmc.merge_containers(ucmc.MeasurementContainer[])
+end
+
+@testset "sweep_Ts ensemble averaging" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    state = ucmc.initialize_state(model, geometry)
+    Ts = [3.0, 1.0]
+    root = mktempdir()
+
+    sweep_results = ucmc.sweep_Ts(
+        ucmc.MetropolisAlgorithm(), model, geometry, state,
+        3, 6, 1, 3, Ts;
+        simulated_annealing = false,
+        n_runs = 2,
+        diagnostics = [:acceptance_ratio],
+        root = root
+    )
+
+    @test length(sweep_results) == length(Ts)
+    @test all(r -> haskey(r.primary, :energy), sweep_results)
+    @test all(r -> haskey(r.primary, :acceptance_ratio), sweep_results)
+
+    dir = ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L; root = root)
+    @test isfile(joinpath(dir, "measurement_results.csv"))
+
+    @test_throws ArgumentError ucmc.sweep_Ts(
+        ucmc.MetropolisAlgorithm(), model, geometry, state,
+        3, 6, 1, 3, Ts; n_runs = 0, root = root
+    )
+end

@@ -26,7 +26,7 @@ per-update algorithm diagnostics into `stats`.
 The number of [`step!`](@ref) calls per sweep is determined by
 [`steps_per_sweep`](@ref): `geometry.n_sites` for local-update algorithms,
 one cluster update for cluster algorithms. After each update,
-[`diagnostic_values`](@ref) is evaluated and the values matching
+`diagnostic_values` is evaluated and the values matching
 `container.diagnostics` are recorded into the corresponding
 [`UpdateStatistic`](@ref)s in `stats`, which must be one per diagnostic (see
 [`run_simulation`](@ref)).
@@ -124,37 +124,98 @@ function run_simulation(
 end
 
 """
+    merge_containers(containers)
+
+Merge the binned measurement data of several filled
+[`MeasurementContainer`](@ref)s — e.g. from `n_runs` independent
+[`run_simulation`](@ref)s at the same temperature — into a single container
+whose `data` holds the concatenation of all runs' bins. Analysis on the
+merged container therefore pools all runs, and error estimates reflect the
+variance between independent runs as well as within them.
+
+The containers must record the same observables and diagnostics (e.g. built
+with identical `measurements`/`diagnostics` arguments); an `ArgumentError`
+is thrown otherwise.
+
+# Returns
+
+A new `MeasurementContainer` with `length(containers) * n_bins` completed
+bins, ready for [`analyze`](@ref).
+"""
+function merge_containers(containers::Vector{<:MeasurementContainer})
+    isempty(containers) && throw(ArgumentError("Cannot merge zero containers"))
+    first_container = first(containers)
+    expected_names = keys(first_container.data)
+    for container in containers
+        keys(container.data) == expected_names ||
+            throw(ArgumentError("All containers must record identical observables and diagnostics"))
+    end
+
+    data = NamedTuple(
+        name => reduce(vcat, (container.data[name] for container in containers))
+        for name in expected_names
+    )
+    bin_sums = merge(
+        NamedTuple(o.name => o.zero() for o in first_container.observables),
+        NamedTuple(name => 0.0 for name in first_container.diagnostics)
+    )
+    return MeasurementContainer(
+        data, bin_sums, 0, first_container.bin_size,
+        first_container.observables, first_container.derived, first_container.diagnostics
+    )
+end
+
+"""
     sweep_Ts(algorithm, model, geometry, state,
         n_thermalization, n_measurements, n_unmeasured, n_bins, Ts;
-        simulated_annealing = true, measurements = Symbol[],
+        simulated_annealing = true, n_runs = 1, measurements = Symbol[],
         diagnostics = Symbol[], root = "results")
 
-Run a temperature sweep: one [`run_simulation`](@ref) per temperature in
-`Ts`, followed by [`analyze`](@ref) at each temperature, and save the
-combined results with [`save_sweep_results`](@ref).
+Run a temperature sweep: [`run_simulation`](@ref) at each temperature in
+`Ts`, followed by [`analyze`](@ref), and save the combined results with
+[`save_sweep_results`](@ref).
+
+With `n_runs > 1`, `n_runs` independent simulations are performed at each
+temperature and their bins are merged with [`merge_containers`](@ref) before
+analysis, so the returned error bars reflect run-to-run variance. The merged
+container holds `n_runs * n_bins` bins per temperature. Runs share an
+annealing trajectory: with `simulated_annealing = true` (default) each run
+carries its own configuration between temperatures (`state` seeds run 1;
+best practice: order `Ts` from highest to lowest); with
+`simulated_annealing = false` every run is re-initialized from a fresh
+random state at every temperature.
+
+The runs execute in parallel over Julia threads: start Julia with
+`--threads auto` (or set `JULIA_NUM_THREADS`) to use more than one. Each
+run uses its own thread-local RNG stream, so results are statistically
+independent regardless of thread count.
 
 A new [`SimulationParameters`](@ref) and [`MeasurementContainer`](@ref) are
-created for every temperature. If `simulated_annealing` is `true` (default),
-`state` is carried over between temperatures (best practice: order `Ts` from
-highest to lowest); otherwise a fresh random state is initialized for each
-temperature via [`initialize_state`](@ref).
+created for every temperature and run.
 
 # Arguments
 
 - `algorithm`: The update algorithm to use.
 - `model`: The model defining couplings/energetics.
 - `geometry`: The lattice geometry.
-- `state`: The starting configuration; reused across temperatures when
-  `simulated_annealing = true`.
-- `n_thermalization`: Warmup sweeps per temperature.
-- `n_measurements`: Measurement sweeps per temperature.
+- `state`: The starting configuration for run 1; reused across temperatures
+  when `simulated_annealing = true`.
+- `n_thermalization`: Warmup sweeps per run and temperature.
+- `n_measurements`: Measurement sweeps per run and temperature.
 - `n_unmeasured`: Decorrelation sweeps between measurements.
-- `n_bins`: Number of bins for jackknife error estimation.
+- `n_bins`: Number of bins per run for jackknife error estimation.
 - `Ts`: Temperatures to simulate.
-- `simulated_annealing`: Carry `state` between temperatures (default `true`).
+- `simulated_annealing`: Carry each run's state between temperatures
+  (default `true`).
+- `n_runs`: Number of independent runs averaged at each temperature
+  (default `1`); must be at least 1.
 - `measurements`: Optional measurement names to enable in each container.
 - `diagnostics`: Algorithm diagnostic names to record per sweep.
 - `root`: Base directory passed to [`save_sweep_results`](@ref).
+
+# Throws
+
+`ArgumentError` if `n_runs` is less than 1.
 
 # Returns
 
@@ -171,28 +232,40 @@ function sweep_Ts(
     n_bins::Int,
     Ts;
     simulated_annealing::Bool = true,
+    n_runs::Int = 1,
     measurements::Vector{Symbol} = Symbol[],
     diagnostics::Vector{Symbol} = Symbol[],
     root::AbstractString = "results"
 )
+    n_runs >= 1 || throw(ArgumentError("n_runs must be >= 1, got $n_runs"))
+
     sweep_results = Vector{Any}(undef, length(Ts))
     n_sites = geometry.n_sites
     L = geometry.lattice.L
+    states = AbstractState[state]
+    for _ in 2:n_runs
+        push!(states, initialize_state(model, geometry))
+    end
 
     for (i, T) in enumerate(Ts)
         parameters = SimulationParameters(T, n_thermalization, n_measurements, n_unmeasured, n_bins)
 
-        if !simulated_annealing
-            state = initialize_state(model, geometry)
+        run_containers = Vector{MeasurementContainer}(undef, n_runs)
+        Threads.@threads for r in 1:n_runs
+            run_state = states[r]
+            if !simulated_annealing
+                run_state = initialize_state(model, geometry)
+                states[r] = run_state
+            end
+
+            container = MeasurementContainer(model, geometry, n_measurements, n_bins;
+                measurements = measurements,
+                diagnostics = diagnostics
+            )
+            run_containers[r] = run_simulation(algorithm, model, geometry, run_state, container, parameters)
         end
 
-        container = MeasurementContainer(model, geometry, n_measurements, n_bins;
-            measurements = measurements,
-            diagnostics = diagnostics
-        )
-        container = run_simulation(algorithm, model, geometry, state, container, parameters)
-
-        sweep_results[i] = analyze(container, T, n_sites)
+        sweep_results[i] = analyze(merge_containers(run_containers), T, n_sites)
     end
 
     save_sweep_results(

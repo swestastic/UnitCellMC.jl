@@ -106,50 +106,18 @@ These are stored in an immutable struct of type `SimulationParameters`. Note tha
 parameters = ucmc.SimulationParameters(T, n_thermalization, n_measurements, n_unmeasured, n_bins)
 ```
 
-## Building the Simulation Loop
+## The Simulation Loop
 
-We'll create two functions for our simulation loop. The first, `MC_Sweep!` simply loops over the number of sites in the lattice, and performs that number of Metropolis updates.
+The package provides the simulation drivers used in this tutorial. The first, `MC_Sweep!`, performs one Monte Carlo sweep: `n_sites` single-site `step!` updates for a local-update algorithm like Metropolis, or a single cluster update for the Wolff and Swendsen-Wang cluster algorithms, since one cluster update already moves a macroscopic fraction of the lattice. This convention is defined by `steps_per_sweep`, which you can extend for custom algorithms. During the sweep, per-update diagnostics (e.g. the acceptance ratio for Metropolis) are accumulated into `UpdateStatistic`s.
 
 ```julia
-function MC_Sweep!(
-    algorithm,
-    model,
-    geometry,
-    state,
-    container::ucmc.MeasurementContainer,
-    T
-)
-    statistic = ucmc.UpdateStatistic(ucmc.diagnostic_name(algorithm))
-    for _ in 1:n_sites
-        result = ucmc.step!(algorithm, model, geometry, state, T)
-        ucmc.record!(statistic, ucmc.diagnostic_value(algorithm, result))
-    end
-    return statistic
-end
+ucmc.MC_Sweep!(algorithm, model, geometry, state, container, parameters.T, stats)
 ```
 
-Next we'll define a function `run_simulation` which handles the different kinds of sweeps (warmup, measurement, decorrelation) and measurements.
+The second, `run_simulation`, handles the different kinds of sweeps (warmup, measurement, decorrelation) and the measurements themselves. It returns the filled measurement container.
 
 ```julia
-function run_simulation(algorithm, model, geometry, state, container::ucmc.MeasurementContainer, parameters)
-    T = parameters.T
-
-    for _ in 1:parameters.n_thermalization
-        MC_Sweep!(algorithm, model, geometry, state, container, T)
-    end
-
-    for _ in 1:parameters.n_measurements
-        statistic = MC_Sweep!(algorithm, model, geometry, state, container, T)
-        diagnostics = NamedTuple{(statistic.name,)}((ucmc.value(statistic),))
-        ucmc.measure!(container, state; diagnostics)
-
-        for __ in 1:parameters.n_unmeasured           
-            MC_Sweep!(algorithm, model, geometry, state, container, T)
-        end
-    end
-
-    return container
-end
+ucmc.run_simulation(algorithm, model, geometry, state, container, parameters)
 ```
 
 ## Running the Simulation
@@ -160,11 +128,10 @@ If your only interest is in gathering data for a single temperature, you'll need
 
 ```julia
 container = ucmc.MeasurementContainer(model, geometry, n_measurements, n_bins;
-    measurements = Symbol[],
-    diagnostics = [:acceptance_ratio]
-) # Alternatively, set measurements = [:raw_correlation] or [:connected_correlation]
-) # to calculate 2-site correlation functions as well.
-container = run_simulation(algorithm, model, geometry, state, container, parameters)
+    measurements = Symbol[], # Alternatively, set measurements = [:raw_correlation] or [:connected_correlation]
+    diagnostics = [:acceptance_ratio] # to calculate 2-site correlation functions as well.
+)
+container = ucmc.run_simulation(algorithm, model, geometry, state, container, parameters)
 ```
 
 Next we perform the bin processing and errorbar calculation with `analyze`
@@ -181,49 +148,7 @@ ucmc.save_results(model, algorithm, L, T, processed_results, parameters)
 
 ### Multiple Temperature Run
 
-For multiple temperature runs, we construct a function `sweep_Ts` which will handle the initialization of a new measurement container for every temperature.
-
-```julia
-function sweep_Ts(
-    algorithm,
-    model,
-    geometry,
-    state,
-    n_thermalization,
-    n_measurements,
-    n_unmeasured,
-    n_bins,
-    Ts;
-    simulated_annealing = true,
-    measurements = Symbol[]
-)
-
-    sweep_results = Vector{Any}(undef, length(Ts))
-    n_sites = geometry.n_sites
-    L = geometry.lattice.L
-
-    for (i, T) in enumerate(Ts)
-
-        parameters = ucmc.SimulationParameters(T, n_thermalization, n_measurements, n_unmeasured, n_bins)
-
-        if !simulated_annealing
-            state = ucmc.initialize_state(model, geometry)
-        end
-
-        container = ucmc.MeasurementContainer(model, geometry, n_measurements, n_bins;
-            measurements = measurements,
-            diagnostics = [:acceptance_ratio]
-        )
-        container = run_simulation(algorithm, model, geometry, state, container, parameters)
-
-        processed_results = ucmc.analyze(container, T, n_sites)
-        sweep_results[i] = processed_results
-        # ucmc.save_results(model, algorithm, L, T, processed_results, parameters) # Use this to save results for each T separately, if desired
-    end
-
-    return sweep_results
-end
-```
+For multiple temperature runs, the package provides `sweep_Ts`, which initializes a new `SimulationParameters` and measurement container for every temperature, runs `run_simulation` and `analyze` at each one, and finally saves the combined results to a condensed CSV output folder with `save_sweep_results` (the output directory can be changed with the `root` keyword).
 
 The `simulated_annealing` flag determines whether the lattice configuration is preserved between temperature changes. If `simulated_annealing = false` is set, then a new random lattice configuration will be initialized for every new temperature.
 
@@ -235,25 +160,19 @@ Ts = collect(3.0:-0.1:1.0) # Evenly spaced temperatures from T = 3.0 to T = 1.0
 
 Note that with `simulated_annealing = true`, it's best practice to start at the highest temperature, and decrease it. This is not strictly enforced in the code, but it will ensure best results.
 
-Finally, call `Sweep_Ts` to run the simulation
+Finally, call `sweep_Ts` to run the full simulation:
 
 ```julia
-sweep_results = sweep_Ts(
+sweep_results = ucmc.sweep_Ts(
     algorithm, model, geometry, state,
     n_thermalization, n_measurements, n_unmeasured, n_bins, Ts;
     simulated_annealing = true,
-    measurements = [:connected_correlation] # enable connected correlation measurements
-    # measurements = []
+    measurements = [:connected_correlation], # enable connected correlation measurements
+    # measurements = Symbol[],
+    diagnostics = [:acceptance_ratio]
 )
 ```
 
-And we can save the results to a condensed CSV file as follows:
-
-```julia
-ucmc.save_sweep_results(
-    sweep_results, Ts, model, algorithm, L,
-    n_thermalization, n_measurements, n_unmeasured, n_bins
-)
-```
+To average over several independent simulation runs at each temperature, set the `n_runs` keyword (e.g. `n_runs = 20`). The bins of all runs are merged before the jackknife analysis, so the reported error bars reflect the variance between independent runs as well as within them. Each run anneals its own configuration across the temperature sweep when `simulated_annealing = true`, and is re-initialized randomly at every temperature otherwise. The runs execute in parallel over Julia threads; start Julia with `--threads auto` to benefit, and each run uses its own thread-local RNG stream regardless of thread count.
 
 Now you should see an output folder with results saved in a CSV format, which can easily be used for plotting.

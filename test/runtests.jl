@@ -63,6 +63,15 @@ end
         @test state.energy ≈ spin_energy(model, geometry, state.spins)
     end
 
+    for algorithm in (ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
+        cluster_state = ucmc.initialize_state(model, geometry)
+        for _ in 1:20
+            ucmc.step!(algorithm, model, geometry, cluster_state, 2.0)
+            @test cluster_state.magnetization == sum(cluster_state.spins)
+            @test cluster_state.energy ≈ spin_energy(model, geometry, cluster_state.spins)
+        end
+    end
+
     @test_throws ArgumentError ucmc.initialize_state(
         ucmc.IsingModel([1.0, 2.0], [0.5]), geometry
     )
@@ -124,6 +133,18 @@ end
         end
     end
 
+    field_geometry = two_orbital_geometry(2)
+    field_model = ucmc.XYModel([1.0, 2.0], [0.5, -0.25])
+    for algorithm in (ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
+        field_state = ucmc.initialize_state(field_model, field_geometry)
+        for _ in 1:20
+            ucmc.step!(algorithm, field_model, field_geometry, field_state, 2.0)
+            @test field_state.energy ≈ xy_energy(field_model, field_geometry, field_state.angles)
+            @test field_state.magnetization_x ≈ sum(cos, field_state.angles)
+            @test field_state.magnetization_y ≈ sum(sin, field_state.angles)
+        end
+    end
+
     container = ucmc.MeasurementContainer(model, geometry, 4, 2)
     @test :magnetization_x in keys(container.data)
     @test :magnetization_y in keys(container.data)
@@ -144,13 +165,16 @@ end
 @testset "XY cluster reflection" begin
     geometry = square_geometry(2)
     model = ucmc.XYModel([1.0, 1.0], [0.0])
-    state = ucmc.XYState([0.0, π / 2, 0.0, π / 2], 0.0, 0.0, 0.0)
+    angles = [0.0, π / 2, 0.0, π / 2]
+    state = ucmc.XYState(
+        angles, xy_energy(model, geometry, angles), sum(cos, angles), sum(sin, angles)
+    )
     ucmc.apply_cluster!(model, geometry, state, [1], 0.0)
 
     @test state.angles[1] ≈ π
     @test cos(state.angles[1]) == -1.0
-    @test state.magnetization_x ≈ sum(cos, state.angles)
-    @test state.magnetization_y ≈ sum(sin, state.angles)
+    @test state.magnetization_x ≈ sum(cos, state.angles) atol = 1e-12
+    @test state.magnetization_y ≈ sum(sin, state.angles) atol = 1e-12
 end
 
 @testset "Metropolis updates keep invariants" begin
@@ -186,7 +210,12 @@ end
 
     field_model = ucmc.IsingModel([1.0, 1.0], [0.5])
     field_state = ucmc.initialize_state(field_model, geometry)
-    @test_throws ArgumentError ucmc.step!(algorithm, field_model, geometry, field_state, 2.0)
+    for _ in 1:20
+        result = ucmc.step!(algorithm, field_model, geometry, field_state, 2.0)
+        @test result.cluster_size in 1:geometry.n_sites
+        @test field_state.magnetization == sum(field_state.spins)
+        @test field_state.energy ≈ spin_energy(field_model, geometry, field_state.spins)
+    end
 end
 
 @testset "Swendsen-Wang updates keep invariants" begin
@@ -212,7 +241,12 @@ end
 
     field_model = ucmc.IsingModel([1.0, 1.0], [0.5])
     field_state = ucmc.initialize_state(field_model, geometry)
-    @test_throws ArgumentError ucmc.step!(algorithm, field_model, geometry, field_state, 2.0)
+    for _ in 1:20
+        result = ucmc.step!(algorithm, field_model, geometry, field_state, 2.0)
+        @test result.cluster_count in 1:geometry.n_sites
+        @test field_state.magnetization == sum(field_state.spins)
+        @test field_state.energy ≈ spin_energy(field_model, geometry, field_state.spins)
+    end
 end
 
 @testset "MeasurementContainer and analysis" begin
@@ -354,4 +388,139 @@ end
     @test !isfile(joinpath(empty_dir, "correlation_results.csv"))
 
     @test_throws ArgumentError ucmc.save_sweep_results([Dict()], [1.0, 2.0], model, algorithm, L, 0, 0, 0, 1; root = root)
+end
+
+@testset "steps_per_sweep" begin
+    geometry = square_geometry(4)
+    @test ucmc.steps_per_sweep(ucmc.MetropolisAlgorithm(), geometry) == geometry.n_sites
+    @test ucmc.steps_per_sweep(ucmc.WolffAlgorithm(), geometry) == 1
+    @test ucmc.steps_per_sweep(ucmc.SwendsenWangAlgorithm(), geometry) == 1
+end
+
+@testset "MC_Sweep! update counts" begin
+    geometry = square_geometry(4)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    state = ucmc.initialize_state(model, geometry)
+    n_sites = geometry.n_sites
+
+    container = ucmc.MeasurementContainer(model, geometry, 10, 2; diagnostics = [:acceptance_ratio])
+    stats = [ucmc.UpdateStatistic(:acceptance_ratio)]
+    ucmc.MC_Sweep!(ucmc.MetropolisAlgorithm(), model, geometry, state, container, 2.0, stats)
+    @test stats[1].count == n_sites
+    @test 0.0 <= ucmc.value(stats[1]) <= 1.0
+
+    container = ucmc.MeasurementContainer(model, geometry, 10, 2; diagnostics = [:cluster_size])
+    stats = [ucmc.UpdateStatistic(:cluster_size)]
+    ucmc.MC_Sweep!(ucmc.WolffAlgorithm(), model, geometry, state, container, 2.0, stats)
+    @test stats[1].count == 1
+    @test 1 <= ucmc.value(stats[1]) <= n_sites
+
+    container = ucmc.MeasurementContainer(model, geometry, 10, 2;
+        diagnostics = [:cluster_count, :largest_cluster_fraction])
+    stats = [ucmc.UpdateStatistic(:cluster_count), ucmc.UpdateStatistic(:largest_cluster_fraction)]
+    ucmc.MC_Sweep!(ucmc.SwendsenWangAlgorithm(), model, geometry, state, container, 2.0, stats)
+    @test stats[1].count == 1
+    @test stats[2].count == 1
+    @test ucmc.value(stats[1]) >= 1
+    @test 0.0 < ucmc.value(stats[2]) <= 1.0
+end
+
+@testset "run_simulation fills bins" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    state = ucmc.initialize_state(model, geometry)
+    parameters = ucmc.SimulationParameters(2.0, 5, 20, 2, 4)
+
+    container = ucmc.MeasurementContainer(model, geometry, 20, 4; diagnostics = [:acceptance_ratio])
+    result = ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state, container, parameters)
+    @test result === container
+    @test length(container.data.energy) == 4
+    @test length(container.data.acceptance_ratio) == 4
+    @test all(v -> 0.0 <= v <= 1.0, container.data.acceptance_ratio)
+
+    # empty diagnostics path
+    state = ucmc.initialize_state(model, geometry)
+    container = ucmc.MeasurementContainer(model, geometry, 20, 4)
+    ucmc.run_simulation(ucmc.WolffAlgorithm(), model, geometry, state, container, parameters)
+    @test length(container.data.energy) == 4
+    @test !haskey(pairs(container.data), :acceptance_ratio)
+end
+
+@testset "sweep_Ts end-to-end" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    state = ucmc.initialize_state(model, geometry)
+    Ts = [3.0, 1.0]
+    root = mktempdir()
+
+    sweep_results = ucmc.sweep_Ts(
+        ucmc.WolffAlgorithm(), model, geometry, state,
+        3, 6, 1, 3, Ts;
+        simulated_annealing = true,
+        diagnostics = [:cluster_size],
+        root = root
+    )
+
+    @test length(sweep_results) == length(Ts)
+    @test all(r -> haskey(r.primary, :energy), sweep_results)
+    @test all(r -> haskey(r.primary, :cluster_size), sweep_results)
+
+    dir = ucmc.sweep_dirname(model, ucmc.WolffAlgorithm(), geometry.lattice.L; root = root)
+    @test isdir(dir)
+    @test isfile(joinpath(dir, "measurement_results.csv"))
+end
+
+@testset "merge_containers pools run bins" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    parameters = ucmc.SimulationParameters(2.0, 2, 8, 1, 4)
+
+    containers = map(1:2) do _
+        state = ucmc.initialize_state(model, geometry)
+        container = ucmc.MeasurementContainer(model, geometry, 8, 4; diagnostics = [:acceptance_ratio])
+        ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state, container, parameters)
+    end
+
+    merged = ucmc.merge_containers(containers)
+    @test length(merged.data.energy) == 8 # 2 runs * 4 bins per run
+    @test merged.data.energy == vcat(containers[1].data.energy, containers[2].data.energy)
+    @test length(merged.data.acceptance_ratio) == 8
+
+    # analysis works on the pooled bins
+    results = ucmc.analyze(merged, 2.0, geometry.n_sites)
+    @test haskey(results.primary, :energy)
+
+    # mismatched containers and empty input are rejected
+    mismatched = ucmc.MeasurementContainer(model, geometry, 8, 4; diagnostics = [:cluster_size])
+    @test_throws ArgumentError ucmc.merge_containers([first(containers), mismatched])
+    @test_throws ArgumentError ucmc.merge_containers(ucmc.MeasurementContainer[])
+end
+
+@testset "sweep_Ts ensemble averaging" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    state = ucmc.initialize_state(model, geometry)
+    Ts = [3.0, 1.0]
+    root = mktempdir()
+
+    sweep_results = ucmc.sweep_Ts(
+        ucmc.MetropolisAlgorithm(), model, geometry, state,
+        3, 6, 1, 3, Ts;
+        simulated_annealing = false,
+        n_runs = 2,
+        diagnostics = [:acceptance_ratio],
+        root = root
+    )
+
+    @test length(sweep_results) == length(Ts)
+    @test all(r -> haskey(r.primary, :energy), sweep_results)
+    @test all(r -> haskey(r.primary, :acceptance_ratio), sweep_results)
+
+    dir = ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L; root = root)
+    @test isfile(joinpath(dir, "measurement_results.csv"))
+
+    @test_throws ArgumentError ucmc.sweep_Ts(
+        ucmc.MetropolisAlgorithm(), model, geometry, state,
+        3, 6, 1, 3, Ts; n_runs = 0, root = root
+    )
 end

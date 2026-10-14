@@ -20,6 +20,9 @@ end
 cluster_seed(::AbstractModel, geometry, ::AbstractState) = rand(1:geometry.n_sites)
 validate_cluster_model(::AbstractModel, ::Any, ::AbstractState, ::Real) = nothing
 cluster_context(::AbstractModel, ::Any, ::AbstractState, ::Real) = nothing
+cluster_ghost_count(::AbstractModel, ::Any, ::AbstractState, ::Any) = 0
+cluster_ghost_probability(::AbstractModel, ::Any, ::AbstractState, ::Int, ::Int, ::Real, ::Any) = 0.0
+cluster_ghost_attached!(::Any, ::Int) = nothing
 
 function cluster_bond_probability(
     ::AbstractModel,
@@ -34,6 +37,8 @@ function cluster_bond_probability(
 end
 
 cluster_bond_probability(model, geometry, state, site, neighbor, bond_id, T, ::Nothing) =
+    cluster_bond_probability(model, geometry, state, site, neighbor, bond_id, T)
+cluster_bond_probability(model, geometry, state, site, neighbor, bond_id, T, ::Any) =
     cluster_bond_probability(model, geometry, state, site, neighbor, bond_id, T)
 
 function apply_cluster!(::AbstractModel, ::Any, ::AbstractState, ::Vector{Int})
@@ -70,6 +75,7 @@ function step!(
     in_cluster[seed] = true
     cluster = Int[seed]
     frontier = Int[seed]
+    ghost_count = cluster_ghost_count(model, geometry, state, context)
 
     while !isempty(frontier)
         site = pop!(frontier)
@@ -91,6 +97,18 @@ function step!(
                 push!(cluster, neighbor)
                 push!(frontier, neighbor)
             end
+        end
+
+        for ghost in 1:ghost_count
+            probability = cluster_ghost_probability(
+                model, geometry, state, site, ghost, T, context
+            )
+            0 <= probability <= 1 || throw(ArgumentError(
+                "cluster_ghost_probability returned $probability; expected a value in [0, 1]"
+            ))
+
+            probability > 0 && rand() < probability &&
+                cluster_ghost_attached!(context, ghost)
         end
     end
 

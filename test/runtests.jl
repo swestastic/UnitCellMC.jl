@@ -165,13 +165,16 @@ end
 @testset "XY cluster reflection" begin
     geometry = square_geometry(2)
     model = ucmc.XYModel([1.0, 1.0], [0.0])
-    state = ucmc.XYState([0.0, π / 2, 0.0, π / 2], 0.0, 0.0, 0.0)
+    angles = [0.0, π / 2, 0.0, π / 2]
+    state = ucmc.XYState(
+        angles, xy_energy(model, geometry, angles), sum(cos, angles), sum(sin, angles)
+    )
     ucmc.apply_cluster!(model, geometry, state, [1], 0.0)
 
     @test state.angles[1] ≈ π
     @test cos(state.angles[1]) == -1.0
-    @test state.magnetization_x ≈ sum(cos, state.angles)
-    @test state.magnetization_y ≈ sum(sin, state.angles)
+    @test state.magnetization_x ≈ sum(cos, state.angles) atol = 1e-12
+    @test state.magnetization_y ≈ sum(sin, state.angles) atol = 1e-12
 end
 
 @testset "Metropolis updates keep invariants" begin

@@ -155,6 +155,17 @@ function cluster_ghost_attached!(context::XYClusterContext, ::Int)
     return nothing
 end
 
+"""
+    apply_cluster!(model, geometry, state, cluster, reflection_axis)
+
+Reflect a Wolff cluster about `reflection_axis` and update the cached XY
+observables incrementally. With `p_i = cos(angles[i] - reflection_axis)`
+evaluated pre-reflection, a boundary bond `(i, j)` with `i` in the cluster
+contributes `ΔE = 2 * J * p_i * p_j` (via
+`cos(2φ - θ_i - θ_j) + cos(θ_i - θ_j) = 2 * p_i * p_j`), and each reflected
+site contributes `ΔE = 2 * h * cos(φ) * p_i`, `ΔM_x = -2 * cos(φ) * p_i`, and
+`ΔM_y = -2 * sin(φ) * p_i`.
+"""
 function apply_cluster!(
     model::XYModel,
     geometry::Geometry,
@@ -162,10 +173,35 @@ function apply_cluster!(
     cluster::Vector{Int},
     reflection_axis::Real,
 )
+    in_cluster = falses(geometry.n_sites)
     for site in cluster
-        state.angles[site] = mod(2 * reflection_axis + π - state.angles[site], 2π)
+        in_cluster[site] = true
     end
-    _refresh_xy_state!(model, geometry, state)
+
+    cos_axis = cos(reflection_axis)
+    sin_axis = sin(reflection_axis)
+    ΔE = zero(state.energy)
+    ΔMx = zero(state.magnetization_x)
+    ΔMy = zero(state.magnetization_y)
+
+    for site in cluster
+        angle = state.angles[site]
+        projection = cos(angle - reflection_axis)
+        info = geometry.neighbor_table[site]
+        for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+            (neighbor == site || in_cluster[neighbor]) && continue
+            ΔE += 2 * bond_strength(model, geometry, bond_id) * projection *
+                cos(state.angles[neighbor] - reflection_axis)
+        end
+        ΔE += 2 * field_strength(model, geometry, site) * cos_axis * projection
+        ΔMx -= 2 * cos_axis * projection
+        ΔMy -= 2 * sin_axis * projection
+        state.angles[site] = mod(2 * reflection_axis + π - angle, 2π)
+    end
+
+    state.energy += ΔE
+    state.magnetization_x += ΔMx
+    state.magnetization_y += ΔMy
     return nothing
 end
 
@@ -182,6 +218,15 @@ function apply_cluster!(
     return nothing
 end
 
+"""
+    apply_clusters!(model, geometry, state, clusters, reflection_axis)
+
+Randomly reflect each Swendsen-Wang cluster about `reflection_axis` and update
+the cached XY observables incrementally. A bond only changes energy when
+exactly one of its endpoints sits in a reflected cluster, so the energy update
+touches only bonds incident to reflected sites rather than resumming the
+whole lattice.
+"""
 function apply_clusters!(
     model::XYModel,
     geometry::Geometry,
@@ -189,13 +234,10 @@ function apply_clusters!(
     clusters::Vector{Vector{Int}},
     reflection_axis::Real,
 )
-    for cluster in clusters
-        rand(Bool) || continue
-        for site in cluster
-            state.angles[site] = mod(2 * reflection_axis + π - state.angles[site], 2π)
-        end
-    end
-    _refresh_xy_state!(model, geometry, state)
+    flip = [rand(Bool) for _ in clusters]
+    _reflect_xy_clusters!(
+        model, geometry, state, clusters, flip, reflection_axis
+    )
     return nothing
 end
 
@@ -206,33 +248,64 @@ function apply_clusters!(
     clusters::Vector{Vector{Int}},
     context::XYClusterContext,
 )
-    for cluster in clusters
-        any(site -> site > geometry.n_sites, cluster) && continue
-        rand(Bool) || continue
-        for site in cluster
-            state.angles[site] = mod(
-                2 * context.reflection_axis + π - state.angles[site], 2π
-            )
-        end
-    end
-    _refresh_xy_state!(model, geometry, state)
+    flip = [
+        rand(Bool) && !any(site -> site > geometry.n_sites, cluster)
+        for cluster in clusters
+    ]
+    _reflect_xy_clusters!(
+        model, geometry, state, clusters, flip, context.reflection_axis
+    )
     return nothing
 end
 
-function _refresh_xy_state!(model::XYModel, geometry::Geometry, state::XYState)
-    state.energy = zero(state.energy)
-    state.magnetization_x = zero(state.magnetization_x)
-    state.magnetization_y = zero(state.magnetization_y)
-    for site in 1:geometry.n_sites
-        angle = state.angles[site]
-        state.magnetization_x += cos(angle)
-        state.magnetization_y += sin(angle)
-        info = geometry.neighbor_table[site]
-        for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
-            state.energy += -0.5 * bond_strength(model, geometry, bond_id) *
-                cos(angle - state.angles[neighbor])
-        end
-        state.energy += -field_strength(model, geometry, site) * cos(angle)
+"""
+    _reflect_xy_clusters!(model, geometry, state, clusters, flip, reflection_axis)
+
+Reflect every cluster `c` with `flip[c] == true`, accumulating the exact
+energy and magnetization change. A site→cluster index map identifies each
+bond incident to a reflected site as internal (both endpoints reflect, no
+change), external (neither reflects, never visited), or crossing (counted
+once, from the reflected side, with pre-reflection angles).
+"""
+function _reflect_xy_clusters!(
+    model::XYModel,
+    geometry::Geometry,
+    state::XYState,
+    clusters::Vector{Vector{Int}},
+    flip::Vector{Bool},
+    reflection_axis::Real,
+)
+    cluster_id = zeros(Int, geometry.n_sites)
+    for (c, cluster) in enumerate(clusters), site in cluster
+        site <= geometry.n_sites && (cluster_id[site] = c)
     end
+
+    cos_axis = cos(reflection_axis)
+    sin_axis = sin(reflection_axis)
+    ΔE = zero(state.energy)
+    ΔMx = zero(state.magnetization_x)
+    ΔMy = zero(state.magnetization_y)
+
+    for (c, cluster) in enumerate(clusters)
+        flip[c] || continue
+        for site in cluster
+            angle = state.angles[site]
+            projection = cos(angle - reflection_axis)
+            info = geometry.neighbor_table[site]
+            for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+                (neighbor == site || flip[cluster_id[neighbor]]) && continue
+                ΔE += 2 * bond_strength(model, geometry, bond_id) * projection *
+                    cos(state.angles[neighbor] - reflection_axis)
+            end
+            ΔE += 2 * field_strength(model, geometry, site) * cos_axis * projection
+            ΔMx -= 2 * cos_axis * projection
+            ΔMy -= 2 * sin_axis * projection
+            state.angles[site] = mod(2 * reflection_axis + π - angle, 2π)
+        end
+    end
+
+    state.energy += ΔE
+    state.magnetization_x += ΔMx
+    state.magnetization_y += ΔMy
     return nothing
 end

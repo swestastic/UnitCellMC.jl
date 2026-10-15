@@ -11,8 +11,9 @@ struct SwendsenWangAlgorithm <: AbstractAlgorithm end
     SwendsenWangUpdateResult
 
 Result of one Swendsen-Wang update, recording the number of clusters, the
-number of sites updated, and the fraction of sites contained in the largest
-cluster.
+total number of lattice sites processed (`updated_sites`; always equal to
+`geometry.n_sites`, since every site belongs to exactly one cluster), and
+the fraction of sites contained in the largest cluster.
 """
 struct SwendsenWangUpdateResult <: AbstractUpdateResult
     cluster_count::Int

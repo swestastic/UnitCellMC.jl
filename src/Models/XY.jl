@@ -1,8 +1,9 @@
 """
     XYModel{T<:Real} <: AbstractModel
 
-The classical XY model with bond strengths `J` and site-resolved external
-fields `h`. The field points along the x direction, so its contribution is
+The classical XY model with bond strengths `J` (one value per bond template)
+and external fields `h` (one value per site in the unit cell). The field
+points along the x direction, so its contribution is
 `-h[i] * cos(angle[i])`.
 """
 struct XYModel{T<:Real} <: AbstractModel

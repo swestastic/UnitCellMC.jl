@@ -76,8 +76,8 @@ Precomputes the displacement classes once (via
 [`Observable`](@ref) named `:correlation` (sampled per measurement with
 [`correlation_instantaneous`](@ref)) and a [`DerivedObservable`](@ref) that
 computes the connected correlation via jackknife resampling (see
-[`jackknife_stats`](@ref)). For Ising it subtracts `⟨m⟩²`; for XY it
-subtracts `⟨m_x⟩² + ⟨m_y⟩²`. The result also includes the
+[`jackknife_stats`](@ref)). For XY it subtracts
+`⟨m_x⟩² + ⟨m_y⟩²`; for other models it subtracts `⟨m⟩²`. The result also includes the
 [`CorrelationClass`](@ref) list labeling each entry.
 
 # Arguments

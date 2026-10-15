@@ -190,8 +190,9 @@ The runs execute in parallel over Julia threads: start Julia with
 run uses its own thread-local RNG stream, so results are statistically
 independent regardless of thread count.
 
-A new [`SimulationParameters`](@ref) and [`MeasurementContainer`](@ref) are
-created for every temperature and run.
+A new [`SimulationParameters`](@ref) is created for every temperature
+(shared by all runs at that temperature), and a new
+[`MeasurementContainer`](@ref) is created for every temperature and run.
 
 # Arguments
 

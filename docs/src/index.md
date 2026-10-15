@@ -5,12 +5,18 @@ lattice geometries.
 
 ## Overview
 
-UnitCellMC.jl is designed to provide a flexible framework for
-simulating classical lattice models. Currently, it supports the Ising model with the Metropolis algorithm, with further extensions to come in the future.
+UnitCellMC.jl provides a flexible framework for simulating classical
+lattice models. It currently supports the Ising and XY models with
+Metropolis, Wolff, and Swendsen-Wang update algorithms, with further
+extensions planned.
 
 The geometry of the system is separated from the physical model,
 allowing the same simulation framework to be used with different
 lattice geometries.
+
+For a guided walkthrough, see the [Getting Started](@ref) page or one
+of the tutorials; standalone scripts live in the
+[`examples/`](https://github.com/swestastic/UnitCellMC.jl/tree/main/examples) directory.
 
 ## Acknowledgements
 

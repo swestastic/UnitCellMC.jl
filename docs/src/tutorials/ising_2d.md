@@ -53,8 +53,8 @@ lattice = lu.Lattice(
 Now we can create our bonds between sites, and define the coupling strength for each bond.
 
 ```julia
-bond_1 = lu.Bond(orbitals = (1, 1), displacement = [0, 1])
-bond_2 = lu.Bond(orbitals = (1, 1), displacement = [-1, 0])
+bond_1 = lu.Bond(orbitals = (1, 1), displacement = [1, 0]) # bond along x̂
+bond_2 = lu.Bond(orbitals = (1, 1), displacement = [0, 1]) # bond along ŷ
 
 bonds = [bond_1, bond_2]
 
@@ -74,9 +74,10 @@ J = [J1, J2]
 h = [0.0] # External magnetic field strength per unit-cell site
 ```
 
-We then create an `IsingModel` object to hold these values for reference. Finally, we'll create an `IsingState` object which generates a random `state.spins` array, and the energy $E$ and magnetization $M$ of the initial configuration are calculated.
+The `IsingModel` object holds these values for reference, and `initialize_state` creates an `IsingState` with a random `state.spins` array, along with the energy $E$ and magnetization $M$ of the initial configuration.
 
 ```julia
+model = ucmc.IsingModel(J, h)
 state = ucmc.initialize_state(model, geometry) # Generate random spin configuration, calculate the initial energy and magnetization
 ```
 

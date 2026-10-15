@@ -72,7 +72,8 @@ observable's initial `data` and `bin_sums` entries are built from its
 
 `ArgumentError` if `n_measurements` is not positive, if `n_bins` is less
 than 2, if `n_measurements` is smaller than `n_bins`, if `n_measurements` is
-not divisible by `n_bins`, or if a requested derived quantity depends on an
+not divisible by `n_bins`, if any name in `diagnostics` duplicates a raw
+observable name, or if a requested derived quantity depends on an
 observable that isn't being measured (via [`validate_dependencies`](@ref)).
 
 # Returns

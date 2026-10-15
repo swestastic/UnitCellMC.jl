@@ -1,6 +1,6 @@
 """
-This example code implements the 2D Ising model using the UnitCellMC.jl package. 
-It demonstrates how to set up the geometry, initialize the state, and perform 
+This example code implements the 1D Ising chain using the UnitCellMC.jl package.
+It demonstrates how to set up the geometry, initialize the state, and perform
 Metropolis Monte Carlo steps to simulate the system's evolution.
 """
 
@@ -11,7 +11,7 @@ import LatticeUtilities as lu
 
 #### Initialize Geometry
 
-L = [8] # In this case this is [Lx, Ly] becuase the lattice_vectors are [̂x, ̂y]
+L = [8] # the unit cell is repeated 8 times along x̂
 
 lattice_vectors = [[1.0]]
 basis_vectors = [[0.0]] # our unit cell is a single site at the origin

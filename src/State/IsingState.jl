@@ -47,7 +47,10 @@ site; magnetization is simply the sum of all spins.
 
 # Throws
 
-`ArgumentError` if `length(model.J)` does not match `length(geometry.bonds)`.
+`ArgumentError` if `length(model.J)` does not match `length(geometry.bonds)`,
+if any entry of `geometry.bond_id_to_template` is out of bounds for
+`model.J`, or if `length(model.h)` does not match the number of sites in the
+unit cell.
 
 # Returns
 

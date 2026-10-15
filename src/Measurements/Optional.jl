@@ -13,7 +13,7 @@ binder_denominator(::XYModel) = 2.0
 """
     abs_magnetization_entry(model, geometry)
 
-Build the optional absolute-magnetization observables for an Ising model.
+Build the optional absolute-magnetization observables for a model.
 
 The resulting raw observables are `:abs_magnetization` and
 `:abs_magnetization_squared`, which are useful when the sign-symmetric
@@ -31,7 +31,7 @@ end
 """
     binder_cumulant_entry(model, geometry)
 
-Build the optional fourth-order Binder cumulant for an Ising model.
+Build the optional fourth-order Binder cumulant for a model.
 
 The routine adds the raw observable `:magnetization_fourth` and the derived
 quantity `:binder_cumulant`, computed from the jackknife samples of

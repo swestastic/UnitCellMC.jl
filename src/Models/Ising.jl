@@ -157,6 +157,11 @@ end
 
 Return the Wolff bond-activation probability for a ferromagnetic Ising bond.
 Only equal neighboring spins can join the cluster.
+
+# Throws
+
+`ArgumentError` if the bond coupling is negative; Wolff cluster updates
+require non-negative (ferromagnetic) couplings.
 """
 function cluster_bond_probability(
     model::IsingModel,

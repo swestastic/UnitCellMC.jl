@@ -37,3 +37,19 @@ diagnostic_values(::SwendsenWangAlgorithm, result::SwendsenWangUpdateResult) = (
     cluster_count = result.cluster_count,
     largest_cluster_fraction = result.largest_cluster_fraction,
 )
+
+"""
+    available_diagnostics(algorithm::Type{<:AbstractAlgorithm})
+
+Return a `Vector{Symbol}` listing the diagnostic names accepted by `algorithm`
+when constructing a [`MeasurementContainer`](@ref).
+
+# Returns
+
+- `MetropolisAlgorithm` → `[:acceptance_ratio]`
+- `WolffAlgorithm` → `[:cluster_size]`
+- `SwendsenWangAlgorithm` → `[:cluster_count, :largest_cluster_fraction]`
+"""
+available_diagnostics(::Type{MetropolisAlgorithm}) = [:acceptance_ratio]
+available_diagnostics(::Type{WolffAlgorithm}) = [:cluster_size]
+available_diagnostics(::Type{SwendsenWangAlgorithm}) = [:cluster_count, :largest_cluster_fraction]

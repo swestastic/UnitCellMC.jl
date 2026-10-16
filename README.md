@@ -23,4 +23,6 @@ Pkg.add(url="github.com/swestastic/UnitCellMC.jl")
 
 ## Usage
 
-See `examples/` for runnable 1D Ising chain and 2D square-lattice Ising/XY simulations. All functionality is accessed through qualified names, e.g. `UnitCellMC.Geometry(...)`, `UnitCellMC.IsingModel(...)`, `UnitCellMC.sweep_Ts(...)`.
+The main user-facing API is exported — `using UnitCellMC` brings `Geometry`, the models and algorithms, `initialize_state`, `SimulationParameters`, `MeasurementContainer`, the simulation drivers (`run_simulation`, `sweep_Ts`, ...), `analyze`, and the save functions into scope. Lattice types (`UnitCell`, `Lattice`, `Bond`) come from [LatticeUtilities.jl](https://github.com/SmoQySuite/LatticeUtilities.jl) and must be loaded separately.
+
+See `examples/` for runnable 1D Ising chain and 2D square-lattice Ising/XY simulations.

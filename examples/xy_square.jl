@@ -41,25 +41,10 @@ J = [J1, J2]
 h = [0.0] # External magnetic field strength per unit-cell site
 
 model = ucmc.XYModel(J, h)
-# algorithm = ucmc.MetropolisAlgorithm()
 algorithm = ucmc.WolffAlgorithm() 
-# algorithm = ucmc.SwendsenWangAlgorithm()
 
-measurements = [
-    :raw_correlation,
-    :connected_correlation,
-    :abs_magnetization, 
-    :abs_magnetization_squared, 
-    :magnetization_fourth, 
-    :binder_cumulant
-]
-if typeof(algorithm) <: ucmc.MetropolisAlgorithm
-    diagnostics = [:acceptance_ratio]
-elseif typeof(algorithm) <: ucmc.WolffAlgorithm
-    diagnostics = [:cluster_size]
-elseif typeof(algorithm) <: ucmc.SwendsenWangAlgorithm
-    diagnostics = [:cluster_count, :largest_cluster_fraction]
-end
+measurements = [diagnostics = available_diagnostics(algorithm)
+measurements = available_measurements(model)
 
 state = ucmc.initialize_state(model, geometry) # Generate random spin configuration, calculate the initial energy and magnetization
 

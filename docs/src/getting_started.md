@@ -9,12 +9,22 @@ import Pkg
 Pkg.add(url="github.com/swestastic/UnitCellMC.jl")
 ```
 
-Nothing is exported; access the API through qualified names. The
-examples alias the module for brevity:
+The main user-facing types and functions are exported, so
+`using UnitCellMC` is enough for a standard run. Lattice types
+(`UnitCell`, `Lattice`, `Bond`) are provided by LatticeUtilities, which
+must be loaded separately. The examples alias the modules for brevity
+and use qualified names:
 
 ```julia
 import UnitCellMC as ucmc
 import LatticeUtilities as lu
+```
+
+Equivalently:
+
+```julia
+using UnitCellMC
+using LatticeUtilities
 ```
 
 ## Basic Workflow

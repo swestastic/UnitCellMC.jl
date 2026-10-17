@@ -50,6 +50,9 @@ when constructing a [`MeasurementContainer`](@ref).
 - `WolffAlgorithm` → `[:cluster_size]`
 - `SwendsenWangAlgorithm` → `[:cluster_count, :largest_cluster_fraction]`
 """
-available_diagnostics(::Type{MetropolisAlgorithm}) = [:acceptance_ratio]
-available_diagnostics(::Type{WolffAlgorithm}) = [:cluster_size]
-available_diagnostics(::Type{SwendsenWangAlgorithm}) = [:cluster_count, :largest_cluster_fraction]
+available_diagnostics(::Type{<:MetropolisAlgorithm})   = [:acceptance_ratio]
+available_diagnostics(::Type{<:WolffAlgorithm})        = [:cluster_size]
+available_diagnostics(::Type{<:SwendsenWangAlgorithm}) = [:cluster_count, :largest_cluster_fraction]
+
+# Instances forward to the type methods
+available_diagnostics(alg::AbstractAlgorithm) = available_diagnostics(typeof(alg))

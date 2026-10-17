@@ -153,7 +153,7 @@ Several of these names trigger implicit dependencies (e.g. requesting
 [`optional_observables`](@ref) and the [`MeasurementContainer`](@ref) constructor
 for details.
 """
-available_measurements(::AbstractModel) = [
+available_measurements(::Type{<:AbstractModel}) = [
     :raw_correlation,
     :connected_correlation,
     :abs_magnetization,
@@ -162,3 +162,6 @@ available_measurements(::AbstractModel) = [
     :binder,
     :magnetization_fourth,
 ]
+
+# Instances forward to the type method
+available_measurements(::M) where {M<:AbstractModel} = available_measurements(M)

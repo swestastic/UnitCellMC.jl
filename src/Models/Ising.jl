@@ -1,4 +1,4 @@
-struct IsingModel{T<:Real} <: AbstractModel
+struct IsingModel{T<:Real} <: AbstractModel{T}
     J::Vector{T}   # one entry per bond template, same order as geometry.bonds
     h::Vector{T}    # one value per site in the unit cell
 

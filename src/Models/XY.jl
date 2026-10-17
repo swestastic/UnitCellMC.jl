@@ -6,7 +6,7 @@ and external fields `h` (one value per site in the unit cell). The field
 points along the x direction, so its contribution is
 `-h[i] * cos(angle[i])`.
 """
-struct XYModel{T<:Real} <: AbstractModel
+struct XYModel{T<:Real} <: AbstractModel{T}
     J::Vector{T}
     h::Vector{T}
 

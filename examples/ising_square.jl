@@ -6,12 +6,12 @@ Metropolis Monte Carlo steps to simulate the system's evolution.
 
 #### Import the necessary modules
 
-using UnitCellMc
+using UnitCellMC
 import LatticeUtilities as lu
 
 #### Initialize Geometry
 
-L = [16, 16] # In this case this is [Lx, Ly] becuase the lattice_vectors are [̂x, ̂y]
+L = [8, 8] # In this case this is [Lx, Ly] becuase the lattice_vectors are [̂x, ̂y]
 
 lattice_vectors = [[1.0, 0.0], [0.0, 1.0]] # [x̂, ŷ] in 2D
 basis_vectors = [[0.0, 0.0]] # our unit cell is a single site at the origin

@@ -41,4 +41,5 @@ UnitCellMC.magnetization_value
 ```@docs
 UnitCellMC.observables
 UnitCellMC.derived_observables
+UnitCellMC.available_measurements
 ```

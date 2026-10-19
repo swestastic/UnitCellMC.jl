@@ -425,6 +425,18 @@ end
     @test 0.0 < ucmc.value(stats[2]) <= 1.0
 end
 
+@testset "Algorithms reject non-positive temperature" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    state = ucmc.initialize_state(model, geometry)
+
+    for alg in (ucmc.MetropolisAlgorithm(), ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
+        for T in (0.0, -1.0, -Inf)
+            @test_throws ArgumentError ucmc.step!(alg, model, geometry, state, T)
+        end
+    end
+end
+
 @testset "run_simulation fills bins" begin
     geometry = square_geometry(2)
     model = ucmc.IsingModel([1.0, 1.0], [0.0])

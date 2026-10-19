@@ -6,12 +6,12 @@ Metropolis Monte Carlo steps to simulate the system's evolution.
 
 #### Import the necessary modules
 
-import UnitCellMC as ucmc
+using UnitCellMC
 import LatticeUtilities as lu
 
 #### Initialize Geometry
 
-L = [4, 4] # In this case this is [Lx, Ly] becuase the lattice_vectors are [̂x, ̂y]
+L = [8, 8] # In this case this is [Lx, Ly] becuase the lattice_vectors are [̂x, ̂y]
 
 lattice_vectors = [[1.0, 0.0], [0.0, 1.0]] # [x̂, ŷ] in 2D
 basis_vectors = [[0.0, 0.0]] # our unit cell is a single site at the origin
@@ -40,28 +40,13 @@ J2 = 1.0 # Coupling strength along ̂y
 J = [J1, J2]
 h = [0.0] # External magnetic field strength per unit-cell site
 
-model = ucmc.XYModel(J, h)
-# algorithm = ucmc.MetropolisAlgorithm()
-algorithm = ucmc.WolffAlgorithm() 
-# algorithm = ucmc.SwendsenWangAlgorithm()
+model = XYModel(J, h)
+algorithm = WolffAlgorithm() 
 
-measurements = [
-    :raw_correlation,
-    :connected_correlation,
-    :abs_magnetization, 
-    :abs_magnetization_squared, 
-    :magnetization_fourth, 
-    :binder_cumulant
-]
-if typeof(algorithm) <: ucmc.MetropolisAlgorithm
-    diagnostics = [:acceptance_ratio]
-elseif typeof(algorithm) <: ucmc.WolffAlgorithm
-    diagnostics = [:cluster_size]
-elseif typeof(algorithm) <: ucmc.SwendsenWangAlgorithm
-    diagnostics = [:cluster_count, :largest_cluster_fraction]
-end
+diagnostics = available_diagnostics(algorithm)
+measurements = available_measurements(model)
 
-state = ucmc.initialize_state(model, geometry) # Generate random spin configuration, calculate the initial energy and magnetization
+state = initialize_state(model, geometry) # Generate random spin configuration, calculate the initial energy and magnetization
 
 #### Set simulation parameters
 
@@ -69,6 +54,7 @@ n_thermalization = 10_000 # warmup / thermalization sweeps before measurements
 n_measurements = 10_000 # number of measurement sweeps per temperature (one cluster update per sweep for Wolff)
 n_unmeasured = 5 # number of unmeasured sweeps between each measurement to reduce autocorrelation
 n_bins = 100 # number of bins for jackknife error estimation
+n_runs = 20 # number of independent runs to average over
 
 #### Perform simulation
 

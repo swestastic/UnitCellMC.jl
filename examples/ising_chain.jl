@@ -6,7 +6,7 @@ Metropolis Monte Carlo steps to simulate the system's evolution.
 
 #### Import the necessary modules
 
-import UnitCellMC as ucmc
+using UnitCellMC
 import LatticeUtilities as lu
 
 #### Initialize Geometry
@@ -29,7 +29,7 @@ lattice = lu.Lattice(
 bond_1 = lu.Bond(orbitals = (1, 1), displacement = [1]) # bond along ̂x
 bonds = [bond_1]
 
-geometry = ucmc.Geometry(unit_cell, lattice, bonds)
+geometry = Geometry(unit_cell, lattice, bonds)
 
 n_sites = geometry.n_sites
 
@@ -38,10 +38,10 @@ J1 = 1.0 # Coupling strength along ̂x
 J = [J1]
 h = [0.0] # External magnetic field strength per unit-cell site
 
-model = ucmc.IsingModel(J, h)
-algorithm = ucmc.MetropolisAlgorithm()
+model = IsingModel(J, h)
+algorithm = MetropolisAlgorithm()
 
-state = ucmc.initialize_state(model, geometry) # Generate random spin configuration, calculate the initial energy and magnetization
+state = initialize_state(model, geometry) # Generate random spin configuration, calculate the initial energy and magnetization
 
 #### Set simulation parameters
 
@@ -49,16 +49,20 @@ n_thermalization = 10_000 # warmup / thermalization sweeps before measurements
 n_measurements = 10_000 # number of measurement sweeps per temperature (L Metropolis steps per sweep)
 n_unmeasured = 5 # number of unmeasured sweeps between each measurement to reduce autocorrelation
 n_bins = 100 # number of bins for jackknife error estimation
+n_runs = 20 # number of independent runs to average over
+
+diagnostics = available_diagnostics(algorithm)
+measurements = available_measurements(model)
 
 #### Perform simulation
 
-Ts = collect(0.1:0.1:1.0) # 10 temperatures from T = 0.1 to T = 1.0
+Ts = collect(1.0:-0.1:0.1) # 10 temperatures from T = 0.1 to T = 1.0
 
-sweep_results = ucmc.sweep_Ts(
+sweep_results = sweep_Ts(
     algorithm, model, geometry, state,
     n_thermalization, n_measurements, n_unmeasured, n_bins, Ts;
     simulated_annealing = true,
-    measurements = [:connected_correlation], # enable connected correlation measurements
-    # measurements = Symbol[],
-    diagnostics = [:acceptance_ratio]
+    n_runs = n_runs,
+    measurements = measurements,
+    diagnostics = diagnostics
 )

@@ -130,3 +130,38 @@ function optional_observables(model, geometry, measurements)
 
     return obs, der
 end
+
+"""
+    available_measurements(model::AbstractModel)
+
+Return a `Vector{Symbol}` listing the optional measurement names accepted by
+`model` when constructing a [`MeasurementContainer`](@ref).
+
+These names are resolved by [`optional_observables`](@ref). Use them in the
+`measurements` keyword argument; they supplement the always-on observables
+returned by [`observables`](@ref) and [`derived_observables`](@ref).
+
+# Returns
+
+`[:raw_correlation, :connected_correlation, :abs_magnetization,
+:magnetization_abs, :binder_cumulant, :binder, :magnetization_fourth]`
+
+# Notes
+
+Several of these names trigger implicit dependencies (e.g. requesting
+`:connected_correlation` also adds `:raw_correlation`). See
+[`optional_observables`](@ref) and the [`MeasurementContainer`](@ref) constructor
+for details.
+"""
+available_measurements(::Type{<:AbstractModel}) = [
+    :raw_correlation,
+    :connected_correlation,
+    :abs_magnetization,
+    :magnetization_abs,
+    :binder_cumulant,
+    :binder,
+    :magnetization_fourth,
+]
+
+# Instances forward to the type method
+available_measurements(::M) where {M<:AbstractModel} = available_measurements(M)

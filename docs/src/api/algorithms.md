@@ -15,4 +15,5 @@ UnitCellMC.SwendsenWangUpdateResult
 UnitCellMC.AbstractUpdateResult
 UnitCellMC.step!
 UnitCellMC.UpdateStatistic
+UnitCellMC.available_diagnostics
 ```

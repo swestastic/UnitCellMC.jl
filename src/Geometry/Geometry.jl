@@ -27,8 +27,8 @@ and the neighbor bookkeeping derived from them.
 - `bonds::Vector{Bond{D}}`: Bond templates defining the model's connectivity.
 - `bond_id_to_template::Vector{Int}`: Maps each concrete bond id to the index
   of the bond template (in `bonds`) it was generated from.
-- `neighbor_table::Dict{Int,NeighborInfo}`: Maps each site to the bonds and
-  neighboring sites connected to it.
+- `neighbor_table::Vector{NeighborInfo}`: Indexed by site number, each entry
+  gives the bonds and neighboring sites connected to that site.
 - `n_sites::Int`: Total number of sites in the lattice.
 
 Construct with [`Geometry(unit_cell, lattice, bonds)`](@ref).
@@ -38,7 +38,7 @@ struct Geometry{D,T<:AbstractFloat,N}
     lattice::Lattice{D}
     bonds::Vector{Bond{D}}
     bond_id_to_template::Vector{Int}
-    neighbor_table::Dict{Int,NeighborInfo}
+    neighbor_table::Vector{NeighborInfo}
     n_sites::Int
 end
 
@@ -74,8 +74,8 @@ function Geometry(
 
     if isempty(bonds)
         bond_id_to_template = Int[]
-        neighbor_table_map = Dict(i => (bonds=Int[], neighbors=Int[]) for i in 1:n_sites)
-        return Geometry(unit_cell, lattice, bonds, bond_id_to_template, neighbor_table_map, n_sites)
+        neighbor_table = [(bonds=Int[], neighbors=Int[]) for i in 1:n_sites]
+        return Geometry(unit_cell, lattice, bonds, bond_id_to_template, neighbor_table, n_sites)
     end
 
     per_template_tables = [
@@ -88,10 +88,14 @@ function Geometry(
         [fill(i, size(nt, 2)) for (i, nt) in enumerate(per_template_tables)]
     )
 
-    neighbor_table = reduce(hcat, per_template_tables)
-    neighbor_table_map = LatticeUtilities.map_neighbor_table(neighbor_table)
+    neighbor_table_matrix = reduce(hcat, per_template_tables)
+    neighbor_table_dict = LatticeUtilities.map_neighbor_table(neighbor_table_matrix)
+    neighbor_table = [
+        get(neighbor_table_dict, i, (bonds=Int[], neighbors=Int[]))
+        for i in 1:n_sites
+    ]
 
-    return Geometry(unit_cell, lattice, bonds, bond_id_to_template, neighbor_table_map, n_sites)
+    return Geometry(unit_cell, lattice, bonds, bond_id_to_template, neighbor_table, n_sites)
 end
 
 """

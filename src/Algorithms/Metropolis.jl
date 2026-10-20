@@ -8,7 +8,7 @@ single-flip Metropolis acceptance rule.
 struct MetropolisAlgorithm <: AbstractAlgorithm end
 
 """
-    step!(alg, model, geometry, state, T)
+    step!(alg, model, geometry, state, T; rng = Random.default_rng())
 
 Attempt one Monte Carlo update on `state` using `alg`, and apply it if
 accepted according to the Metropolis criterion at temperature `T`.
@@ -25,6 +25,9 @@ applied in place via [`apply_update!`](@ref).
 - `geometry`: The lattice geometry.
 - `state`: The current configuration, mutated in place if the move is accepted.
 - `T`: Temperature used in the Metropolis acceptance probability.
+- `rng`: Random number generator used for the proposal and the acceptance
+  test. Defaults to the task-local global RNG, so `Random.seed!` makes runs
+  reproducible; pass an explicit `AbstractRNG` for an independent stream.
 
 # Throws
 
@@ -40,14 +43,15 @@ function step!(
     model::AbstractModel,
     geometry::Geometry,
     state::AbstractState,
-    T::Real
+    T::Real;
+    rng::AbstractRNG = Random.default_rng()
 )
     T > 0 || throw(ArgumentError("Temperature must be positive, got $T"))
 
-    proposal = propose(alg, model, geometry, state)
+    proposal = propose(rng, alg, model, geometry, state)
     ΔE = energy_difference(model, geometry, state, proposal)
 
-    if ΔE <= 0.0 || log(rand()) < - ΔE / T
+    if ΔE <= 0.0 || log(rand(rng)) < - ΔE / T
         apply_update!(state, proposal, ΔE)
         return MetropolisUpdateResult(true)
     end

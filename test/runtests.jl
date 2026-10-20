@@ -538,6 +538,115 @@ end
     )
 end
 
+@testset "RNG reproducibility" begin
+    geometry = square_geometry(4)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    xy_model = ucmc.XYModel([1.0, 1.0], [0.0])
+    parameters = ucmc.SimulationParameters(2.0, 5, 20, 1, 4)
+
+    # explicit rng: identical streams give identical states and bins
+    for (m, algorithm) in ((model, ucmc.MetropolisAlgorithm()), (model, ucmc.WolffAlgorithm()),
+                           (model, ucmc.SwendsenWangAlgorithm()), (xy_model, ucmc.MetropolisAlgorithm()),
+                           (xy_model, ucmc.WolffAlgorithm()), (xy_model, ucmc.SwendsenWangAlgorithm()))
+        containers = map(1:2) do _
+            rng = Xoshiro(2024)
+            state = ucmc.initialize_state(m, geometry; rng = rng)
+            container = ucmc.MeasurementContainer(m, geometry, 20, 4)
+            ucmc.run_simulation(algorithm, m, geometry, state, container, parameters; rng = rng)
+        end
+        @test isequal(containers[1].data, containers[2].data)
+    end
+
+    # the global RNG is the default, so Random.seed! reproduces a run
+    runs = map(1:2) do _
+        Random.seed!(99)
+        state = ucmc.initialize_state(model, geometry)
+        container = ucmc.MeasurementContainer(model, geometry, 20, 4)
+        ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state, container, parameters)
+    end
+    @test isequal(runs[1].data, runs[2].data)
+
+    # threaded sweep_Ts runs are reproducible from the global seed
+    root = mktempdir()
+    primaries(results) = [r.primary for r in results]
+    sweep(state; kwargs...) = ucmc.sweep_Ts(
+        ucmc.MetropolisAlgorithm(), model, geometry, state,
+        5, 20, 1, 4, [3.0, 2.0]; n_runs = 4, time_series = :none, root = root, kwargs...
+    )
+    seeded_sweep(seed; kwargs...) = (Random.seed!(seed);
+        sweep(ucmc.initialize_state(model, geometry); kwargs...))
+    for annealing in (true, false)
+        @test isequal(
+            primaries(seeded_sweep(7; simulated_annealing = annealing)),
+            primaries(seeded_sweep(7; simulated_annealing = annealing))
+        )
+    end
+    @test !isequal(primaries(seeded_sweep(7)), primaries(seeded_sweep(8)))
+
+    # an explicit rng behaves like the seeded global RNG
+    explicit_sweep(seed) = (rng = Xoshiro(seed);
+        sweep(ucmc.initialize_state(model, geometry; rng = rng); rng = rng))
+    @test isequal(primaries(explicit_sweep(5)), primaries(explicit_sweep(5)))
+end
+
+@testset "seed recorded in metadata" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    metadata(dir) = readlines(joinpath(dir, "metadata.txt"))
+    sweep_dir(root) = ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L; root = root)
+    sweep(root; kwargs...) = ucmc.sweep_Ts(
+        ucmc.MetropolisAlgorithm(), model, geometry, ucmc.initialize_state(model, geometry),
+        2, 4, 0, 2, [2.0]; n_runs = 2, time_series = :none, root = root, kwargs...
+    )
+
+    # set_global_seed! seeds the global RNG exactly like Random.seed!
+    @test ucmc.set_global_seed!(42) == 42
+    @test ucmc.global_seed() == 42
+    a = rand(3)
+    Random.seed!(42)
+    @test rand(3) == a
+
+    # sweep_Ts records the global seed and Julia version
+    root = mktempdir()
+    ucmc.set_global_seed!(42)
+    sweep(root)
+    lines = metadata(sweep_dir(root))
+    @test "seed = 42" in lines
+    @test "julia_version = $VERSION" in lines
+
+    # the recorded seed recreates the saved results
+    first_csv = read(joinpath(sweep_dir(root), "measurement_results.csv"), String)
+    ucmc.set_global_seed!(42)
+    sweep(root)
+    @test read(joinpath(sweep_dir(root), "measurement_results.csv"), String) == first_csv
+
+    # without an argument a random seed is drawn, returned, and recorded
+    seed = ucmc.set_global_seed!()
+    @test ucmc.global_seed() == seed
+    sweep(root)
+    @test "seed = $seed" in metadata(sweep_dir(root))
+
+    # an explicit rng has no recoverable seed unless one is passed alongside it
+    sweep(root; rng = Xoshiro(5))
+    @test "seed = unknown" in metadata(sweep_dir(root))
+    sweep(root; rng = Xoshiro(5), seed = 5)
+    @test "seed = 5" in metadata(sweep_dir(root))
+
+    # single-temperature saves record the seed too
+    ucmc.set_global_seed!(7)
+    state = ucmc.initialize_state(model, geometry)
+    parameters = ucmc.SimulationParameters(2.0, 2, 4, 0, 2)
+    container = ucmc.MeasurementContainer(model, geometry, 4, 2)
+    ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state, container, parameters)
+    results = ucmc.analyze(container, 2.0, geometry.n_sites)
+    single = ucmc.save_results(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L, 2.0,
+        results, parameters; root = root)
+    @test "seed = 7" in metadata(single)
+    single = ucmc.save_results(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L, 2.0,
+        results, parameters; root = root, seed = nothing)
+    @test "seed = unknown" in metadata(single)
+end
+
 # AR(1) process x[i] = φ x[i-1] + √(1-φ²) ξ: ρ(k) = φ^k and
 # τ_int = 1/2 + Σ_{k≥1} φ^k = (1 + φ) / (2(1 - φ)).
 function ar1_series(phi, n)

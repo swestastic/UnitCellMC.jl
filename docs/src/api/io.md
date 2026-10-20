@@ -7,6 +7,7 @@ CollapsedDocStrings = true
 ```@docs
 UnitCellMC.results_dirname
 UnitCellMC.save_metadata
+UnitCellMC.write_reproducibility_metadata
 UnitCellMC.measurement_rows
 UnitCellMC.correlation_rows
 UnitCellMC.save_measurements

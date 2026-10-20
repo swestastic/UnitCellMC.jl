@@ -20,8 +20,8 @@ function XYModel(J::Vector{<:Real}, h::AbstractVector{<:Real})
     return XYModel{T}(convert(Vector{T}, J), convert(Vector{T}, h))
 end
 
-initialize_state(model::XYModel, geometry::Geometry) =
-    _initialize_xy_state(model, geometry)
+initialize_state(model::XYModel, geometry::Geometry; rng::AbstractRNG = Random.default_rng()) =
+    _initialize_xy_state(model, geometry, rng)
 
 function validate_model_geometry(model::XYModel, geometry::Geometry)
     invoke(validate_model_geometry, Tuple{AbstractModel, Geometry}, model, geometry)
@@ -47,9 +47,9 @@ local_operator(state::XYState, site) = state.angles[site]
 operator_product(::XYModel, first_angle::Real, second_angle::Real) =
     cos(first_angle - second_angle)
 
-function propose(::MetropolisAlgorithm, ::XYModel, geometry, state::XYState)
-    site = rand(eachindex(state.angles))
-    return SpinUpdate(site, 2π * rand())
+function propose(rng::AbstractRNG, ::MetropolisAlgorithm, ::XYModel, geometry, state::XYState)
+    site = rand(rng, eachindex(state.angles))
+    return SpinUpdate(site, 2π * rand(rng))
 end
 
 function energy_difference(
@@ -94,8 +94,8 @@ mutable struct XYClusterContext
     ghost_attached::Bool
 end
 
-cluster_context(::XYModel, ::Geometry, ::XYState, ::Real) =
-    XYClusterContext(2π * rand(), false)
+cluster_context(rng::AbstractRNG, ::XYModel, ::Geometry, ::XYState, ::Real) =
+    XYClusterContext(2π * rand(rng), false)
 
 cluster_ghost_count(::XYModel, ::Geometry, ::XYState, ::XYClusterContext) = 2
 
@@ -220,22 +220,24 @@ function apply_cluster!(
 end
 
 """
-    apply_clusters!(model, geometry, state, clusters, reflection_axis)
+    apply_clusters!(rng, model, geometry, state, clusters, reflection_axis)
 
-Randomly reflect each Swendsen-Wang cluster about `reflection_axis` and update
+Randomly reflect each Swendsen-Wang cluster (coin flips drawn from `rng`)
+about `reflection_axis` and update
 the cached XY observables incrementally. A bond only changes energy when
 exactly one of its endpoints sits in a reflected cluster, so the energy update
 touches only bonds incident to reflected sites rather than resumming the
 whole lattice.
 """
 function apply_clusters!(
+    rng::AbstractRNG,
     model::XYModel,
     geometry::Geometry,
     state::XYState,
     clusters::Vector{Vector{Int}},
     reflection_axis::Real,
 )
-    flip = [rand(Bool) for _ in clusters]
+    flip = [rand(rng, Bool) for _ in clusters]
     _reflect_xy_clusters!(
         model, geometry, state, clusters, flip, reflection_axis
     )
@@ -243,6 +245,7 @@ function apply_clusters!(
 end
 
 function apply_clusters!(
+    rng::AbstractRNG,
     model::XYModel,
     geometry::Geometry,
     state::XYState,
@@ -250,7 +253,7 @@ function apply_clusters!(
     context::XYClusterContext,
 )
     flip = [
-        rand(Bool) && !any(site -> site > geometry.n_sites, cluster)
+        rand(rng, Bool) && !any(site -> site > geometry.n_sites, cluster)
         for cluster in clusters
     ]
     _reflect_xy_clusters!(

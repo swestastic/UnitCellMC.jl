@@ -74,17 +74,17 @@ operator values, as used when computing bond energies for `model`.
 operator_product(model::IsingModel, a::Real, b::Real) = a * b
 
 """
-    propose(::MetropolisAlgorithm, model, geometry, state)
+    propose(rng, ::MetropolisAlgorithm, model, geometry, state)
 
-Generate a Metropolis trial move for `model`: pick a random site and propose
-flipping its spin.
+Generate a Metropolis trial move for `model`: pick a random site, drawn from
+`rng`, and propose flipping its spin.
 
 # Returns
 
 A `SpinUpdate` describing the site and its proposed (flipped) value.
 """
-function propose(::MetropolisAlgorithm, ::IsingModel, geometry, state)
-    site = rand(eachindex(state.spins))
+function propose(rng::AbstractRNG, ::MetropolisAlgorithm, ::IsingModel, geometry, state)
+    site = rand(rng, eachindex(state.spins))
     return SpinUpdate(site, -state.spins[site])
 end
 
@@ -184,7 +184,7 @@ mutable struct IsingClusterContext
     ghost_attached::Bool
 end
 
-cluster_context(::IsingModel, ::Geometry, ::IsingState, ::Real) =
+cluster_context(::AbstractRNG, ::IsingModel, ::Geometry, ::IsingState, ::Real) =
     IsingClusterContext(false)
 
 cluster_ghost_count(::IsingModel, ::Geometry, ::IsingState, ::IsingClusterContext) = 2
@@ -275,25 +275,28 @@ function apply_cluster!(
 end
 
 """
-    apply_clusters!(model, geometry, state, clusters)
+    apply_clusters!(rng, model, geometry, state, clusters)
 
-Randomly orient each Swendsen-Wang cluster and update the cached Ising
+Randomly orient each Swendsen-Wang cluster (coin flips drawn from `rng`) and
+update the cached Ising
 observables incrementally. A bond only changes energy when exactly one of its
 endpoints sits in a flipped cluster, so the energy update touches only bonds
 incident to flipped sites rather than resumming the whole lattice.
 """
 function apply_clusters!(
+    rng::AbstractRNG,
     model::IsingModel,
     geometry::Geometry,
     state::IsingState,
     clusters::Vector{Vector{Int}}
 )
-    flip = [rand(Bool) for _ in clusters]
+    flip = [rand(rng, Bool) for _ in clusters]
     _flip_ising_clusters!(model, geometry, state, clusters, flip)
     return nothing
 end
 
 function apply_clusters!(
+    rng::AbstractRNG,
     model::IsingModel,
     geometry::Geometry,
     state::IsingState,
@@ -301,7 +304,7 @@ function apply_clusters!(
     ::IsingClusterContext,
 )
     flip = [
-        rand(Bool) && !any(site -> site > geometry.n_sites, cluster)
+        rand(rng, Bool) && !any(site -> site > geometry.n_sites, cluster)
         for cluster in clusters
     ]
     _flip_ising_clusters!(model, geometry, state, clusters, flip)
@@ -353,5 +356,5 @@ function _flip_ising_clusters!(
     return nothing
 end
 
-apply_clusters!(model, geometry, state, clusters, ::Nothing) =
-    apply_clusters!(model, geometry, state, clusters)
+apply_clusters!(rng::AbstractRNG, model, geometry, state, clusters, ::Nothing) =
+    apply_clusters!(rng, model, geometry, state, clusters)

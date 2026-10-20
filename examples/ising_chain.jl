@@ -9,6 +9,16 @@ Metropolis Monte Carlo steps to simulate the system's evolution.
 using UnitCellMC
 import LatticeUtilities as lu
 
+#### Set the global RNG seed
+
+# Every random number in this script (initial states, the autotuning pilot, and
+# all n_runs parallel runs in sweep_Ts) derives from the global RNG, so rerunning
+# with the same seed reproduces the results exactly, for any number of threads.
+# The seed is saved to the results folder's metadata.txt. Change it for a
+# statistically independent run, or call set_global_seed!() for a random one.
+seed = 1234
+set_global_seed!(seed)
+
 #### Initialize Geometry
 
 L = [8] # the unit cell is repeated 8 times along x̂

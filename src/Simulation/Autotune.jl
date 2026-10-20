@@ -3,7 +3,8 @@
                      n_thermalization = 1_000, n_pilot = 5_000,
                      measurements = Symbol[], observables = nothing,
                      bin_factor = 10, n_unmeasured = nothing,
-                     window = 6.0, max_lag = nothing)
+                     window = 6.0, max_lag = nothing,
+                     rng = Random.default_rng())
 
 Choose `n_unmeasured` and the bin size from the data instead of guessing:
 run a short pilot simulation at each temperature in `Ts`, measuring after
@@ -35,6 +36,9 @@ given and carries `state` from one temperature to the next, like
   physical quantities.
 - `bin_factor`, `n_unmeasured`: Passed to [`recommended_binning`](@ref).
 - `window`, `max_lag`: Passed to [`autocorrelation`](@ref).
+- `rng`: Random number generator for the pilot runs. Defaults to the
+  task-local global RNG, so `Random.seed!` makes the recommendation
+  reproducible.
 
 # Returns
 
@@ -72,6 +76,7 @@ function autotune_binning(
     n_unmeasured::Union{Integer, Nothing} = nothing,
     window::Real = 6.0,
     max_lag::Union{Integer, Nothing} = nothing,
+    rng::AbstractRNG = Random.default_rng(),
 )
     temperatures = Ts isa Real ? [Ts] : collect(Ts)
     isempty(temperatures) && throw(ArgumentError("Ts must contain at least one temperature"))
@@ -97,7 +102,7 @@ function autotune_binning(
         selected = collect(keys(pilot.time_series))
 
         parameters = SimulationParameters(T, n_thermalization, n_pilot, 0, n_pilot_bins)
-        run_simulation(algorithm, model, geometry, state, pilot, parameters)
+        run_simulation(algorithm, model, geometry, state, pilot, parameters; rng = rng)
 
         results = Dict{Symbol, AutocorrelationResult}(
             name => autocorrelation(pilot.time_series[name]; window = window, max_lag = max_lag)

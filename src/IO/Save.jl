@@ -29,10 +29,11 @@ function results_dirname(model, algorithm, L, T; root::AbstractString = "results
 end
 
 """
-    save_metadata(dir, model, algorithm, L, T, parameters)
+    save_metadata(dir, model, algorithm, L, T, parameters; seed = global_seed())
 
 Write a `metadata.txt` file in `dir` recording the model, algorithm, system
-size, temperature, and simulation `parameters` used for a single run.
+size, temperature, and simulation `parameters` used for a single run, plus
+the RNG `seed` and Julia version needed to recreate it.
 
 # Arguments
 
@@ -43,15 +44,31 @@ size, temperature, and simulation `parameters` used for a single run.
 - `T`: Temperature.
 - `parameters`: Simulation parameters (e.g. a `SimulationParameters`), written
   via its `show` representation.
+- `seed`: RNG seed of the run; defaults to the seed set with
+  [`set_global_seed!`](@ref). Written as `unknown` when `nothing`.
 """
-function save_metadata(dir, model, algorithm, L, T, parameters)
+function save_metadata(dir, model, algorithm, L, T, parameters; seed = global_seed())
     open(joinpath(dir, "metadata.txt"), "w") do io
         println(io, "model = ", model)
         println(io, "algorithm = ", algorithm)
         println(io, "L = ", L)
         println(io, "temperature = ", T)
         println(io, "parameters = ", parameters)
+        write_reproducibility_metadata(io, seed)
     end
+    return nothing
+end
+
+"""
+    write_reproducibility_metadata(io, seed)
+
+Write the `seed = ...` (or `seed = unknown`) and `julia_version = ...` lines
+of `metadata.txt`. The Julia version is recorded because the random streams
+produced from a seed may change between Julia releases.
+"""
+function write_reproducibility_metadata(io, seed)
+    println(io, "seed = ", something(seed, "unknown"))
+    println(io, "julia_version = ", VERSION)
     return nothing
 end
 
@@ -225,7 +242,8 @@ function save_autocorrelation(dir, results)
 end
 
 """
-    save_results(model, algorithm, L, T, results, parameters; root = "results")
+    save_results(model, algorithm, L, T, results, parameters;
+        root = "results", seed = global_seed())
 
 Save all output for a single-temperature run: create the run directory,
 write metadata, measurements, correlations (if any), and autocorrelation
@@ -242,15 +260,19 @@ Combines [`results_dirname`](@ref), [`save_metadata`](@ref),
 - `results`: The measurement results to save.
 - `parameters`: Simulation parameters recorded in the metadata.
 - `root`: Base directory under which the run directory is created.
+- `seed`: RNG seed recorded in the metadata (see [`save_metadata`](@ref)).
 
 # Returns
 
 The path to the created run directory.
 """
-function save_results(model, algorithm, L, T, results, parameters; root::AbstractString = "results")
+function save_results(
+    model, algorithm, L, T, results, parameters;
+    root::AbstractString = "results", seed = global_seed()
+)
     dir = results_dirname(model, algorithm, L, T; root = root)
     mkpath(dir)
-    save_metadata(dir, model, algorithm, L, T, parameters)
+    save_metadata(dir, model, algorithm, L, T, parameters; seed = seed)
     save_measurements(dir, results)
     save_correlations(dir, results)
     save_autocorrelation(dir, results)
@@ -283,11 +305,12 @@ function sweep_dirname(model, algorithm, L; root::AbstractString = "results")
 end
 
 """
-    save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins)
+    save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
+        seed = global_seed())
 
 Write a `metadata.txt` file in `dir` recording the model, algorithm, system
-size, the full list of temperatures `Ts`, and the sweep's simulation
-parameters.
+size, the full list of temperatures `Ts`, the sweep's simulation
+parameters, and the RNG `seed` and Julia version needed to recreate it.
 
 # Arguments
 
@@ -298,8 +321,13 @@ parameters.
 - `Ts`: The temperatures included in the sweep.
 - `n_thermalization`, `n_measurements`, `n_unmeasured`, `n_bins`: Sweep
   simulation parameters, recorded as-is.
+- `seed`: RNG seed of the sweep; defaults to the seed set with
+  [`set_global_seed!`](@ref). Written as `unknown` when `nothing`.
 """
-function save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins)
+function save_sweep_metadata(
+    dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
+    seed = global_seed()
+)
     open(joinpath(dir, "metadata.txt"), "w") do io
         println(io, "model = ", model)
         println(io, "algorithm = ", algorithm)
@@ -309,6 +337,7 @@ function save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_m
         println(io, "n_measurements = ", n_measurements)
         println(io, "n_unmeasured = ", n_unmeasured)
         println(io, "n_bins = ", n_bins)
+        write_reproducibility_metadata(io, seed)
     end
     return nothing
 end
@@ -316,7 +345,7 @@ end
 """
     save_sweep_results(sweep_results, Ts, model, algorithm, L,
                         n_thermalization, n_measurements, n_unmeasured, n_bins;
-                        root = "results")
+                        root = "results", seed = global_seed())
 
 Save the combined output of a temperature sweep into a single directory:
 `measurement_results.csv`, `correlation_results.csv`, and
@@ -340,6 +369,7 @@ written at all. Autocorrelation times are in units of measurements, i.e.
 - `n_thermalization`, `n_measurements`, `n_unmeasured`, `n_bins`: Sweep
   simulation parameters, recorded in the metadata.
 - `root`: Base directory under which the sweep directory is created.
+- `seed`: RNG seed recorded in the metadata (see [`save_sweep_metadata`](@ref)).
 
 # Throws
 
@@ -352,12 +382,14 @@ The path to the created sweep directory.
 function save_sweep_results(
     sweep_results, Ts, model, algorithm, L,
     n_thermalization, n_measurements, n_unmeasured, n_bins;
-    root::AbstractString = "results"
+    root::AbstractString = "results",
+    seed = global_seed()
 )
     if isempty(sweep_results) && isempty(Ts)
         dir = sweep_dirname(model, algorithm, L; root = root)
         mkpath(dir)
-        save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins)
+        save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
+            seed = seed)
         return dir
     end
 
@@ -366,7 +398,8 @@ function save_sweep_results(
 
     dir = sweep_dirname(model, algorithm, L; root = root)
     mkpath(dir)
-    save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins)
+    save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
+        seed = seed)
 
     measurement_dfs = map(zip(Ts, sweep_results)) do (T, results)
         results === nothing && return nothing

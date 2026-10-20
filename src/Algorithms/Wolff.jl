@@ -17,9 +17,9 @@ struct WolffUpdateResult <: AbstractUpdateResult
     cluster_size::Int
 end
 
-cluster_seed(::AbstractModel, geometry, ::AbstractState) = rand(1:geometry.n_sites)
+cluster_seed(rng::AbstractRNG, ::AbstractModel, geometry, ::AbstractState) = rand(rng, 1:geometry.n_sites)
 validate_cluster_model(::AbstractModel, ::Any, ::AbstractState, ::Real) = nothing
-cluster_context(::AbstractModel, ::Any, ::AbstractState, ::Real) = nothing
+cluster_context(::AbstractRNG, ::AbstractModel, ::Any, ::AbstractState, ::Real) = nothing
 cluster_ghost_count(::AbstractModel, ::Any, ::AbstractState, ::Any) = 0
 cluster_ghost_probability(::AbstractModel, ::Any, ::AbstractState, ::Int, ::Int, ::Real, ::Any) = 0.0
 cluster_ghost_attached!(::Any, ::Int) = nothing
@@ -49,24 +49,26 @@ apply_cluster!(model, geometry, state, cluster, ::Nothing) =
     apply_cluster!(model, geometry, state, cluster)
 
 """
-    step!(WolffAlgorithm(), model, geometry, state, T)
+    step!(WolffAlgorithm(), model, geometry, state, T; rng = Random.default_rng())
 
 Grow and flip one Wolff cluster. Model-specific behavior is supplied by
 `cluster_bond_probability` and `apply_cluster!`, which keeps the cluster
-traversal reusable for models with different local degrees of freedom.
+traversal reusable for models with different local degrees of freedom. All
+random numbers (cluster context, seed site, bond activation) come from `rng`.
 """
 function step!(
     ::WolffAlgorithm,
     model::AbstractModel,
     geometry,
     state::AbstractState,
-    T::Real
+    T::Real;
+    rng::AbstractRNG = Random.default_rng()
 )
     T > 0 || throw(ArgumentError("Temperature must be positive, got $T"))
     validate_cluster_model(model, geometry, state, T)
-    context = cluster_context(model, geometry, state, T)
+    context = cluster_context(rng, model, geometry, state, T)
 
-    seed = cluster_seed(model, geometry, state)
+    seed = cluster_seed(rng, model, geometry, state)
     1 <= seed <= geometry.n_sites || throw(ArgumentError(
         "cluster_seed returned site $seed outside 1:$(geometry.n_sites)"
     ))
@@ -92,7 +94,7 @@ function step!(
                 "cluster_bond_probability returned $probability; expected a value in [0, 1]"
             ))
 
-            if rand() < probability
+            if rand(rng) < probability
                 in_cluster[neighbor] = true
                 push!(cluster, neighbor)
                 push!(frontier, neighbor)
@@ -107,7 +109,7 @@ function step!(
                 "cluster_ghost_probability returned $probability; expected a value in [0, 1]"
             ))
 
-            probability > 0 && rand() < probability &&
+            probability > 0 && rand(rng) < probability &&
                 cluster_ghost_attached!(context, ghost)
         end
     end

@@ -72,6 +72,66 @@ function binder_cumulant_entry(model, geometry)
 end
 
 """
+    structure_factor_entry(model, geometry)
+
+Build the optional structure-factor observable for a model.
+
+Precomputes the momentum grid once (via [`build_momentum_classes`](@ref))
+and wraps it in a vector-valued, complex [`Observable`](@ref) named
+`:structure_factor`, sampled per measurement with
+[`structure_factor_instantaneous`](@ref): the orbital-resolved
+``S_{ab}(\\mathbf{k})`` for every orbital pair and every momentum on the
+finite-lattice grid. A [`DerivedObservable`](@ref) passes the
+[`StructureFactorClass`](@ref) labels through to the analysis results as
+`:structure_factor_classes`.
+
+The measurement works for any model implementing
+[`n_operator_components`](@ref) and [`operator_components`](@ref); no
+model-specific code is needed here.
+
+# Arguments
+
+- `model`: The model being measured.
+- `geometry`: The lattice geometry.
+
+# Returns
+
+An `(obs, der)` tuple:
+- `obs::Vector{Observable}`: The `:structure_factor` observable, sampling a
+  `Vector{ComplexF64}` each measurement. Its [`analyze`](@ref) error is
+  complex, holding the standard errors of the real and imaginary parts.
+- `der::Vector{DerivedObservable}`: Produces `:structure_factor_classes`.
+
+# Throws
+
+`ArgumentError` if `model` does not implement
+[`n_operator_components`](@ref).
+"""
+function structure_factor_entry(model, geometry)
+    n_operator_components(model)   # fail at container construction, not mid-run
+    momenta = build_momentum_classes(geometry)
+    classes = momenta.classes
+    n_classes = length(classes)
+
+    obs = Observable[
+        Observable(
+            :structure_factor,
+            state -> structure_factor_instantaneous(model, state, momenta);
+            zero     = () -> zeros(ComplexF64, n_classes),
+            template = () -> Vector{ComplexF64}[],
+        ),
+    ]
+    der = DerivedObservable[
+        DerivedObservable(
+            (:structure_factor_classes,),
+            (jk, T, N) -> (structure_factor_classes = classes,);
+            depends_on = (:structure_factor,),
+        ),
+    ]
+    return obs, der
+end
+
+"""
     optional_observables(model, geometry, measurements)
 
 Resolve the optional observable/derived-quantity entries requested by name
@@ -126,7 +186,11 @@ function optional_observables(model, geometry, measurements)
         o = [Observable(:magnetization_fourth, state -> (magnetization_value(state) / geometry.n_sites)^4)]
         append!(obs, o)
     end
-    # future: :structure_factor in measurements && (push! obs/der similarly)
+    if :structure_factor in measurements
+        o, d = structure_factor_entry(model, geometry)
+        append!(obs, o)
+        append!(der, d)
+    end
 
     return obs, der
 end
@@ -144,7 +208,8 @@ returned by [`observables`](@ref) and [`derived_observables`](@ref).
 # Returns
 
 `[:raw_correlation, :connected_correlation, :abs_magnetization,
-:magnetization_abs, :binder_cumulant, :binder, :magnetization_fourth]`
+:magnetization_abs, :binder_cumulant, :binder, :magnetization_fourth,
+:structure_factor]`
 
 # Notes
 
@@ -161,6 +226,7 @@ available_measurements(::Type{<:AbstractModel}) = [
     :binder_cumulant,
     :binder,
     :magnetization_fourth,
+    :structure_factor,
 ]
 
 # Instances forward to the type method

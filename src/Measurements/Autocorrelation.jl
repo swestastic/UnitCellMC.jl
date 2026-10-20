@@ -231,7 +231,9 @@ exponential decay; use a larger value for slowly decaying tails.
 (`AbstractVector{<:AbstractVector{<:Real}}`, e.g. a correlation function
 sampled at several displacements). Vector-valued series are analyzed per
 component and the slowest non-constant component is reported (see
-[`AutocorrelationResult`](@ref)).
+[`AutocorrelationResult`](@ref)). Complex vector-valued series (e.g. the
+structure factor) are analyzed with real and imaginary parts as separate
+components.
 
 # Keywords
 
@@ -290,6 +292,11 @@ function autocorrelation(
     end
     return something(slowest, AutocorrelationResult(n, :constant))
 end
+
+# Complex vector-valued series (e.g. the structure factor): the real and
+# imaginary parts are analyzed as separate components.
+autocorrelation(series::AbstractVector{<:AbstractVector{<:Complex}}; kwargs...) =
+    autocorrelation([vcat(real.(s), imag.(s)) for s in series]; kwargs...)
 
 # Fallback for element types that cannot be analyzed (e.g. custom observables).
 autocorrelation(series::AbstractVector; kwargs...) =

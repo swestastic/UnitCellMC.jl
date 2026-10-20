@@ -29,6 +29,16 @@ UnitCellMC.correlation_instantaneous
 UnitCellMC.correlation_entry
 ```
 
+## Structure factor
+
+```@docs
+UnitCellMC.StructureFactorClass
+UnitCellMC.build_momentum_classes
+UnitCellMC.fourier_transform_dim
+UnitCellMC.structure_factor_instantaneous
+UnitCellMC.structure_factor_entry
+```
+
 ```@meta
 CollapsedDocStrings = true
 ```

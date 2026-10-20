@@ -174,6 +174,56 @@ function correlation_rows(results)
 end
 
 """
+    structure_factor_rows(results)
+
+Build a `DataFrame` of structure-factor data from `results`, or return
+`nothing` if `results` has no `structure_factor_classes` (i.e. the
+`:structure_factor` measurement was not requested).
+
+Each row corresponds to one [`StructureFactorClass`](@ref): an orbital pair
+and a momentum on the finite-lattice grid (see
+[`build_momentum_classes`](@ref)).
+
+# Arguments
+
+- `results`: A results object with `results.derived.structure_factor_classes`
+  and `results.primary[:structure_factor]` (complex `(values, errors)`, as
+  returned by [`analyze`](@ref)).
+
+# Returns
+
+A `DataFrame` with columns `k_index_1, ..., k_index_D` (integer grid
+location), `k_1, ..., k_D` (Cartesian momentum), `orbital_i`, `orbital_j`,
+`real_value`, `real_error`, `imag_value`, `imag_error`, or `nothing` if
+`results` has no structure-factor data.
+"""
+function structure_factor_rows(results)
+    hasproperty(results.derived, :structure_factor_classes) || return nothing
+
+    classes = results.derived.structure_factor_classes
+    isempty(classes) && return nothing
+    avg, err = results.primary[:structure_factor]
+
+    D = length(first(classes).momentum_index)
+
+    df = DataFrame()
+    for d in 1:D
+        df[!, Symbol("k_index_$d")] = [c.momentum_index[d] for c in classes]
+    end
+    for d in 1:D
+        df[!, Symbol("k_$d")] = [c.momentum[d] for c in classes]
+    end
+    df.orbital_i  = [c.orbitals[1] for c in classes]
+    df.orbital_j  = [c.orbitals[2] for c in classes]
+    df.real_value = real.(avg)
+    df.real_error = real.(err)
+    df.imag_value = imag.(avg)
+    df.imag_error = imag.(err)
+
+    return df
+end
+
+"""
     save_measurements(dir, results)
 
 Write `results`'s scalar observables (via [`measurement_rows`](@ref)) to
@@ -197,6 +247,20 @@ function save_correlations(dir, results)
     df = correlation_rows(results)
     df === nothing && return nothing
     CSV.write(joinpath(dir, "correlation_results.csv"), df)
+    return nothing
+end
+
+"""
+    save_structure_factor(dir, results)
+
+Write `results`'s structure-factor data (via [`structure_factor_rows`](@ref))
+to `dir/structure_factor_results.csv`. Does nothing if `results` has no
+structure-factor data.
+"""
+function save_structure_factor(dir, results)
+    df = structure_factor_rows(results)
+    df === nothing && return nothing
+    CSV.write(joinpath(dir, "structure_factor_results.csv"), df)
     return nothing
 end
 
@@ -246,12 +310,13 @@ end
         root = "results", seed = global_seed())
 
 Save all output for a single-temperature run: create the run directory,
-write metadata, measurements, correlations (if any), and autocorrelation
-times (if any).
+write metadata, measurements, correlations (if any), the structure factor
+(if any), and autocorrelation times (if any).
 
 Combines [`results_dirname`](@ref), [`save_metadata`](@ref),
-[`save_measurements`](@ref), [`save_correlations`](@ref), and
-[`save_autocorrelation`](@ref) into one call.
+[`save_measurements`](@ref), [`save_correlations`](@ref),
+[`save_structure_factor`](@ref), and [`save_autocorrelation`](@ref) into
+one call.
 
 # Arguments
 
@@ -275,6 +340,7 @@ function save_results(
     save_metadata(dir, model, algorithm, L, T, parameters; seed = seed)
     save_measurements(dir, results)
     save_correlations(dir, results)
+    save_structure_factor(dir, results)
     save_autocorrelation(dir, results)
     return dir
 end
@@ -348,14 +414,16 @@ end
                         root = "results", seed = global_seed())
 
 Save the combined output of a temperature sweep into a single directory:
-`measurement_results.csv`, `correlation_results.csv`, and
-`autocorrelation_results.csv`, each spanning all temperatures with a leading
-`temperature` column, plus sweep metadata.
+`measurement_results.csv`, `correlation_results.csv`,
+`structure_factor_results.csv`, and `autocorrelation_results.csv`, each
+spanning all temperatures with a leading `temperature` column, plus sweep
+metadata.
 
 `sweep_results[i]` must correspond to `Ts[i]`; per-temperature rows are built
-with [`measurement_rows`](@ref), [`correlation_rows`](@ref), and
-[`autocorrelation_rows`](@ref) and concatenated across all temperatures.
-Temperatures with no correlation (or autocorrelation) data are simply
+with [`measurement_rows`](@ref), [`correlation_rows`](@ref),
+[`structure_factor_rows`](@ref), and [`autocorrelation_rows`](@ref) and
+concatenated across all temperatures.
+Temperatures with no correlation (structure-factor, autocorrelation) data are simply
 omitted from the corresponding file; if none have such data, that file is not
 written at all. Autocorrelation times are in units of measurements, i.e.
 `n_unmeasured + 1` sweeps.
@@ -428,6 +496,21 @@ function save_sweep_results(
         isfile(correlation_path) && rm(correlation_path)
     else
         CSV.write(correlation_path, reduce(vcat, correlation_dfs))
+    end
+
+    structure_factor_dfs = map(zip(Ts, sweep_results)) do (T, results)
+        results === nothing && return nothing
+        df = structure_factor_rows(results)
+        df === nothing && return nothing
+        insertcols!(df, 1, :temperature => T)
+        df
+    end
+    filter!(!isnothing, structure_factor_dfs)
+    structure_factor_path = joinpath(dir, "structure_factor_results.csv")
+    if isempty(structure_factor_dfs)
+        isfile(structure_factor_path) && rm(structure_factor_path)
+    else
+        CSV.write(structure_factor_path, reduce(vcat, structure_factor_dfs))
     end
 
     autocorrelation_dfs = map(zip(Ts, sweep_results)) do (T, results)

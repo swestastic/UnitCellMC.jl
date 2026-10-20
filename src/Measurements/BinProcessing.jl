@@ -70,6 +70,24 @@ function average_and_error(values::Vector{Vector{Float64}})
 end
 
 """
+    average_and_error(values::Vector{Vector{ComplexF64}})
+
+Complex counterpart of the vector method, used for complex-valued
+observables such as `:structure_factor`. The real and imaginary parts are
+averaged and errored independently.
+
+# Returns
+
+An `(averages, errors)` tuple of `Vector{ComplexF64}`; `real(errors)` and
+`imag(errors)` are the standard errors of the real and imaginary parts.
+"""
+function average_and_error(values::Vector{Vector{ComplexF64}})
+    re_avg, re_err = average_and_error([real.(v) for v in values])
+    im_avg, im_err = average_and_error([imag.(v) for v in values])
+    return complex.(re_avg, im_avg), complex.(re_err, im_err)
+end
+
+"""
     jackknife_samples(bin_values::Vector{T}) where T
 
 Compute leave-one-out jackknife samples from per-bin values.

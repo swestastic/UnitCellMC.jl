@@ -47,6 +47,9 @@ local_operator(state::XYState, site) = state.angles[site]
 operator_product(::XYModel, first_angle::Real, second_angle::Real) =
     cos(first_angle - second_angle)
 
+n_operator_components(::XYModel) = 2
+operator_components(::XYModel, angle::Real) = (cos(angle), sin(angle))
+
 function propose(rng::AbstractRNG, ::MetropolisAlgorithm, ::XYModel, geometry, state::XYState)
     site = rand(rng, eachindex(state.angles))
     return SpinUpdate(site, 2π * rand(rng))

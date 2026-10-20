@@ -73,6 +73,9 @@ operator values, as used when computing bond energies for `model`.
 """
 operator_product(model::IsingModel, a::Real, b::Real) = a * b
 
+n_operator_components(::IsingModel) = 1
+operator_components(::IsingModel, s::Real) = (s,)
+
 """
     propose(rng, ::MetropolisAlgorithm, model, geometry, state)
 

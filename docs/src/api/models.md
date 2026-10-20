@@ -10,6 +10,8 @@ UnitCellMC.XYModel
 UnitCellMC.bond_strength
 UnitCellMC.local_operator
 UnitCellMC.operator_product
+UnitCellMC.n_operator_components
+UnitCellMC.operator_components
 UnitCellMC.propose
 UnitCellMC.energy_difference
 UnitCellMC.apply_update!

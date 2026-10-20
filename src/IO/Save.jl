@@ -184,13 +184,56 @@ function save_correlations(dir, results)
 end
 
 """
+    autocorrelation_rows(results)
+
+Build a `DataFrame` of integrated autocorrelation times from
+`results.autocorrelation` (as produced by [`analyze`](@ref)), one row per
+observable sorted by name, or return `nothing` if `results` has no
+autocorrelation data.
+
+Columns: `observable`, `tau`, `tau_err`, `window`, `n_samples`, `status`.
+`tau` is in units of measurements (`n_unmeasured + 1` sweeps) and is `NaN`
+unless `status == "resolved"`; see [`AutocorrelationResult`](@ref).
+"""
+function autocorrelation_rows(results)
+    hasproperty(results, :autocorrelation) || return nothing
+    ac = results.autocorrelation
+    isempty(ac) && return nothing
+    names = sort!(collect(keys(ac)))
+    return DataFrame(
+        observable = string.(names),
+        tau        = [ac[name].tau for name in names],
+        tau_err    = [ac[name].tau_err for name in names],
+        window     = [ac[name].window for name in names],
+        n_samples  = [ac[name].n for name in names],
+        status     = [string(ac[name].status) for name in names],
+    )
+end
+
+"""
+    save_autocorrelation(dir, results)
+
+Write `results`'s integrated autocorrelation times (via
+[`autocorrelation_rows`](@ref)) to `dir/autocorrelation_results.csv`. Does
+nothing if `results` has no autocorrelation data.
+"""
+function save_autocorrelation(dir, results)
+    df = autocorrelation_rows(results)
+    df === nothing && return nothing
+    CSV.write(joinpath(dir, "autocorrelation_results.csv"), df)
+    return nothing
+end
+
+"""
     save_results(model, algorithm, L, T, results, parameters; root = "results")
 
 Save all output for a single-temperature run: create the run directory,
-write metadata, measurements, and correlations (if any).
+write metadata, measurements, correlations (if any), and autocorrelation
+times (if any).
 
 Combines [`results_dirname`](@ref), [`save_metadata`](@ref),
-[`save_measurements`](@ref), and [`save_correlations`](@ref) into one call.
+[`save_measurements`](@ref), [`save_correlations`](@ref), and
+[`save_autocorrelation`](@ref) into one call.
 
 # Arguments
 
@@ -210,6 +253,7 @@ function save_results(model, algorithm, L, T, results, parameters; root::Abstrac
     save_metadata(dir, model, algorithm, L, T, parameters)
     save_measurements(dir, results)
     save_correlations(dir, results)
+    save_autocorrelation(dir, results)
     return dir
 end
 
@@ -274,15 +318,18 @@ end
                         n_thermalization, n_measurements, n_unmeasured, n_bins;
                         root = "results")
 
-Save the combined output of a temperature sweep into a single directory: one
-`measurement_results.csv` and one `correlation_results.csv` spanning all
-temperatures, each with a leading `temperature` column, plus sweep metadata.
+Save the combined output of a temperature sweep into a single directory:
+`measurement_results.csv`, `correlation_results.csv`, and
+`autocorrelation_results.csv`, each spanning all temperatures with a leading
+`temperature` column, plus sweep metadata.
 
 `sweep_results[i]` must correspond to `Ts[i]`; per-temperature rows are built
-with [`measurement_rows`](@ref) and [`correlation_rows`](@ref) and
-concatenated across all temperatures. Temperatures with no correlation data
-are simply omitted from `correlation_results.csv`; if none have correlation
-data, that file is not written at all.
+with [`measurement_rows`](@ref), [`correlation_rows`](@ref), and
+[`autocorrelation_rows`](@ref) and concatenated across all temperatures.
+Temperatures with no correlation (or autocorrelation) data are simply
+omitted from the corresponding file; if none have such data, that file is not
+written at all. Autocorrelation times are in units of measurements, i.e.
+`n_unmeasured + 1` sweeps.
 
 # Arguments
 
@@ -348,6 +395,21 @@ function save_sweep_results(
         isfile(correlation_path) && rm(correlation_path)
     else
         CSV.write(correlation_path, reduce(vcat, correlation_dfs))
+    end
+
+    autocorrelation_dfs = map(zip(Ts, sweep_results)) do (T, results)
+        results === nothing && return nothing
+        df = autocorrelation_rows(results)
+        df === nothing && return nothing
+        insertcols!(df, 1, :temperature => T)
+        df
+    end
+    filter!(!isnothing, autocorrelation_dfs)
+    autocorrelation_path = joinpath(dir, "autocorrelation_results.csv")
+    if isempty(autocorrelation_dfs)
+        isfile(autocorrelation_path) && rm(autocorrelation_path)
+    else
+        CSV.write(autocorrelation_path, reduce(vcat, autocorrelation_dfs))
     end
 
     return dir

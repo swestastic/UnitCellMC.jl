@@ -11,6 +11,8 @@ UnitCellMC.measurement_rows
 UnitCellMC.correlation_rows
 UnitCellMC.save_measurements
 UnitCellMC.save_correlations
+UnitCellMC.autocorrelation_rows
+UnitCellMC.save_autocorrelation
 UnitCellMC.save_results
 UnitCellMC.sweep_dirname
 UnitCellMC.save_sweep_metadata

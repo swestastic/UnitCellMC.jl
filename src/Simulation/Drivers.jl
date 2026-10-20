@@ -133,9 +133,11 @@ whose `data` holds the concatenation of all runs' bins. Analysis on the
 merged container therefore pools all runs, and error estimates reflect the
 variance between independent runs as well as within them.
 
-The containers must record the same observables and diagnostics (e.g. built
-with identical `measurements`/`diagnostics` arguments); an `ArgumentError`
-is thrown otherwise.
+The containers must record the same observables and diagnostics, and keep
+the same unbinned time series (e.g. built with identical
+`measurements`/`diagnostics`/`time_series` arguments); an `ArgumentError`
+is thrown otherwise. The time series are concatenated too, with each run's
+length stored in `chain_lengths` so autocorrelations never straddle runs.
 
 # Returns
 
@@ -146,21 +148,35 @@ function merge_containers(containers::Vector{<:MeasurementContainer})
     isempty(containers) && throw(ArgumentError("Cannot merge zero containers"))
     first_container = first(containers)
     expected_names = keys(first_container.data)
+    series_names = keys(first_container.time_series)
     for container in containers
         keys(container.data) == expected_names ||
             throw(ArgumentError("All containers must record identical observables and diagnostics"))
+        keys(container.time_series) == series_names ||
+            throw(ArgumentError("All containers must record identical time series"))
     end
 
     data = NamedTuple(
         name => reduce(vcat, (container.data[name] for container in containers))
         for name in expected_names
     )
+    time_series = NamedTuple(
+        name => reduce(vcat, (container.time_series[name] for container in containers))
+        for name in series_names
+    )
+    # Keep track of where each run's series starts so that autocorrelations
+    # are never computed across the boundary between independent runs.
+    chain_lengths = isempty(series_names) ? Int[] : filter(>(0), reduce(vcat, (
+        isempty(container.chain_lengths) ?
+            [length(first(container.time_series))] : container.chain_lengths
+        for container in containers
+    )))
     bin_sums = merge(
         NamedTuple(o.name => o.zero() for o in first_container.observables),
         NamedTuple(name => 0.0 for name in first_container.diagnostics)
     )
     return MeasurementContainer(
-        data, bin_sums, 0, first_container.bin_size,
+        data, bin_sums, time_series, chain_lengths, 0, first_container.bin_size,
         first_container.observables, first_container.derived, first_container.diagnostics
     )
 end
@@ -169,7 +185,7 @@ end
     sweep_Ts(algorithm, model, geometry, state,
         n_thermalization, n_measurements, n_unmeasured, n_bins, Ts;
         simulated_annealing = true, n_runs = 1, measurements = Symbol[],
-        diagnostics = Symbol[], root = "results")
+        diagnostics = Symbol[], time_series = :scalars, root = "results")
 
 Run a temperature sweep: [`run_simulation`](@ref) at each temperature in
 `Ts`, followed by [`analyze`](@ref), and save the combined results with
@@ -212,6 +228,10 @@ A new [`SimulationParameters`](@ref) is created for every temperature
   (default `1`); must be at least 1.
 - `measurements`: Optional measurement names to enable in each container.
 - `diagnostics`: Algorithm diagnostic names to record per sweep.
+- `time_series`: Which observables keep their unbinned history for the
+  autocorrelation analysis in [`analyze`](@ref); see
+  [`MeasurementContainer`](@ref). The default `:scalars` skips the
+  correlation-function vector; use `:none` to store nothing.
 - `root`: Base directory passed to [`save_sweep_results`](@ref).
 
 # Throws
@@ -236,6 +256,7 @@ function sweep_Ts(
     n_runs::Int = 1,
     measurements::Vector{Symbol} = Symbol[],
     diagnostics::Vector{Symbol} = Symbol[],
+    time_series = :scalars,
     root::AbstractString = "results"
 )
     n_runs >= 1 || throw(ArgumentError("n_runs must be >= 1, got $n_runs"))
@@ -261,7 +282,8 @@ function sweep_Ts(
 
             container = MeasurementContainer(model, geometry, n_measurements, n_bins;
                 measurements = measurements,
-                diagnostics = diagnostics
+                diagnostics = diagnostics,
+                time_series = time_series
             )
             run_containers[r] = run_simulation(algorithm, model, geometry, run_state, container, parameters)
         end

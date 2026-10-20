@@ -166,10 +166,18 @@ one or more primary observables via jackknife resampling.
 
 # Returns
 
-A named tuple `(primary = ..., derived = ...)`:
+A named tuple `(primary = ..., derived = ..., autocorrelation = ...)`:
 - `primary`: `Dict` mapping observable name to its `(average, error)` pair.
 - `derived`: Named tuple merging the results of every derived quantity's
   `compute` call.
+- `autocorrelation`: `Dict` mapping each observable or diagnostic whose
+  time series was recorded (see the `time_series` keyword of
+  [`MeasurementContainer`](@ref); by default the scalar ones) to an
+  [`AutocorrelationResult`](@ref) for its per-measurement time series
+  (see [`autocorrelation`](@ref)). Times are in units of measurements, i.e.
+  `n_unmeasured + 1` sweeps. The binned error bars in `primary`/`derived` are
+  reliable only when `bin_size` is large compared with `tau`; as a rule of
+  thumb keep `bin_size >= 10 tau`.
 """
 function analyze(container::MeasurementContainer, T, N)
     bin_means = container.data
@@ -182,5 +190,14 @@ function analyze(container::MeasurementContainer, T, N)
         derived = merge(derived, d.compute(jk, T, N))
     end
 
-    return (primary = primary, derived = derived)
+    # Integrated autocorrelation time of each observable's per-measurement
+    # series, so the adequacy of the binning can be checked from the data.
+    # Independent runs merged by `merge_containers` are kept as separate chains.
+    chain_lengths = isempty(container.chain_lengths) ? nothing : container.chain_lengths
+    autocorrelations = Dict{Symbol, AutocorrelationResult}(
+        name => autocorrelation(series; chain_lengths = chain_lengths)
+        for (name, series) in pairs(container.time_series)
+    )
+
+    return (primary = primary, derived = derived, autocorrelation = autocorrelations)
 end

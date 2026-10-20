@@ -4,6 +4,7 @@ include("Values.jl")
 include("Correlations.jl")
 include("Optional.jl")
 include("BinProcessing.jl")
+include("Autocorrelation.jl")
 
 """
     measure!(measurements::MeasurementContainer, state; diagnostics)
@@ -45,6 +46,11 @@ function measure!(measurements::MeasurementContainer, state; diagnostics = Named
 
     measurements.bin_count += 1
     measurements.bin_sums = map(+, measurements.bin_sums, values)
+
+    # Record the per-sweep raw values for autocorrelation analysis.
+    for name in keys(measurements.time_series)
+        push!(getfield(measurements.time_series, name), values[name])
+    end
 
     if measurements.bin_count == measurements.bin_size
         measurements.data = map(measurements.data, measurements.bin_sums) do bins, s

@@ -12,7 +12,10 @@ temperature and the sweep counts for thermalization, measurement, and binning.
 - `n_measurements::Int`: Total number of measurement sweeps; must be
   non-negative.
 - `n_unmeasured::Int`: Number of sweeps between measurements (decorrelation
-  steps); must be non-negative.
+  steps); must be non-negative. Rather than guessing, use
+  [`autotune_binning`](@ref), which estimates the integrated
+  autocorrelation time from a short pilot run and recommends `n_unmeasured`
+  and a bin size via [`recommended_binning`](@ref).
 - `n_bins::Int`: Number of bins measurements are grouped into for error
   estimation; must be at least 1.
 

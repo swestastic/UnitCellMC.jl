@@ -46,17 +46,38 @@ state = initialize_state(model, geometry) # Generate random spin configuration, 
 #### Set simulation parameters
 
 n_thermalization = 10_000 # warmup / thermalization sweeps before measurements
-n_measurements = 10_000 # number of measurement sweeps per temperature (L Metropolis steps per sweep)
-n_unmeasured = 5 # number of unmeasured sweeps between each measurement to reduce autocorrelation
 n_bins = 100 # number of bins for jackknife error estimation
 n_runs = 20 # number of independent runs to average over
 
 diagnostics = available_diagnostics(algorithm)
 measurements = available_measurements(model)
 
-#### Perform simulation
-
 Ts = collect(1.0:-0.1:0.1) # 10 temperatures from T = 0.1 to T = 1.0
+
+#### Choose n_unmeasured and the bin size from the autocorrelation time
+
+# A short pilot run at every temperature measures after every sweep (L
+# Metropolis steps) and estimates the integrated autocorrelation time τ (in
+# sweeps) of each observable; the slowest one sets the measurement spacing and
+# bin size. The signed magnetization is excluded because its τ is the time for
+# the whole chain to reverse, not the relaxation time of E, |m|, m².
+# At the lowest temperatures creating a pair of domain walls costs 4J, so
+# Metropolis moves are essentially never accepted and nothing fluctuates;
+# autotune_binning warns about and ignores those temperatures.
+tuned_observables = [:energy, :abs_magnetization, :magnetization_squared]
+tuning = autotune_binning(
+    algorithm, model, geometry, initialize_state(model, geometry), Ts;
+    n_pilot = 5_000,
+    measurements = [:abs_magnetization],
+    observables = tuned_observables,
+)
+println("Slowest τ = $(round(tuning.tau, digits = 2)) sweeps ($(tuning.observable) at T = $(tuning.T))")
+
+n_unmeasured = tuning.n_unmeasured # sweeps between measurements, ≈ τ - 1
+n_measurements = tuning.bin_size * n_bins # measurements per run; scale up for smaller error bars
+println("Using n_unmeasured = $n_unmeasured, bin_size = $(tuning.bin_size), n_measurements = $n_measurements")
+
+#### Perform simulation
 
 sweep_results = sweep_Ts(
     algorithm, model, geometry, state,
@@ -64,5 +85,24 @@ sweep_results = sweep_Ts(
     simulated_annealing = true,
     n_runs = n_runs,
     measurements = measurements,
-    diagnostics = diagnostics
+    diagnostics = diagnostics,
+    time_series = :scalars # unbinned history for autocorrelations: :scalars (skips the correlation vector), :all, or :none
 )
+
+#### Check the binning against the production autocorrelation times
+
+# `analyze` estimates the integrated autocorrelation time of every observable
+# from the production time series. These times are in units of measurements
+# (n_unmeasured + 1 sweeps); bins spanning >= 10 of them give reliable error bars.
+bin_size = n_measurements ÷ n_bins
+for (T, results) in zip(Ts, sweep_results)
+    taus = [tau_lower_bound(results.autocorrelation[name]) for name in tuned_observables]
+    taus = filter(isfinite, taus)
+    if isempty(taus)
+        println("T = $T: no fluctuations recorded")
+        continue
+    end
+    tau = maximum(taus)
+    verdict = bin_size >= 10 * tau ? "ok" : "bin_size < 10 tau: increase n_pilot or bin_factor"
+    println("T = $T: tau = $(round(tau, digits = 2)) measurements, bin_size / tau = $(round(bin_size / tau, digits = 1)) ($verdict)")
+end

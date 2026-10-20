@@ -18,4 +18,5 @@ UnitCellMC.MC_Sweep!
 UnitCellMC.run_simulation
 UnitCellMC.sweep_Ts
 UnitCellMC.merge_containers
+UnitCellMC.autotune_binning
 ```

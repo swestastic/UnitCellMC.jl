@@ -7,7 +7,7 @@ Classical Markov Chain Monte Carlo simulations of spin models with user-defined 
 ## Features
 
 - **Models:** Ising, XY, and q-state clock, with per-bond couplings and per-site external fields
-- **Algorithms:** Metropolis, Wolff (single-cluster), and Swendsen-Wang
+- **Algorithms:** Metropolis, Glauber, Wolff (single-cluster), and Swendsen-Wang
 - **Geometry:** arbitrary lattices built from [LatticeUtilities.jl](https://github.com/SmoQySuite/LatticeUtilities.jl) unit cells, lattices, and bonds
 - **Measurements:** energy, specific heat, magnetization, susceptibility, Binder cumulant, and correlation functions, with binning and jackknife error estimation
 - **Sweeps:** temperature sweeps with optional simulated annealing and parallel independent runs over threads; results saved as CSV

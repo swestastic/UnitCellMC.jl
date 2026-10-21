@@ -45,7 +45,7 @@ arguments as the XY model:
 model = ClockModel(q, [J₁, J₂], [h₁, h₂])
 ```
 
-Metropolis proposes one of the other $q - 1$ states uniformly. The Wolff and
+Metropolis and Glauber propose one of the other $q - 1$ states uniformly. The Wolff and
 Swendsen-Wang updates reflect clusters across one of the $q$ mirror lines of
 the clock, $n \mapsto (m - n) \bmod q$, which maps clock states onto clock
 states.

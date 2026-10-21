@@ -218,6 +218,136 @@ end
     end
 end
 
+@testset "Glauber acceptance probability" begin
+    @test ucmc.glauber_probability(0.0, 1.0) == 0.5
+    @test ucmc.glauber_probability(Inf, 1.0) == 0.0
+    @test ucmc.glauber_probability(-Inf, 1.0) == 1.0
+    @test ucmc.glauber_probability(1e6, 1.0) == 0.0
+    @test ucmc.glauber_probability(-1e6, 1.0) == 1.0
+    for ΔE in (-3.0, -0.4, 0.7, 2.5), T in (0.5, 1.0, 3.0)
+        p = ucmc.glauber_probability(ΔE, T)
+        @test p ≈ 1 / (1 + exp(ΔE / T))
+        @test p + ucmc.glauber_probability(-ΔE, T) ≈ 1.0
+        # detailed balance for a symmetric proposal
+        @test p / ucmc.glauber_probability(-ΔE, T) ≈ exp(-ΔE / T)
+    end
+end
+
+@testset "Glauber updates keep invariants" begin
+    geometry = two_orbital_geometry(2)
+    algorithm = ucmc.GlauberAlgorithm()
+    @test ucmc.available_diagnostics(algorithm) == [:acceptance_ratio]
+
+    # Ising, including fields and an antiferromagnetic bond
+    for J in ([1.0, 2.0], [1.0, -1.5])
+        model = ucmc.IsingModel(J, [0.5, -0.25])
+        rng = Xoshiro(11)
+        state = ucmc.initialize_state(model, geometry; rng = rng)
+        n_accepted = 0
+        for _ in 1:100
+            result = ucmc.step!(algorithm, model, geometry, state, 2.0; rng = rng)
+            @test result isa ucmc.GlauberUpdateResult
+            @test ucmc.diagnostic_values(algorithm, result) ==
+                (acceptance_ratio = result.accepted ? 1.0 : 0.0,)
+            n_accepted += result.accepted
+            @test all(s in (-1, 1) for s in state.spins)
+            @test state.magnetization == sum(state.spins)
+            @test state.energy ≈ spin_energy(model, geometry, state.spins)
+        end
+        @test 0 < n_accepted < 100
+    end
+
+    # XY
+    model = ucmc.XYModel([1.0, 2.0], [0.5, -0.25])
+    rng = Xoshiro(12)
+    state = ucmc.initialize_state(model, geometry; rng = rng)
+    for _ in 1:100
+        ucmc.step!(algorithm, model, geometry, state, 2.0; rng = rng)
+        @test state.energy ≈ xy_energy(model, geometry, state.angles)
+        @test state.magnetization_x ≈ sum(cos, state.angles)
+        @test state.magnetization_y ≈ sum(sin, state.angles)
+    end
+
+    # Glauber uses the same trial moves as Metropolis for every model
+    for model in (ucmc.IsingModel([1.0, 2.0], [0.5, -0.25]),
+                  ucmc.XYModel([1.0, 2.0], [0.5, -0.25]),
+                  ucmc.ClockModel(5, [1.0, 2.0], [0.5, -0.25]))
+        state = ucmc.initialize_state(model, geometry; rng = Xoshiro(1))
+        glauber = ucmc.propose(Xoshiro(5), algorithm, model, geometry, state)
+        metropolis = ucmc.propose(Xoshiro(5), ucmc.MetropolisAlgorithm(), model, geometry, state)
+        @test glauber == metropolis
+    end
+
+    # with ΔE = 0 for every move (J = h = 0) about half the moves are accepted,
+    # whereas Metropolis would accept all of them
+    free = ucmc.IsingModel([0.0, 0.0], [0.0, 0.0])
+    rng = Xoshiro(13)
+    state = ucmc.initialize_state(free, geometry; rng = rng)
+    accepted = [ucmc.step!(algorithm, free, geometry, state, 1.0; rng = rng).accepted for _ in 1:4000]
+    @test abs(sum(accepted) / length(accepted) - 0.5) < 0.05
+end
+
+@testset "Glauber Ising and XY match exact results" begin
+    geometry = square_geometry(2)
+    N = geometry.n_sites
+    T = 2.0
+    model = ucmc.IsingModel([1.0, 0.8], [0.35])
+
+    Z = E = M = 0.0
+    for c in 0:(2^N - 1)
+        spins = 1 .- 2 .* digits(c; base = 2, pad = N)
+        e = spin_energy(model, geometry, spins)
+        w = exp(-e / T)
+        Z += w
+        E += w * e
+        M += w * sum(spins)
+    end
+    exact_e, exact_m = E / (Z * N), M / (Z * N)
+
+    parameters = ucmc.SimulationParameters(T, 200, 20_000, 0, 20)
+    rng = Xoshiro(2024)
+    state = ucmc.initialize_state(model, geometry; rng = rng)
+    container = ucmc.MeasurementContainer(model, geometry, 20_000, 20)
+    ucmc.run_simulation(ucmc.GlauberAlgorithm(), model, geometry, state, container, parameters; rng = rng)
+    result = ucmc.analyze(container, T, N)
+    e, e_err = result.primary[:energy]
+    m, m_err = result.primary[:magnetization]
+    @test abs(e - exact_e) < 4 * e_err
+    @test abs(m - exact_m) < 4 * m_err
+
+    # XY on a periodic two-site chain: exact moments by quadrature (the
+    # trapezoidal rule is spectrally accurate for periodic integrands)
+    chain = ucmc.Geometry(
+        lu.UnitCell(lattice_vecs = [[1.0]], basis_vecs = [[0.0]]),
+        lu.Lattice(L = [2], periodic = [true]),
+        [lu.Bond(orbitals = (1, 1), displacement = [1])],
+    )
+    xy = ucmc.XYModel([1.0], [0.4])
+    T = 0.8
+    n_grid = 400
+    θs = (2π / n_grid) .* (0:(n_grid - 1))
+    Z = E = Mx = 0.0
+    for a in θs, b in θs
+        e = xy_energy(xy, chain, [a, b])
+        w = exp(-e / T)
+        Z += w
+        E += w * e
+        Mx += w * (cos(a) + cos(b))
+    end
+    exact_e, exact_mx = E / (2Z), Mx / (2Z)
+
+    parameters = ucmc.SimulationParameters(T, 200, 20_000, 0, 20)
+    rng = Xoshiro(7)
+    state = ucmc.initialize_state(xy, chain; rng = rng)
+    container = ucmc.MeasurementContainer(xy, chain, 20_000, 20)
+    ucmc.run_simulation(ucmc.GlauberAlgorithm(), xy, chain, state, container, parameters; rng = rng)
+    result = ucmc.analyze(container, T, chain.n_sites)
+    e, e_err = result.primary[:energy]
+    mx, mx_err = result.primary[:magnetization_x]
+    @test abs(e - exact_e) < 4 * e_err
+    @test abs(mx - exact_mx) < 4 * mx_err
+end
+
 @testset "Wolff updates keep invariants" begin
     geometry = square_geometry(2)
     model = ucmc.IsingModel([1.0, 1.0], [0.0])
@@ -419,6 +549,7 @@ end
 @testset "steps_per_sweep" begin
     geometry = square_geometry(4)
     @test ucmc.steps_per_sweep(ucmc.MetropolisAlgorithm(), geometry) == geometry.n_sites
+    @test ucmc.steps_per_sweep(ucmc.GlauberAlgorithm(), geometry) == geometry.n_sites
     @test ucmc.steps_per_sweep(ucmc.WolffAlgorithm(), geometry) == 1
     @test ucmc.steps_per_sweep(ucmc.SwendsenWangAlgorithm(), geometry) == 1
 end
@@ -456,7 +587,8 @@ end
     model = ucmc.IsingModel([1.0, 1.0], [0.0])
     state = ucmc.initialize_state(model, geometry)
 
-    for alg in (ucmc.MetropolisAlgorithm(), ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
+    for alg in (ucmc.MetropolisAlgorithm(), ucmc.GlauberAlgorithm(), ucmc.WolffAlgorithm(),
+                ucmc.SwendsenWangAlgorithm())
         for T in (0.0, -1.0, -Inf)
             @test_throws ArgumentError ucmc.step!(alg, model, geometry, state, T)
         end
@@ -572,7 +704,8 @@ end
 
     # explicit rng: identical streams give identical states and bins
     for m in (model, xy_model, clock_model),
-        algorithm in (ucmc.MetropolisAlgorithm(), ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
+        algorithm in (ucmc.MetropolisAlgorithm(), ucmc.GlauberAlgorithm(), ucmc.WolffAlgorithm(),
+                      ucmc.SwendsenWangAlgorithm())
         containers = map(1:2) do _
             rng = Xoshiro(2024)
             state = ucmc.initialize_state(m, geometry; rng = rng)
@@ -1268,8 +1401,8 @@ end
     n_sites = geometry.n_sites
     for q in (2, 3, 4, 6), h in ([0.0, 0.0], [0.5, -0.25])
         model = ucmc.ClockModel(q, [1.0, 2.0], h)
-        for algorithm in (ucmc.MetropolisAlgorithm(), ucmc.WolffAlgorithm(),
-                          ucmc.SwendsenWangAlgorithm())
+        for algorithm in (ucmc.MetropolisAlgorithm(), ucmc.GlauberAlgorithm(),
+                          ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
             rng = Xoshiro(q)
             state = ucmc.initialize_state(model, geometry; rng = rng)
             invariants = true
@@ -1305,6 +1438,7 @@ end
     end
     for _ in 1:20
         ucmc.step!(ucmc.MetropolisAlgorithm(), antiferro, geometry, state, 1.0)
+        ucmc.step!(ucmc.GlauberAlgorithm(), antiferro, geometry, state, 1.0)
     end
     @test clock_invariants_hold(antiferro, geometry, state)
 end
@@ -1383,8 +1517,8 @@ end
     exact_e, exact_mx = E / (Z * N), Mx / (Z * N)
 
     parameters = ucmc.SimulationParameters(T, 200, 20_000, 0, 20)
-    for algorithm in (ucmc.MetropolisAlgorithm(), ucmc.WolffAlgorithm(),
-                      ucmc.SwendsenWangAlgorithm())
+    for algorithm in (ucmc.MetropolisAlgorithm(), ucmc.GlauberAlgorithm(),
+                      ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
         rng = Xoshiro(2024)
         state = ucmc.initialize_state(model, geometry; rng = rng)
         container = ucmc.MeasurementContainer(model, geometry, 20_000, 20)
@@ -1407,8 +1541,8 @@ end
     @test ucmc.magnetization_components(ucmc.IsingModel([1.0, 1.0], [0.0])) == (:magnetization,)
 
     parameters = ucmc.SimulationParameters(1.5, 2, 8, 0, 2)
-    for algorithm in (ucmc.MetropolisAlgorithm(), ucmc.WolffAlgorithm(),
-                      ucmc.SwendsenWangAlgorithm())
+    for algorithm in (ucmc.MetropolisAlgorithm(), ucmc.GlauberAlgorithm(),
+                      ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
         rng = Xoshiro(6)
         state = ucmc.initialize_state(model, geometry; rng = rng)
         container = ucmc.MeasurementContainer(model, geometry, 8, 2;

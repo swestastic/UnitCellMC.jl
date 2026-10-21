@@ -9,7 +9,6 @@ In the future we'd like to add some further functionality to this package.
 
 ## Algorithms
 
-- Glauber
 - Heatbath
 
 ## Functionality

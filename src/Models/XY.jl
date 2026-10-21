@@ -55,6 +55,22 @@ function propose(rng::AbstractRNG, ::MetropolisAlgorithm, ::XYModel, geometry, s
     return SpinUpdate(site, 2π * rand(rng))
 end
 
+"""
+    propose(rng, ::GlauberAlgorithm, model::XYModel, geometry, state)
+
+Generate a Glauber trial move for the XY model: pick a random site and
+propose a new angle drawn uniformly from `[0, 2π)`, both drawn from `rng`.
+This is the same symmetric proposal as for [`MetropolisAlgorithm`](@ref);
+only the acceptance rule in [`step!`](@ref) differs.
+
+# Returns
+
+A `SpinUpdate` for the chosen site and new angle.
+"""
+function propose(rng::AbstractRNG, ::GlauberAlgorithm, model::XYModel, geometry, state::XYState)
+    return propose(rng, MetropolisAlgorithm(), model, geometry, state)
+end
+
 function energy_difference(
     model::XYModel,
     geometry::Geometry,

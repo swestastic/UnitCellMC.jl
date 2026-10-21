@@ -35,7 +35,22 @@ struct MetropolisUpdateResult <: AbstractUpdateResult
     accepted::Bool
 end
 
+"""
+    GlauberUpdateResult
+
+Result of one Glauber update, recording whether the proposed move was
+accepted.
+
+# Fields
+
+- `accepted::Bool`: Whether the proposed update was applied to the state.
+"""
+struct GlauberUpdateResult <: AbstractUpdateResult
+    accepted::Bool
+end
+
 include("Metropolis.jl")
+include("Glauber.jl")
 include("Wolff.jl")
 include("SwendsenWang.jl")
 include("Diagnostics.jl")

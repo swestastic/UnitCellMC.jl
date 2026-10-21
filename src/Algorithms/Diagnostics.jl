@@ -31,6 +31,8 @@ end
 
 diagnostic_values(::MetropolisAlgorithm, result::MetropolisUpdateResult) =
     (acceptance_ratio = result.accepted ? 1.0 : 0.0,)
+diagnostic_values(::GlauberAlgorithm, result::GlauberUpdateResult) =
+    (acceptance_ratio = result.accepted ? 1.0 : 0.0,)
 diagnostic_values(::WolffAlgorithm, result::WolffUpdateResult) =
     (cluster_size = result.cluster_size,)
 diagnostic_values(::SwendsenWangAlgorithm, result::SwendsenWangUpdateResult) = (
@@ -47,10 +49,12 @@ when constructing a [`MeasurementContainer`](@ref).
 # Returns
 
 - `MetropolisAlgorithm` → `[:acceptance_ratio]`
+- `GlauberAlgorithm` → `[:acceptance_ratio]`
 - `WolffAlgorithm` → `[:cluster_size]`
 - `SwendsenWangAlgorithm` → `[:cluster_count, :largest_cluster_fraction]`
 """
 available_diagnostics(::Type{<:MetropolisAlgorithm})   = [:acceptance_ratio]
+available_diagnostics(::Type{<:GlauberAlgorithm})      = [:acceptance_ratio]
 available_diagnostics(::Type{<:WolffAlgorithm})        = [:cluster_size]
 available_diagnostics(::Type{<:SwendsenWangAlgorithm}) = [:cluster_count, :largest_cluster_fraction]
 

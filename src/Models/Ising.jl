@@ -92,6 +92,22 @@ function propose(rng::AbstractRNG, ::MetropolisAlgorithm, ::IsingModel, geometry
 end
 
 """
+    propose(rng, ::GlauberAlgorithm, model::IsingModel, geometry, state)
+
+Generate a Glauber trial move for `model`: pick a random site, drawn from
+`rng`, and propose flipping its spin. This is the same symmetric proposal as
+for [`MetropolisAlgorithm`](@ref); only the acceptance rule in
+[`step!`](@ref) differs.
+
+# Returns
+
+A `SpinUpdate` describing the site and its proposed (flipped) value.
+"""
+function propose(rng::AbstractRNG, ::GlauberAlgorithm, model::IsingModel, geometry, state)
+    return propose(rng, MetropolisAlgorithm(), model, geometry, state)
+end
+
+"""
     energy_difference(model, geometry, state, proposal)
 
 Compute the change in total energy `ΔE` that would result from changing the

@@ -150,6 +150,23 @@ function propose(rng::AbstractRNG, ::MetropolisAlgorithm, model::ClockModel, geo
     )
 end
 
+"""
+    propose(rng, ::GlauberAlgorithm, model::ClockModel, geometry, state)
+
+Generate a Glauber trial move for the clock model: pick a random site and
+propose one of the other `q - 1` clock states uniformly at random, both drawn
+from `rng`. This is the same symmetric proposal as for
+[`MetropolisAlgorithm`](@ref); only the acceptance rule in [`step!`](@ref)
+differs.
+
+# Returns
+
+A [`ClockUpdate`](@ref) for the chosen site and new clock index.
+"""
+function propose(rng::AbstractRNG, ::GlauberAlgorithm, model::ClockModel, geometry, state::ClockState)
+    return propose(rng, MetropolisAlgorithm(), model, geometry, state)
+end
+
 function energy_difference(
     model::ClockModel,
     geometry::Geometry,

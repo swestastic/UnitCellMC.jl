@@ -6,9 +6,9 @@ lattice geometries.
 ## Overview
 
 UnitCellMC.jl provides a flexible framework for simulating classical
-lattice models. It currently supports the Ising and XY models with
-Metropolis, Wolff, and Swendsen-Wang update algorithms, with further
-extensions planned.
+lattice models. It currently supports the Ising, XY, and q-state clock
+models with Metropolis, Glauber, Wolff, and Swendsen-Wang update algorithms, with
+further extensions planned.
 
 The geometry of the system is separated from the physical model,
 allowing the same simulation framework to be used with different

@@ -18,6 +18,22 @@ A Monte-Carlo step is as follows.
 - Draw a random number $r\in[0,1]$
 - Accept the update with probability $\text{min}(1,e^{-\beta\Delta E})$, where $\beta=\frac{1}{T}$.
 
+## Glauber
+
+The Glauber algorithm is a single-spin-flip algorithm with the same trial moves
+as Metropolis-Hastings (a spin flip for Ising, a uniformly random new angle for
+XY, one of the other $q - 1$ states for the clock model). Only the acceptance
+rule differs:
+
+- Accept the update with probability $\frac{1}{1 + e^{\beta\Delta E}}$, where $\beta=\frac{1}{T}$.
+
+Because the proposals are symmetric, the ratio of forward and reverse
+acceptance probabilities is $e^{-\beta\Delta E}$ and detailed balance holds.
+Unlike Metropolis, moves that lower the energy are not accepted with
+certainty; a move with $\Delta E = 0$ is accepted with probability $1/2$. For
+the Ising model a Glauber spin flip is equivalent to a heat-bath update of the
+chosen spin.
+
 ## Wolff Cluster
 
 The Wolff algorithm grows and flips one connected cluster at a time. For the

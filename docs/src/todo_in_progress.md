@@ -5,12 +5,10 @@ In the future we'd like to add some further functionality to this package.
 ## Models
 
 - Heisenberg Model
-- Clock Model
 - Potts Model
 
 ## Algorithms
 
-- Glauber
 - Heatbath
 
 ## Functionality

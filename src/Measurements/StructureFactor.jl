@@ -34,7 +34,7 @@ The components must reproduce the model's two-body product,
 so that the structure factor is exactly the Fourier transform of the
 correlation function measured by [`correlation_instantaneous`](@ref).
 For an Ising spin `s` this is `(s,)`; for an XY angle `θ` it is
-`(cos θ, sin θ)`.
+`(cos θ, sin θ)`; for a clock index `n` it is `(cos(2πn/q), sin(2πn/q))`.
 
 # Throws
 

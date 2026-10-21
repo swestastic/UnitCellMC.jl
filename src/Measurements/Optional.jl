@@ -3,12 +3,17 @@
 
 Return the scalar magnetization represented by `state`, using the stored total
 magnetization for an [`IsingState`](@ref) and the magnitude of the two
-components for an [`XYState`](@ref).
+components for an [`XYState`](@ref) or [`ClockState`](@ref).
 """
 magnetization_value(state::IsingState) = state.magnetization
-magnetization_value(state::XYState) = hypot(state.magnetization_x, state.magnetization_y)
+magnetization_value(state::Union{XYState,ClockState}) =
+    hypot(state.magnetization_x, state.magnetization_y)
 binder_denominator(::IsingModel) = 3.0
 binder_denominator(::XYModel) = 2.0
+# For q = 2 the magnetization only has an x component (Ising universality);
+# for q >= 3 the clock states are isotropic to second order, so the
+# high-temperature magnetization is a two-component Gaussian, as for XY.
+binder_denominator(model::ClockModel) = model.q == 2 ? 3.0 : 2.0
 
 """
     abs_magnetization_entry(model, geometry)
@@ -70,6 +75,74 @@ function binder_cumulant_entry(model, geometry)
     ]
     return obs, der
 end
+
+"""
+    clock_angle_order(model::ClockModel, state::ClockState)
+
+Return the instantaneous angular order parameter `cos(q φ_M)` of `state`,
+where `φ_M = atan(M_y, M_x)` is the direction of the total magnetization.
+
+The magnetization is resummed from `state.spins` (`O(N)`) rather than read
+from the running totals. On small lattices `M = 0` is a common
+configuration, and there the running totals hold only rounding residue whose
+direction is meaningless and grows with run length. A fresh sum is accurate
+to about `N * eps()`, so `|M| <= √eps()` is treated as zero, for which the
+direction is undefined and `0.0` is returned.
+"""
+function clock_angle_order(model::ClockModel, state::ClockState)
+    mx = my = 0.0
+    for n in state.spins
+        mx += clock_cos(model, n)
+        my += clock_sin(model, n)
+    end
+    hypot(mx, my) <= sqrt(eps(Float64)) && return 0.0
+    return cos(model.q * atan(my, mx))
+end
+
+"""
+    clock_order_parameter_entry(model, geometry)
+
+Build the optional angular order parameter of a [`ClockModel`](@ref).
+
+The raw observable `:clock_order_parameter` is the instantaneous
+`cos(q φ_M)` from [`clock_angle_order`](@ref) (an `O(N)` resum of the
+magnetization per measurement), where `φ_M` is the direction of the total
+magnetization. Its average `⟨cos(q φ_M)⟩` tends to `1` when the
+magnetization locks onto one of the `q` clock directions and to `0` when its
+direction is uniformly distributed, so for `q >= 5` it separates the
+low-temperature ordered phase from the intermediate critical phase, and its
+rise sharpens with system size at the lower transition.
+
+No derived quantity is added: `cos(q φ_M)` is not a sum of local terms, so
+a fluctuation "susceptibility" `N * Var / T` would only reflect the trivial
+variance `1/2` of a uniformly distributed angle, growing with `N` throughout
+the disordered phase.
+
+# Arguments
+
+- `model`: The `ClockModel` being measured; supplies `q`.
+- `geometry`: The lattice geometry (unused; kept for the common entry
+  signature).
+
+# Returns
+
+An `(obs, der)` tuple: `obs` holds the `:clock_order_parameter` observable
+and `der` is empty.
+
+# Throws
+
+`ArgumentError` if `model` is not a [`ClockModel`](@ref).
+"""
+function clock_order_parameter_entry(model::ClockModel, geometry)
+    obs = Observable[
+        Observable(:clock_order_parameter, state -> clock_angle_order(model, state)),
+    ]
+    return obs, DerivedObservable[]
+end
+
+clock_order_parameter_entry(model, geometry) = throw(ArgumentError(
+    "The :clock_order_parameter measurement requires a ClockModel; got $(nameof(typeof(model)))"
+))
 
 """
     structure_factor_entry(model, geometry)
@@ -182,6 +255,11 @@ function optional_observables(model, geometry, measurements)
         append!(obs, o)
         append!(der, d)
     end
+    if :clock_order_parameter in measurements
+        o, d = clock_order_parameter_entry(model, geometry)
+        append!(obs, o)
+        append!(der, d)
+    end
     if :magnetization_fourth in measurements && !binder_requested
         o = [Observable(:magnetization_fourth, state -> (magnetization_value(state) / geometry.n_sites)^4)]
         append!(obs, o)
@@ -209,7 +287,8 @@ returned by [`observables`](@ref) and [`derived_observables`](@ref).
 
 `[:raw_correlation, :connected_correlation, :abs_magnetization,
 :magnetization_abs, :binder_cumulant, :binder, :magnetization_fourth,
-:structure_factor]`
+:structure_factor]` for every model. A [`ClockModel`](@ref) additionally
+accepts `:clock_order_parameter` (see [`clock_order_parameter_entry`](@ref)).
 
 # Notes
 
@@ -228,6 +307,9 @@ available_measurements(::Type{<:AbstractModel}) = [
     :magnetization_fourth,
     :structure_factor,
 ]
+
+available_measurements(::Type{<:ClockModel}) =
+    [available_measurements(AbstractModel); :clock_order_parameter]
 
 # Instances forward to the type method
 available_measurements(::M) where {M<:AbstractModel} = available_measurements(M)

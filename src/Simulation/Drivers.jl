@@ -4,7 +4,8 @@
 Return the number of [`step!`](@ref) updates that constitute one Monte Carlo
 sweep for `algorithm` on `geometry`.
 
-For local-update algorithms (the default, e.g. [`MetropolisAlgorithm`](@ref))
+For local-update algorithms (the default, e.g. [`MetropolisAlgorithm`](@ref)
+and [`GlauberAlgorithm`](@ref))
 a sweep is `geometry.n_sites` single-site updates, so that on average every
 site is updated once per sweep. For cluster algorithms
 ([`WolffAlgorithm`](@ref), [`SwendsenWangAlgorithm`](@ref)) a single cluster
@@ -77,7 +78,8 @@ The sequence of sweeps is:
    reduce autocorrelation.
 
 One sweep consists of [`steps_per_sweep`](@ref) calls to [`step!`](@ref):
-`geometry.n_sites` single-site updates for `MetropolisAlgorithm`, or a single
+`geometry.n_sites` single-site updates for `MetropolisAlgorithm` and
+`GlauberAlgorithm`, or a single
 cluster update for `WolffAlgorithm` and `SwendsenWangAlgorithm`.
 
 # Arguments

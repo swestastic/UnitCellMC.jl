@@ -14,8 +14,8 @@ include("Simulation/Simulation.jl")
 include("IO/IO.jl")
 
 export Geometry, initialize_state
-export IsingModel, XYModel
-export MetropolisAlgorithm, WolffAlgorithm, SwendsenWangAlgorithm
+export IsingModel, XYModel, ClockModel
+export MetropolisAlgorithm, GlauberAlgorithm, WolffAlgorithm, SwendsenWangAlgorithm
 export SimulationParameters, MeasurementContainer
 export MC_Sweep!, run_simulation, sweep_Ts, analyze, autotune_binning
 export set_global_seed!, global_seed

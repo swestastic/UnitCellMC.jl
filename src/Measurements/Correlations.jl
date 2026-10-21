@@ -66,6 +66,22 @@ function correlation_instantaneous(model, state, disp)
 end
 
 """
+    magnetization_components(model)
+
+Return the names of the raw observables holding the Cartesian components of
+the per-site magnetization of `model`, as measured by
+[`observables`](@ref). The connected correlation built by
+[`correlation_entry`](@ref) subtracts the sum of their squared averages.
+
+Defaults to `(:magnetization,)` (a single-component order parameter such as
+the Ising magnetization). Planar models ([`XYModel`](@ref),
+[`ClockModel`](@ref)) return `(:magnetization_x, :magnetization_y)`. A new
+model with a multi-component order parameter extends this method.
+"""
+magnetization_components(model) = (:magnetization,)
+magnetization_components(::Union{XYModel,ClockModel}) = (:magnetization_x, :magnetization_y)
+
+"""
     correlation_entry(model, geometry)
 
 Build the raw and derived observable entries needed to measure the
@@ -76,9 +92,10 @@ Precomputes the displacement classes once (via
 [`Observable`](@ref) named `:correlation` (sampled per measurement with
 [`correlation_instantaneous`](@ref)) and a [`DerivedObservable`](@ref) that
 computes the connected correlation via jackknife resampling (see
-[`jackknife_stats`](@ref)). For XY it subtracts
-`⟨m_x⟩² + ⟨m_y⟩²`; for other models it subtracts `⟨m⟩²`. The result also includes the
-[`CorrelationClass`](@ref) list labeling each entry.
+[`jackknife_stats`](@ref)), subtracting the squared average of every
+magnetization component named by [`magnetization_components`](@ref):
+`⟨m_x⟩² + ⟨m_y⟩²` for the XY and clock models, `⟨m⟩²` for Ising. The
+result also includes the [`CorrelationClass`](@ref) list labeling each entry.
 
 # Arguments
 
@@ -95,6 +112,7 @@ An `(observable, derived)` tuple:
     and the Cartesian magnetization components (their declared `depends_on`).
 """
 function correlation_entry(model, geometry)
+    components = magnetization_components(model)
     disp = build_displacement_classes(geometry)
     n_disp = length(disp.displacements)
 
@@ -113,35 +131,21 @@ function correlation_entry(model, geometry)
     derived = DerivedObservable(
         (:correlation_connected, :correlation_connected_err, :correlation_classes),
         (jk, T, N) -> begin
-            connected = if model isa XYModel
-                [
-                    jackknife_stats(
-                        (c, mx, my) -> c - mx^2 - my^2,
-                        [s[r] for s in jk[:correlation]],
-                        jk[:magnetization_x],
-                        jk[:magnetization_y],
-                    )
-                    for r in 1:n_disp
-                ]
-            else
-                [
-                    jackknife_stats(
-                        (c, m) -> c - m^2,
-                        [s[r] for s in jk[:correlation]],
-                        jk[:magnetization],
-                    )
-                    for r in 1:n_disp
-                ]
-            end
+            connected = [
+                jackknife_stats(
+                    (c, ms...) -> foldl((acc, m) -> acc - m^2, ms; init = c),
+                    [s[r] for s in jk[:correlation]],
+                    (jk[name] for name in components)...,
+                )
+                for r in 1:n_disp
+            ]
             (
                 correlation_connected     = first.(connected),
                 correlation_connected_err = last.(connected),
                 correlation_classes       = classes,
             )
         end;
-        depends_on = model isa XYModel ?
-            (:correlation, :magnetization_x, :magnetization_y) :
-            (:correlation, :magnetization),
+        depends_on = (:correlation, components...),
     )
 
     return observable, derived

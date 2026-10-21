@@ -66,7 +66,21 @@ derived_observables(::IsingModel, geometry) = [
         (m, m2; T, N) -> N * (m2 - m^2) / T),
 ]
 
-observables(::XYModel, geometry) = begin
+"""
+    observables(::Union{XYModel,ClockModel}, geometry)
+
+Return the raw per-measurement observables tracked for planar-spin models
+([`XYModel`](@ref) and [`ClockModel`](@ref)): per-site energy, both Cartesian
+magnetization components, the magnetization magnitude
+`hypot(M_x, M_y) / N`, and the square of each.
+
+# Returns
+
+A `Vector{Observable}` with `:energy`, `:energy_squared`, `:magnetization_x`,
+`:magnetization_x_squared`, `:magnetization_y`, `:magnetization_y_squared`,
+`:magnetization`, and `:magnetization_squared`.
+"""
+observables(::Union{XYModel,ClockModel}, geometry) = begin
     n_sites = geometry.n_sites
     [
         Observable(:energy, state -> state.energy / n_sites),
@@ -82,7 +96,16 @@ observables(::XYModel, geometry) = begin
     ]
 end
 
-derived_observables(::XYModel, geometry) = [
+"""
+    derived_observables(::Union{XYModel,ClockModel}, geometry)
+
+Return the always-on derived quantities for planar-spin models
+([`XYModel`](@ref) and [`ClockModel`](@ref)): the specific heat, the
+component susceptibilities `:susceptibility_x` and `:susceptibility_y`, and
+the total `:susceptibility = N * (⟨m_x²⟩ - ⟨m_x⟩² + ⟨m_y²⟩ - ⟨m_y⟩²) / T`,
+each with its jackknife error.
+"""
+derived_observables(::Union{XYModel,ClockModel}, geometry) = [
     DerivedObservable(:specific_heat, :specific_heat_err, (:energy, :energy_squared),
         (e, e2; T, N) -> N * (e2 - e^2) / T^2),
     DerivedObservable(:susceptibility_x, :susceptibility_x_err,

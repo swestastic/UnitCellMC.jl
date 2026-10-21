@@ -27,6 +27,7 @@ UnitCellMC.validate_dependencies
 UnitCellMC.CorrelationClass
 UnitCellMC.correlation_instantaneous
 UnitCellMC.correlation_entry
+UnitCellMC.magnetization_components
 ```
 
 ## Structure factor
@@ -57,6 +58,8 @@ UnitCellMC.time_series_names
 UnitCellMC.optional_observables
 UnitCellMC.abs_magnetization_entry
 UnitCellMC.binder_cumulant_entry
+UnitCellMC.clock_order_parameter_entry
+UnitCellMC.clock_angle_order
 UnitCellMC.magnetization_value
 ```
 

@@ -7,6 +7,10 @@ CollapsedDocStrings = true
 ```@docs
 UnitCellMC.IsingModel
 UnitCellMC.XYModel
+UnitCellMC.ClockModel
+UnitCellMC.clock_cos
+UnitCellMC.ClockUpdate
+UnitCellMC.ClockClusterContext
 UnitCellMC.bond_strength
 UnitCellMC.local_operator
 UnitCellMC.operator_product
@@ -20,4 +24,5 @@ UnitCellMC.apply_cluster!
 UnitCellMC.apply_clusters!
 UnitCellMC._reflect_xy_clusters!
 UnitCellMC._flip_ising_clusters!
+UnitCellMC._reflect_clock_sites!
 ```

@@ -28,3 +28,32 @@ same argument layout as the Ising model:
 ```julia
 model = XYModel([J₁, J₂], [h₁, h₂])
 ```
+
+## Clock Model
+
+The $q$-state clock model restricts the XY spin to $q$ equally spaced angles,
+$\theta_i = 2\pi n_i / q$ with $n_i \in \{0, \dots, q-1\}$, and has the same
+Hamiltonian:
+$$H=-\sum_{\langle i, j \rangle} J_{ij}\cos(\theta_i - \theta_j) - \sum_i h_i \cos(\theta_i)$$
+
+The state stores the integer clock index $n_i$ of every site. $q = 2$ is the
+Ising model, $q = 4$ is two decoupled Ising models with coupling $J/2$, and
+$q \to \infty$ approaches the XY model. It takes $q$ first, then the same
+arguments as the XY model:
+
+```julia
+model = ClockModel(q, [J₁, J₂], [h₁, h₂])
+```
+
+Metropolis proposes one of the other $q - 1$ states uniformly. The Wolff and
+Swendsen-Wang updates reflect clusters across one of the $q$ mirror lines of
+the clock, $n \mapsto (m - n) \bmod q$, which maps clock states onto clock
+states.
+
+Besides the measurements shared with the XY model, the clock model accepts
+the optional `:clock_order_parameter` measurement,
+$\langle \cos(q\phi_M) \rangle$, where $\phi_M$ is the direction of the
+total magnetization. It tends to 1 when the magnetization locks onto a clock
+direction and to 0 when its direction is uniformly distributed, so for
+$q \ge 5$ it distinguishes the ordered phase from the intermediate critical
+phase.

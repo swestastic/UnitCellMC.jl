@@ -12,10 +12,10 @@ mutable struct XYState{S,T<:Real} <: AbstractState
     magnetization_y::T
 end
 
-function _initialize_xy_state(model, geometry::Geometry)
+function _initialize_xy_state(model, geometry::Geometry, rng::AbstractRNG = Random.default_rng())
     validate_model_geometry(model, geometry)
 
-    angles = 2π .* rand(geometry.n_sites)
+    angles = 2π .* rand(rng, geometry.n_sites)
     T = promote_type(Float64, eltype(model.J), eltype(model.h))
     energy = zero(T)
     magnetization_x = zero(T)

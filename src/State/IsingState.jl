@@ -28,7 +28,7 @@ mutable struct IsingState{S,T<:Real,M<:Integer} <: AbstractState
 end
 
 """
-    initialize_state(model, geometry::Geometry)
+    initialize_state(model, geometry::Geometry; rng = Random.default_rng())
 
 Build a random initial [`IsingState`](@ref) for `model` on `geometry`, with
 energy and magnetization computed from scratch to match the random spins.
@@ -44,6 +44,9 @@ site; magnetization is simply the sum of all spins.
 - `model`: The `IsingModel` supplying bond strengths `J` and field `h`.
 - `geometry`: The lattice geometry, giving `n_sites`, `bonds`, and the
   neighbor table used to enumerate each site's bonds.
+- `rng`: Random number generator for the initial spins. Defaults to the
+  task-local global RNG, so `Random.seed!` makes the configuration
+  reproducible.
 
 # Throws
 
@@ -59,13 +62,14 @@ consistent with its `spins`.
 """
 function initialize_state(
     model,
-    geometry::Geometry
+    geometry::Geometry;
+    rng::AbstractRNG = Random.default_rng()
     )
 
     validate_model_geometry(model, geometry)
 
     n_sites = geometry.n_sites
-    spins = rand([-1, 1], n_sites)
+    spins = rand(rng, [-1, 1], n_sites)
 
     T = promote_type(eltype(model.J), eltype(model.h))
     energy = zero(T)

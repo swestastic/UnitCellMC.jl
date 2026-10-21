@@ -21,7 +21,7 @@ struct SwendsenWangUpdateResult <: AbstractUpdateResult
     largest_cluster_fraction::Float64
 end
 
-function apply_clusters!(::AbstractModel, ::Any, ::AbstractState, ::Vector{Vector{Int}})
+function apply_clusters!(::AbstractRNG, ::AbstractModel, ::Any, ::AbstractState, ::Vector{Vector{Int}})
     throw(MethodError(apply_clusters!, ()))
 end
 
@@ -55,22 +55,25 @@ function _sw_union!(parents::Vector{Int}, ranks::Vector{UInt8}, first::Int, seco
 end
 
 """
-    step!(SwendsenWangAlgorithm(), model, geometry, state, T)
+    step!(SwendsenWangAlgorithm(), model, geometry, state, T; rng = Random.default_rng())
 
 Activate each undirected bond once, form connected components with union-find,
 and pass the completed clusters to `apply_clusters!`. The bond traversal is
 model-independent and the model controls both bond activation and mutation.
+All random numbers (cluster context, bond activation, cluster flips) are
+drawn from `rng`.
 """
 function step!(
     ::SwendsenWangAlgorithm,
     model::AbstractModel,
     geometry,
     state::AbstractState,
-    T::Real
+    T::Real;
+    rng::AbstractRNG = Random.default_rng()
 )
     T > 0 || throw(ArgumentError("Temperature must be positive, got $T"))
     validate_cluster_model(model, geometry, state, T)
-    context = cluster_context(model, geometry, state, T)
+    context = cluster_context(rng, model, geometry, state, T)
 
     ghost_count = cluster_ghost_count(model, geometry, state, context)
     total_sites = geometry.n_sites + ghost_count
@@ -89,7 +92,7 @@ function step!(
                 "cluster_bond_probability returned $probability; expected a value in [0, 1]"
             ))
 
-            probability > 0 && rand() < probability &&
+            probability > 0 && rand(rng) < probability &&
                 _sw_union!(parents, ranks, site, neighbor)
         end
 
@@ -101,7 +104,7 @@ function step!(
                 "cluster_ghost_probability returned $probability; expected a value in [0, 1]"
             ))
 
-            probability > 0 && rand() < probability && _sw_union!(
+            probability > 0 && rand(rng) < probability && _sw_union!(
                 parents, ranks, site, geometry.n_sites + ghost
             )
         end
@@ -124,6 +127,6 @@ function step!(
     )
     largest_cluster_fraction = geometry.n_sites > 0 ? largest_cluster_size / geometry.n_sites : 0.0
 
-    apply_clusters!(model, geometry, state, clusters, context)
+    apply_clusters!(rng, model, geometry, state, clusters, context)
     return SwendsenWangUpdateResult(length(clusters), geometry.n_sites, largest_cluster_fraction)
 end

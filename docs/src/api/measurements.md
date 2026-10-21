@@ -7,6 +7,17 @@ UnitCellMC.jackknife_stats
 UnitCellMC.analyze
 ```
 
+## Autocorrelation
+
+```@docs
+UnitCellMC.AutocorrelationResult
+UnitCellMC.autocorrelation
+UnitCellMC.autocorrelation_function
+UnitCellMC.integrated_autocorrelation_time
+UnitCellMC.tau_lower_bound
+UnitCellMC.recommended_binning
+```
+
 ```@docs
 UnitCellMC.MeasurementContainer
 UnitCellMC.validate_dependencies
@@ -16,6 +27,16 @@ UnitCellMC.validate_dependencies
 UnitCellMC.CorrelationClass
 UnitCellMC.correlation_instantaneous
 UnitCellMC.correlation_entry
+```
+
+## Structure factor
+
+```@docs
+UnitCellMC.StructureFactorClass
+UnitCellMC.build_momentum_classes
+UnitCellMC.fourier_transform_dim
+UnitCellMC.structure_factor_instantaneous
+UnitCellMC.structure_factor_entry
 ```
 
 ```@meta
@@ -29,6 +50,7 @@ UnitCellMC.measure!
 ```@docs
 UnitCellMC.Observable
 UnitCellMC.DerivedObservable
+UnitCellMC.time_series_names
 ```
 
 ```@docs

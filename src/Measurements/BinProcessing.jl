@@ -70,6 +70,24 @@ function average_and_error(values::Vector{Vector{Float64}})
 end
 
 """
+    average_and_error(values::Vector{Vector{ComplexF64}})
+
+Complex counterpart of the vector method, used for complex-valued
+observables such as `:structure_factor`. The real and imaginary parts are
+averaged and errored independently.
+
+# Returns
+
+An `(averages, errors)` tuple of `Vector{ComplexF64}`; `real(errors)` and
+`imag(errors)` are the standard errors of the real and imaginary parts.
+"""
+function average_and_error(values::Vector{Vector{ComplexF64}})
+    re_avg, re_err = average_and_error([real.(v) for v in values])
+    im_avg, im_err = average_and_error([imag.(v) for v in values])
+    return complex.(re_avg, im_avg), complex.(re_err, im_err)
+end
+
+"""
     jackknife_samples(bin_values::Vector{T}) where T
 
 Compute leave-one-out jackknife samples from per-bin values.
@@ -166,10 +184,18 @@ one or more primary observables via jackknife resampling.
 
 # Returns
 
-A named tuple `(primary = ..., derived = ...)`:
+A named tuple `(primary = ..., derived = ..., autocorrelation = ...)`:
 - `primary`: `Dict` mapping observable name to its `(average, error)` pair.
 - `derived`: Named tuple merging the results of every derived quantity's
   `compute` call.
+- `autocorrelation`: `Dict` mapping each observable or diagnostic whose
+  time series was recorded (see the `time_series` keyword of
+  [`MeasurementContainer`](@ref); by default the scalar ones) to an
+  [`AutocorrelationResult`](@ref) for its per-measurement time series
+  (see [`autocorrelation`](@ref)). Times are in units of measurements, i.e.
+  `n_unmeasured + 1` sweeps. The binned error bars in `primary`/`derived` are
+  reliable only when `bin_size` is large compared with `tau`; as a rule of
+  thumb keep `bin_size >= 10 tau`.
 """
 function analyze(container::MeasurementContainer, T, N)
     bin_means = container.data
@@ -182,5 +208,14 @@ function analyze(container::MeasurementContainer, T, N)
         derived = merge(derived, d.compute(jk, T, N))
     end
 
-    return (primary = primary, derived = derived)
+    # Integrated autocorrelation time of each observable's per-measurement
+    # series, so the adequacy of the binning can be checked from the data.
+    # Independent runs merged by `merge_containers` are kept as separate chains.
+    chain_lengths = isempty(container.chain_lengths) ? nothing : container.chain_lengths
+    autocorrelations = Dict{Symbol, AutocorrelationResult}(
+        name => autocorrelation(series; chain_lengths = chain_lengths)
+        for (name, series) in pairs(container.time_series)
+    )
+
+    return (primary = primary, derived = derived, autocorrelation = autocorrelations)
 end

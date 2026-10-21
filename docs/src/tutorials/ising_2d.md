@@ -19,6 +19,17 @@ import UnitCellMC as ucmc
 import LatticeUtilities as lu
 ```
 
+## Set the Global RNG Seed
+
+All random numbers in a run (the initial spins, every Monte Carlo update, and each of the parallel `n_runs` in `sweep_Ts`) are drawn from Julia's global RNG unless an explicit `rng` keyword is passed. Seeding it once at the top of the script makes the whole simulation reproducible:
+
+```julia
+seed = 1234
+ucmc.set_global_seed!(seed)
+```
+
+Rerunning with the same seed and inputs gives identical results, for any number of threads. Use a different seed for a statistically independent run, or call `ucmc.set_global_seed!()` without an argument to draw a random seed. Either way the seed is written to the `metadata.txt` of every results folder, together with the Julia version (seeded random streams can change between Julia releases), so each saved run records how to recreate it. Seeding with `Random.seed!` directly also makes runs reproducible, but the seed is then recorded as `unknown`.
+
 ## Initialize Geometry
 
 Define the lattice grid to be 10 unit cells along each vector
@@ -174,6 +185,6 @@ sweep_results = ucmc.sweep_Ts(
 )
 ```
 
-To average over several independent simulation runs at each temperature, set the `n_runs` keyword (e.g. `n_runs = 20`). The bins of all runs are merged before the jackknife analysis, so the reported error bars reflect the variance between independent runs as well as within them. Each run anneals its own configuration across the temperature sweep when `simulated_annealing = true`, and is re-initialized randomly at every temperature otherwise. The runs execute in parallel over Julia threads; start Julia with `--threads auto` to benefit, and each run uses its own thread-local RNG stream regardless of thread count.
+To average over several independent simulation runs at each temperature, set the `n_runs` keyword (e.g. `n_runs = 20`). The bins of all runs are merged before the jackknife analysis, so the reported error bars reflect the variance between independent runs as well as within them. Each run anneals its own configuration across the temperature sweep when `simulated_annealing = true`, and is re-initialized randomly at every temperature otherwise. The runs execute in parallel over Julia threads; start Julia with `--threads auto` to benefit. Before the threads start, `sweep_Ts` draws one seed per run from the global RNG (or from its `rng` keyword) and gives every run its own generator for the whole sweep, so each run consumes the same random stream no matter which thread executes it. The results are therefore reproducible from the seed set above, independent of the thread count.
 
 Now you should see an output folder with results saved in a CSV format, which can easily be used for plotting.

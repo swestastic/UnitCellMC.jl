@@ -29,10 +29,11 @@ function results_dirname(model, algorithm, L, T; root::AbstractString = "results
 end
 
 """
-    save_metadata(dir, model, algorithm, L, T, parameters)
+    save_metadata(dir, model, algorithm, L, T, parameters; seed = global_seed())
 
 Write a `metadata.txt` file in `dir` recording the model, algorithm, system
-size, temperature, and simulation `parameters` used for a single run.
+size, temperature, and simulation `parameters` used for a single run, plus
+the RNG `seed` and Julia version needed to recreate it.
 
 # Arguments
 
@@ -43,15 +44,31 @@ size, temperature, and simulation `parameters` used for a single run.
 - `T`: Temperature.
 - `parameters`: Simulation parameters (e.g. a `SimulationParameters`), written
   via its `show` representation.
+- `seed`: RNG seed of the run; defaults to the seed set with
+  [`set_global_seed!`](@ref). Written as `unknown` when `nothing`.
 """
-function save_metadata(dir, model, algorithm, L, T, parameters)
+function save_metadata(dir, model, algorithm, L, T, parameters; seed = global_seed())
     open(joinpath(dir, "metadata.txt"), "w") do io
         println(io, "model = ", model)
         println(io, "algorithm = ", algorithm)
         println(io, "L = ", L)
         println(io, "temperature = ", T)
         println(io, "parameters = ", parameters)
+        write_reproducibility_metadata(io, seed)
     end
+    return nothing
+end
+
+"""
+    write_reproducibility_metadata(io, seed)
+
+Write the `seed = ...` (or `seed = unknown`) and `julia_version = ...` lines
+of `metadata.txt`. The Julia version is recorded because the random streams
+produced from a seed may change between Julia releases.
+"""
+function write_reproducibility_metadata(io, seed)
+    println(io, "seed = ", something(seed, "unknown"))
+    println(io, "julia_version = ", VERSION)
     return nothing
 end
 
@@ -157,6 +174,56 @@ function correlation_rows(results)
 end
 
 """
+    structure_factor_rows(results)
+
+Build a `DataFrame` of structure-factor data from `results`, or return
+`nothing` if `results` has no `structure_factor_classes` (i.e. the
+`:structure_factor` measurement was not requested).
+
+Each row corresponds to one [`StructureFactorClass`](@ref): an orbital pair
+and a momentum on the finite-lattice grid (see
+[`build_momentum_classes`](@ref)).
+
+# Arguments
+
+- `results`: A results object with `results.derived.structure_factor_classes`
+  and `results.primary[:structure_factor]` (complex `(values, errors)`, as
+  returned by [`analyze`](@ref)).
+
+# Returns
+
+A `DataFrame` with columns `k_index_1, ..., k_index_D` (integer grid
+location), `k_1, ..., k_D` (Cartesian momentum), `orbital_i`, `orbital_j`,
+`real_value`, `real_error`, `imag_value`, `imag_error`, or `nothing` if
+`results` has no structure-factor data.
+"""
+function structure_factor_rows(results)
+    hasproperty(results.derived, :structure_factor_classes) || return nothing
+
+    classes = results.derived.structure_factor_classes
+    isempty(classes) && return nothing
+    avg, err = results.primary[:structure_factor]
+
+    D = length(first(classes).momentum_index)
+
+    df = DataFrame()
+    for d in 1:D
+        df[!, Symbol("k_index_$d")] = [c.momentum_index[d] for c in classes]
+    end
+    for d in 1:D
+        df[!, Symbol("k_$d")] = [c.momentum[d] for c in classes]
+    end
+    df.orbital_i  = [c.orbitals[1] for c in classes]
+    df.orbital_j  = [c.orbitals[2] for c in classes]
+    df.real_value = real.(avg)
+    df.real_error = real.(err)
+    df.imag_value = imag.(avg)
+    df.imag_error = imag.(err)
+
+    return df
+end
+
+"""
     save_measurements(dir, results)
 
 Write `results`'s scalar observables (via [`measurement_rows`](@ref)) to
@@ -184,13 +251,72 @@ function save_correlations(dir, results)
 end
 
 """
-    save_results(model, algorithm, L, T, results, parameters; root = "results")
+    save_structure_factor(dir, results)
+
+Write `results`'s structure-factor data (via [`structure_factor_rows`](@ref))
+to `dir/structure_factor_results.csv`. Does nothing if `results` has no
+structure-factor data.
+"""
+function save_structure_factor(dir, results)
+    df = structure_factor_rows(results)
+    df === nothing && return nothing
+    CSV.write(joinpath(dir, "structure_factor_results.csv"), df)
+    return nothing
+end
+
+"""
+    autocorrelation_rows(results)
+
+Build a `DataFrame` of integrated autocorrelation times from
+`results.autocorrelation` (as produced by [`analyze`](@ref)), one row per
+observable sorted by name, or return `nothing` if `results` has no
+autocorrelation data.
+
+Columns: `observable`, `tau`, `tau_err`, `window`, `n_samples`, `status`.
+`tau` is in units of measurements (`n_unmeasured + 1` sweeps) and is `NaN`
+unless `status == "resolved"`; see [`AutocorrelationResult`](@ref).
+"""
+function autocorrelation_rows(results)
+    hasproperty(results, :autocorrelation) || return nothing
+    ac = results.autocorrelation
+    isempty(ac) && return nothing
+    names = sort!(collect(keys(ac)))
+    return DataFrame(
+        observable = string.(names),
+        tau        = [ac[name].tau for name in names],
+        tau_err    = [ac[name].tau_err for name in names],
+        window     = [ac[name].window for name in names],
+        n_samples  = [ac[name].n for name in names],
+        status     = [string(ac[name].status) for name in names],
+    )
+end
+
+"""
+    save_autocorrelation(dir, results)
+
+Write `results`'s integrated autocorrelation times (via
+[`autocorrelation_rows`](@ref)) to `dir/autocorrelation_results.csv`. Does
+nothing if `results` has no autocorrelation data.
+"""
+function save_autocorrelation(dir, results)
+    df = autocorrelation_rows(results)
+    df === nothing && return nothing
+    CSV.write(joinpath(dir, "autocorrelation_results.csv"), df)
+    return nothing
+end
+
+"""
+    save_results(model, algorithm, L, T, results, parameters;
+        root = "results", seed = global_seed())
 
 Save all output for a single-temperature run: create the run directory,
-write metadata, measurements, and correlations (if any).
+write metadata, measurements, correlations (if any), the structure factor
+(if any), and autocorrelation times (if any).
 
 Combines [`results_dirname`](@ref), [`save_metadata`](@ref),
-[`save_measurements`](@ref), and [`save_correlations`](@ref) into one call.
+[`save_measurements`](@ref), [`save_correlations`](@ref),
+[`save_structure_factor`](@ref), and [`save_autocorrelation`](@ref) into
+one call.
 
 # Arguments
 
@@ -199,17 +325,23 @@ Combines [`results_dirname`](@ref), [`save_metadata`](@ref),
 - `results`: The measurement results to save.
 - `parameters`: Simulation parameters recorded in the metadata.
 - `root`: Base directory under which the run directory is created.
+- `seed`: RNG seed recorded in the metadata (see [`save_metadata`](@ref)).
 
 # Returns
 
 The path to the created run directory.
 """
-function save_results(model, algorithm, L, T, results, parameters; root::AbstractString = "results")
+function save_results(
+    model, algorithm, L, T, results, parameters;
+    root::AbstractString = "results", seed = global_seed()
+)
     dir = results_dirname(model, algorithm, L, T; root = root)
     mkpath(dir)
-    save_metadata(dir, model, algorithm, L, T, parameters)
+    save_metadata(dir, model, algorithm, L, T, parameters; seed = seed)
     save_measurements(dir, results)
     save_correlations(dir, results)
+    save_structure_factor(dir, results)
+    save_autocorrelation(dir, results)
     return dir
 end
 
@@ -239,11 +371,12 @@ function sweep_dirname(model, algorithm, L; root::AbstractString = "results")
 end
 
 """
-    save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins)
+    save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
+        seed = global_seed())
 
 Write a `metadata.txt` file in `dir` recording the model, algorithm, system
-size, the full list of temperatures `Ts`, and the sweep's simulation
-parameters.
+size, the full list of temperatures `Ts`, the sweep's simulation
+parameters, and the RNG `seed` and Julia version needed to recreate it.
 
 # Arguments
 
@@ -254,8 +387,13 @@ parameters.
 - `Ts`: The temperatures included in the sweep.
 - `n_thermalization`, `n_measurements`, `n_unmeasured`, `n_bins`: Sweep
   simulation parameters, recorded as-is.
+- `seed`: RNG seed of the sweep; defaults to the seed set with
+  [`set_global_seed!`](@ref). Written as `unknown` when `nothing`.
 """
-function save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins)
+function save_sweep_metadata(
+    dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
+    seed = global_seed()
+)
     open(joinpath(dir, "metadata.txt"), "w") do io
         println(io, "model = ", model)
         println(io, "algorithm = ", algorithm)
@@ -265,6 +403,7 @@ function save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_m
         println(io, "n_measurements = ", n_measurements)
         println(io, "n_unmeasured = ", n_unmeasured)
         println(io, "n_bins = ", n_bins)
+        write_reproducibility_metadata(io, seed)
     end
     return nothing
 end
@@ -272,17 +411,22 @@ end
 """
     save_sweep_results(sweep_results, Ts, model, algorithm, L,
                         n_thermalization, n_measurements, n_unmeasured, n_bins;
-                        root = "results")
+                        root = "results", seed = global_seed())
 
-Save the combined output of a temperature sweep into a single directory: one
-`measurement_results.csv` and one `correlation_results.csv` spanning all
-temperatures, each with a leading `temperature` column, plus sweep metadata.
+Save the combined output of a temperature sweep into a single directory:
+`measurement_results.csv`, `correlation_results.csv`,
+`structure_factor_results.csv`, and `autocorrelation_results.csv`, each
+spanning all temperatures with a leading `temperature` column, plus sweep
+metadata.
 
 `sweep_results[i]` must correspond to `Ts[i]`; per-temperature rows are built
-with [`measurement_rows`](@ref) and [`correlation_rows`](@ref) and
-concatenated across all temperatures. Temperatures with no correlation data
-are simply omitted from `correlation_results.csv`; if none have correlation
-data, that file is not written at all.
+with [`measurement_rows`](@ref), [`correlation_rows`](@ref),
+[`structure_factor_rows`](@ref), and [`autocorrelation_rows`](@ref) and
+concatenated across all temperatures.
+Temperatures with no correlation (structure-factor, autocorrelation) data are simply
+omitted from the corresponding file; if none have such data, that file is not
+written at all. Autocorrelation times are in units of measurements, i.e.
+`n_unmeasured + 1` sweeps.
 
 # Arguments
 
@@ -293,6 +437,7 @@ data, that file is not written at all.
 - `n_thermalization`, `n_measurements`, `n_unmeasured`, `n_bins`: Sweep
   simulation parameters, recorded in the metadata.
 - `root`: Base directory under which the sweep directory is created.
+- `seed`: RNG seed recorded in the metadata (see [`save_sweep_metadata`](@ref)).
 
 # Throws
 
@@ -305,12 +450,14 @@ The path to the created sweep directory.
 function save_sweep_results(
     sweep_results, Ts, model, algorithm, L,
     n_thermalization, n_measurements, n_unmeasured, n_bins;
-    root::AbstractString = "results"
+    root::AbstractString = "results",
+    seed = global_seed()
 )
     if isempty(sweep_results) && isempty(Ts)
         dir = sweep_dirname(model, algorithm, L; root = root)
         mkpath(dir)
-        save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins)
+        save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
+            seed = seed)
         return dir
     end
 
@@ -319,7 +466,8 @@ function save_sweep_results(
 
     dir = sweep_dirname(model, algorithm, L; root = root)
     mkpath(dir)
-    save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins)
+    save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
+        seed = seed)
 
     measurement_dfs = map(zip(Ts, sweep_results)) do (T, results)
         results === nothing && return nothing
@@ -348,6 +496,36 @@ function save_sweep_results(
         isfile(correlation_path) && rm(correlation_path)
     else
         CSV.write(correlation_path, reduce(vcat, correlation_dfs))
+    end
+
+    structure_factor_dfs = map(zip(Ts, sweep_results)) do (T, results)
+        results === nothing && return nothing
+        df = structure_factor_rows(results)
+        df === nothing && return nothing
+        insertcols!(df, 1, :temperature => T)
+        df
+    end
+    filter!(!isnothing, structure_factor_dfs)
+    structure_factor_path = joinpath(dir, "structure_factor_results.csv")
+    if isempty(structure_factor_dfs)
+        isfile(structure_factor_path) && rm(structure_factor_path)
+    else
+        CSV.write(structure_factor_path, reduce(vcat, structure_factor_dfs))
+    end
+
+    autocorrelation_dfs = map(zip(Ts, sweep_results)) do (T, results)
+        results === nothing && return nothing
+        df = autocorrelation_rows(results)
+        df === nothing && return nothing
+        insertcols!(df, 1, :temperature => T)
+        df
+    end
+    filter!(!isnothing, autocorrelation_dfs)
+    autocorrelation_path = joinpath(dir, "autocorrelation_results.csv")
+    if isempty(autocorrelation_dfs)
+        isfile(autocorrelation_path) && rm(autocorrelation_path)
+    else
+        CSV.write(autocorrelation_path, reduce(vcat, autocorrelation_dfs))
     end
 
     return dir

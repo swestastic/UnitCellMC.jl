@@ -114,6 +114,24 @@ end
     @test_throws ArgumentError ucmc.SimulationParameters(1.0, 0, 0, 0, 0)
 end
 
+@testset "SimulationParameters and MeasurementContainer agree on binning" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+
+    # (n_measurements, n_bins) pairs: both constructors accept or both reject
+    valid = [(2, 2), (8, 4), (20, 4), (9, 3)]
+    invalid = [(0, 2), (-4, 2), (4, 1), (4, 0), (1, 2), (10, 4), (95, 10)]
+    for (n_measurements, n_bins) in valid
+        @test ucmc.SimulationParameters(1.0, 0, n_measurements, 0, n_bins) isa ucmc.SimulationParameters
+        @test ucmc.MeasurementContainer(model, geometry, n_measurements, n_bins).bin_size ==
+            n_measurements ÷ n_bins
+    end
+    for (n_measurements, n_bins) in invalid
+        @test_throws ArgumentError ucmc.SimulationParameters(1.0, 0, n_measurements, 0, n_bins)
+        @test_throws ArgumentError ucmc.MeasurementContainer(model, geometry, n_measurements, n_bins)
+    end
+end
+
 @testset "Ising state initialization" begin
     geometry = square_geometry(2)
     model = ucmc.IsingModel([1.0, 1.0], [0.0])
@@ -616,6 +634,51 @@ end
     @test !haskey(pairs(container.data), :acceptance_ratio)
 end
 
+@testset "run_simulation rejects a container that does not match the parameters" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    algorithm = ucmc.MetropolisAlgorithm()
+
+    # container bins 100 measurements into 10 bins of 10
+    for parameters in (
+        ucmc.SimulationParameters(2.0, 5, 90, 0, 10),   # bin_size 9
+        ucmc.SimulationParameters(2.0, 5, 100, 0, 5),   # bin_size 20
+        ucmc.SimulationParameters(2.0, 5, 50, 0, 10),   # bin_size 5
+    )
+        state = ucmc.initialize_state(model, geometry; rng = Xoshiro(1))
+        spins = copy(state.spins)
+        container = ucmc.MeasurementContainer(model, geometry, 100, 10)
+        @test_throws ArgumentError ucmc.run_simulation(
+            algorithm, model, geometry, state, container, parameters; rng = Xoshiro(2)
+        )
+        # rejected before any sweep: neither the state nor the container changed
+        @test state.spins == spins
+        @test isempty(container.data.energy)
+        @test container.bin_count == 0
+    end
+
+    # matching counts fill exactly n_bins complete bins
+    parameters = ucmc.SimulationParameters(2.0, 5, 100, 0, 10)
+    container = ucmc.MeasurementContainer(model, geometry, 100, 10)
+    ucmc.run_simulation(algorithm, model, geometry, ucmc.initialize_state(model, geometry),
+        container, parameters)
+    @test length(container.data.energy) == 10
+    @test container.bin_count == 0
+
+    # diagnostics the algorithm does not provide are rejected up front
+    state = ucmc.initialize_state(model, geometry)
+    container = ucmc.MeasurementContainer(model, geometry, 100, 10; diagnostics = [:cluster_size])
+    err = try
+        ucmc.run_simulation(algorithm, model, geometry, state, container, parameters)
+        nothing
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("cluster_size", err.msg)
+    @test isempty(container.data.energy)
+end
+
 @testset "sweep_Ts end-to-end" begin
     geometry = square_geometry(2)
     model = ucmc.IsingModel([1.0, 1.0], [0.0])
@@ -693,6 +756,44 @@ end
         ucmc.MetropolisAlgorithm(), model, geometry, state,
         3, 6, 1, 3, Ts; n_runs = 0, root = root
     )
+end
+
+@testset "sweep_Ts validates inputs before the threaded loop" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    algorithm = ucmc.MetropolisAlgorithm()
+
+    # Each call must throw the ArgumentError itself, not a CompositeException
+    # from inside Threads.@threads, and must fail before any simulation runs:
+    # the starting state is untouched and no results directory is written.
+    function sweep_error(args...; kwargs...)
+        state = ucmc.initialize_state(model, geometry; rng = Xoshiro(1))
+        spins = copy(state.spins)
+        root = mktempdir()
+        err = try
+            ucmc.sweep_Ts(algorithm, model, geometry, state, args...;
+                n_runs = 2, root = root, kwargs...)
+            nothing
+        catch e
+            e
+        end
+        untouched = state.spins == spins && isempty(readdir(root))
+        return err, untouched
+    end
+
+    cases = [
+        ((3, 6, 1, 1, [2.0]), (;)),                                  # n_bins < 2
+        ((3, 0, 1, 2, [2.0]), (;)),                                  # n_measurements = 0
+        ((3, 7, 1, 2, [2.0]), (;)),                                  # not divisible
+        ((3, 6, 1, 3, [2.0, 1.0, -1.0]), (;)),                       # bad last temperature
+        ((3, 6, 1, 3, [2.0]), (; diagnostics = [:cluster_size])),    # wrong algorithm diagnostic
+        ((3, 6, 1, 3, [2.0]), (; time_series = [:not_measured])),    # container rejects
+    ]
+    for (args, kwargs) in cases
+        err, untouched = sweep_error(args...; kwargs...)
+        @test err isa ArgumentError
+        @test untouched
+    end
 end
 
 @testset "RNG reproducibility" begin

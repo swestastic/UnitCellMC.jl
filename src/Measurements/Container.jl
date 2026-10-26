@@ -50,6 +50,34 @@ mutable struct MeasurementContainer{T, S, Ts}
 end
 
 """
+    validate_binning(n_measurements, n_bins)
+
+Check that `n_measurements` measurements can be grouped into `n_bins` equal
+bins with enough bins for jackknife error estimates. Both
+[`SimulationParameters`](@ref) and [`MeasurementContainer`](@ref) apply this
+check, so a parameter set and a container built from the same counts are
+either both valid or both rejected.
+
+# Throws
+
+`ArgumentError` if `n_measurements` is not positive, if `n_bins` is less
+than 2, if `n_measurements` is smaller than `n_bins`, or if `n_measurements`
+is not divisible by `n_bins`.
+
+# Returns
+
+`nothing`.
+"""
+function validate_binning(n_measurements, n_bins)
+    n_measurements > 0 || throw(ArgumentError("n_measurements must be positive, got $n_measurements"))
+    n_bins >= 2 || throw(ArgumentError("n_bins must be at least 2 for jackknife error estimates, got $n_bins"))
+    n_measurements >= n_bins || throw(ArgumentError("n_measurements ($n_measurements) must be at least n_bins ($n_bins)"))
+    n_measurements % n_bins == 0 ||
+        throw(ArgumentError("n_measurements ($n_measurements) must be divisible by n_bins ($n_bins)"))
+    return nothing
+end
+
+"""
     MeasurementContainer(model, geometry, n_measurements, n_bins;
       measurements = Symbol[], diagnostics = Symbol[], time_series = :scalars)
 
@@ -91,13 +119,13 @@ observable's initial `data` and `bin_sums` entries are built from its
 
 # Throws
 
-`ArgumentError` if `n_measurements` is not positive, if `n_bins` is less
-than 2, if `n_measurements` is smaller than `n_bins`, if `n_measurements` is
-not divisible by `n_bins`, if any name in `diagnostics` duplicates a raw
-observable name, if a requested derived quantity depends on an
-observable that isn't being measured (via [`validate_dependencies`](@ref)),
-or if `time_series` is not a recognized option or names an observable that
-isn't being measured.
+`ArgumentError` if `n_measurements` and `n_bins` fail
+[`validate_binning`](@ref) (`n_measurements` not positive, `n_bins` less
+than 2, or `n_measurements` not a multiple of `n_bins`), if any name in
+`diagnostics` duplicates a raw observable name, if a requested derived
+quantity depends on an observable that isn't being measured (via
+[`validate_dependencies`](@ref)), or if `time_series` is not a recognized
+option or names an observable that isn't being measured.
 
 # Returns
 
@@ -113,11 +141,7 @@ function MeasurementContainer(
     diagnostics = Symbol[],
     time_series = :scalars
 )
-    n_measurements > 0 || throw(ArgumentError("n_measurements must be positive, got $n_measurements"))
-    n_bins >= 2 || throw(ArgumentError("n_bins must be at least 2 for jackknife error estimates, got $n_bins"))
-    n_measurements >= n_bins || throw(ArgumentError("n_measurements ($n_measurements) must be at least n_bins ($n_bins)"))
-    n_measurements % n_bins == 0 ||
-        throw(ArgumentError("n_measurements ($n_measurements) must be divisible by n_bins ($n_bins)"))
+    validate_binning(n_measurements, n_bins)
 
     implicit_measurements = Symbol[]
     requested_measurements = collect(measurements)

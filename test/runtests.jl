@@ -1673,7 +1673,12 @@ end
         end
         jk_x = ucmc.jackknife_samples(container.data.magnetization_x)
         jk_y = ucmc.jackknife_samples(container.data.magnetization_y)
-        expected, _ = ucmc.jackknife_stats((mx, my) -> 1.0 - mx^2 - my^2, jk_x, jk_y)
+        n = length(jk_x)
+        mx_full = sum(container.data.magnetization_x) / n
+        my_full = sum(container.data.magnetization_y) / n
+        f_full = 1.0 - mx_full^2 - my_full^2
+        v̄ = sum(1.0 - mx^2 - my^2 for (mx, my) in zip(jk_x, jk_y)) / n
+        expected = n * f_full - (n - 1) * v̄
         @test result.derived.correlation_connected[1] ≈ expected
     end
 end

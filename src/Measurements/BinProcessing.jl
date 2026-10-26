@@ -120,13 +120,25 @@ end
 """
     jackknife_stats(f::Function, jk_sample_sets::AbstractVector{<:Real}...)
 
-Compute the jackknife estimate and error of a (possibly nonlinear) function
-`f` of one or more primary observables, given their jackknife sample sets.
+Compute the bias-corrected jackknife estimate and error of a (possibly
+nonlinear) function `f` of one or more primary observables, given their
+jackknife sample sets.
 
 `f` is evaluated once per jackknife replicate `i`, taking the `i`-th sample
 from each set in `jk_sample_sets` (as produced by [`jackknife_samples`](@ref))
 as its arguments. The jackknife error accounts for correlations between the
 observables and for nonlinearity in `f`, unlike simple error propagation.
+
+The reported value is the bias-corrected jackknife estimator
+`n·f(full) − (n−1)·mean(f_i)`, where `f(full)` is `f` evaluated on the
+full-sample values and `f_i` are the leave-one-out replicates. For linear `f`
+this reduces to `f(full)`; for nonlinear quantities (susceptibility, specific
+heat, Binder cumulant) it removes the O(1/n) jackknife bias that matters at
+small bin counts.
+
+The full-sample value of each observable is the mean of its jackknife sample
+set (the leave-one-out samples average back to the full-sample mean), so `f`
+needs no separate pass over the bin data.
 
 # Arguments
 
@@ -142,19 +154,27 @@ different lengths, or if fewer than two jackknife replicates are provided.
 
 # Returns
 
-A `(value, error)` tuple: the jackknife mean of `f` over all replicates, and
+A `(value, error)` tuple: the bias-corrected jackknife estimate of `f`, and
 its jackknife standard error.
 """
 function jackknife_stats(f::Function, jk_sample_sets::AbstractVector{<:Real}...)
-  isempty(jk_sample_sets) && throw(ArgumentError("At least one sample set is required"))
+    isempty(jk_sample_sets) && throw(ArgumentError("At least one sample set is required"))
     n = length(jk_sample_sets[1])
-  n > 1 || throw(ArgumentError("At least two jackknife replicates are required"))
-  all(length(samples) == n for samples in jk_sample_sets) ||
-    throw(ArgumentError("All jackknife sample sets must have the same length"))
+    n > 1 || throw(ArgumentError("At least two jackknife replicates are required"))
+    all(length(samples) == n for samples in jk_sample_sets) ||
+        throw(ArgumentError("All jackknife sample sets must have the same length"))
+
+    # mean of leave-one-out samples == full-sample mean, per observable
+    full = Statistics.mean.(jk_sample_sets)
+    f_full = f(full...)
+
     vals = [f((s[i] for s in jk_sample_sets)...) for i in 1:n]
     v̄ = Statistics.mean(vals)
+
+    # Bias-corrected jackknife estimate: n·f(full) − (n−1)·mean(f_i).
+    value = n * f_full - (n - 1) * v̄
     variance = (n - 1) / n * sum((v - v̄)^2 for v in vals)
-    return v̄, sqrt(variance)
+    return value, sqrt(variance)
 end
 
 """

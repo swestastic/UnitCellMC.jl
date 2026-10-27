@@ -35,10 +35,12 @@ after which `bin_sums` is reset to zero (via each observable's `zero()`) and
 
 `nothing`. `measurements` is mutated in place.
 """
-function measure!(measurements::MeasurementContainer, state; diagnostics = NamedTuple())
-    diagnostic_names = propertynames(diagnostics)
-    diagnostic_names == Tuple(measurements.diagnostics) ||
-        throw(ArgumentError("Expected diagnostics $(Tuple(measurements.diagnostics)), got $diagnostic_names"))
+function measure!(
+    measurements::MeasurementContainer{D}, state; diagnostics = NamedTuple()
+) where {D}
+    given_names = propertynames(diagnostics)
+    given_names == D ||
+        throw(ArgumentError("Expected diagnostics $D, got $given_names"))
 
     values = merge(
         NamedTuple(o.name => o.value(state) for o in measurements.observables),
@@ -60,7 +62,7 @@ function measure!(measurements::MeasurementContainer, state; diagnostics = Named
         end
         measurements.bin_sums = merge(
             NamedTuple(o.name => o.zero() for o in measurements.observables),
-            NamedTuple(name => 0.0 for name in measurements.diagnostics)
+            NamedTuple(name => 0.0 for name in D)
         )
         measurements.bin_count = 0
     end

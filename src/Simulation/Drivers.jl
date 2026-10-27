@@ -48,17 +48,19 @@ one cluster update for cluster algorithms. After each update,
 
 `stats`, containing the sweep-averaged diagnostic values.
 """
+@inline function record_all!(stats::Tuple, values, ::Val{D}) where {D}
+    ntuple(i -> record!(stats[i], getfield(values, D[i])), Val(length(D)))
+    return nothing
+end
+
 function MC_Sweep!(
-    algorithm, model, geometry, state, container::MeasurementContainer, T, stats;
-    rng::AbstractRNG = Random.default_rng()
-)
+    algorithm, model, geometry, state, container::MeasurementContainer{D},
+    T, stats::Tuple; rng::AbstractRNG = Random.default_rng()
+) where {D}
     foreach(reset!, stats)
     for _ in 1:steps_per_sweep(algorithm, geometry)
         result = step!(algorithm, model, geometry, state, T; rng = rng)
-        values = diagnostic_values(algorithm, result)
-        for (index, name) in enumerate(container.diagnostics)
-            record!(stats[index], getproperty(values, name))
-        end
+        record_all!(stats, diagnostic_values(algorithm, result), Val(D))
     end
     return stats
 end
@@ -110,13 +112,13 @@ function run_simulation(
     model::AbstractModel,
     geometry::Geometry,
     state::AbstractState,
-    container::MeasurementContainer,
+    container::MeasurementContainer{D},
     parameters::SimulationParameters;
     rng::AbstractRNG = Random.default_rng()
-)
+) where {D}
     validate_run(algorithm, container, parameters)
     T = parameters.T
-    stats = [UpdateStatistic(name) for name in container.diagnostics]
+    stats = ntuple(i -> UpdateStatistic(D[i]), Val(length(D)))
 
     for _ in 1:parameters.n_thermalization
         MC_Sweep!(algorithm, model, geometry, state, container, T, stats; rng = rng)
@@ -124,10 +126,7 @@ function run_simulation(
 
     for _ in 1:parameters.n_measurements
         MC_Sweep!(algorithm, model, geometry, state, container, T, stats; rng = rng)
-        diagnostics = NamedTuple(
-            name => value(stats[index])
-            for (index, name) in enumerate(container.diagnostics)
-        )
+        diagnostics = NamedTuple{D}(ntuple(i -> value(stats[i]), Val(length(D))))
         measure!(container, state; diagnostics)
 
         for __ in 1:parameters.n_unmeasured
@@ -171,9 +170,10 @@ function validate_run(
         "require bin_size = $expected_bin_size; build both from the same " *
         "n_measurements and n_bins"
     ))
-    if !isempty(container.diagnostics)
+    names = diagnostic_names(container)
+    if !isempty(names)
         available = available_diagnostics(algorithm)
-        unknown = setdiff(container.diagnostics, available)
+        unknown = setdiff(names, available)
         isempty(unknown) || throw(ArgumentError(
             "Diagnostics $unknown are not provided by $(nameof(typeof(algorithm))); " *
             "available: $available"
@@ -230,13 +230,14 @@ function merge_containers(containers::Vector{<:MeasurementContainer})
             [length(first(container.time_series))] : container.chain_lengths
         for container in containers
     )))
+    diag_names = diagnostic_names(first_container)
     bin_sums = merge(
         NamedTuple(o.name => o.zero() for o in first_container.observables),
-        NamedTuple(name => 0.0 for name in first_container.diagnostics)
+        NamedTuple(name => 0.0 for name in diag_names)
     )
-    return MeasurementContainer(
-        data, bin_sums, time_series, chain_lengths, 0, first_container.bin_size,
-        first_container.observables, first_container.derived, first_container.diagnostics
+    return _build_container(
+        Val(diag_names), data, bin_sums, time_series, chain_lengths, 0,
+        first_container.bin_size, first_container.observables, first_container.derived
     )
 end
 

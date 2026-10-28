@@ -6,7 +6,7 @@ Install UnitCellMC using Julia's package manager:
 
 ```julia
 import Pkg
-Pkg.add(url="github.com/swestastic/UnitCellMC.jl")
+Pkg.add(url="https://github.com/swestastic/UnitCellMC.jl")
 ```
 
 The main user-facing types and functions are exported, so

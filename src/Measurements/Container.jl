@@ -37,7 +37,7 @@ the codebase).
 Construct with [`MeasurementContainer(model, geometry, n_measurements,
 n_bins; measurements)`](@ref).
 """
-mutable struct MeasurementContainer{T, S, Ts}
+mutable struct MeasurementContainer{D, T, S, Ts}
     data::T
     bin_sums::S
     time_series::Ts
@@ -46,7 +46,36 @@ mutable struct MeasurementContainer{T, S, Ts}
     bin_size::Int
     observables::Vector{Observable}
     derived::Vector{DerivedObservable}
-    diagnostics::Vector{Symbol}
+end
+
+diagnostic_names(::MeasurementContainer{D}) where {D} = D
+
+"""
+    validate_binning(n_measurements, n_bins)
+
+Check that `n_measurements` measurements can be grouped into `n_bins` equal
+bins with enough bins for jackknife error estimates. Both
+[`SimulationParameters`](@ref) and [`MeasurementContainer`](@ref) apply this
+check, so a parameter set and a container built from the same counts are
+either both valid or both rejected.
+
+# Throws
+
+`ArgumentError` if `n_measurements` is not positive, if `n_bins` is less
+than 2, if `n_measurements` is smaller than `n_bins`, or if `n_measurements`
+is not divisible by `n_bins`.
+
+# Returns
+
+`nothing`.
+"""
+function validate_binning(n_measurements, n_bins)
+    n_measurements > 0 || throw(ArgumentError("n_measurements must be positive, got $n_measurements"))
+    n_bins >= 2 || throw(ArgumentError("n_bins must be at least 2 for jackknife error estimates, got $n_bins"))
+    n_measurements >= n_bins || throw(ArgumentError("n_measurements ($n_measurements) must be at least n_bins ($n_bins)"))
+    n_measurements % n_bins == 0 ||
+        throw(ArgumentError("n_measurements ($n_measurements) must be divisible by n_bins ($n_bins)"))
+    return nothing
 end
 
 """
@@ -91,13 +120,13 @@ observable's initial `data` and `bin_sums` entries are built from its
 
 # Throws
 
-`ArgumentError` if `n_measurements` is not positive, if `n_bins` is less
-than 2, if `n_measurements` is smaller than `n_bins`, if `n_measurements` is
-not divisible by `n_bins`, if any name in `diagnostics` duplicates a raw
-observable name, if a requested derived quantity depends on an
-observable that isn't being measured (via [`validate_dependencies`](@ref)),
-or if `time_series` is not a recognized option or names an observable that
-isn't being measured.
+`ArgumentError` if `n_measurements` and `n_bins` fail
+[`validate_binning`](@ref) (`n_measurements` not positive, `n_bins` less
+than 2, or `n_measurements` not a multiple of `n_bins`), if any name in
+`diagnostics` duplicates a raw observable name, if a requested derived
+quantity depends on an observable that isn't being measured (via
+[`validate_dependencies`](@ref)), or if `time_series` is not a recognized
+option or names an observable that isn't being measured.
 
 # Returns
 
@@ -109,15 +138,12 @@ function MeasurementContainer(
     geometry,
     n_measurements,
     n_bins;
+    algorithm = nothing,          # lets diagnostics be validated once, here
     measurements = Symbol[],
     diagnostics = Symbol[],
     time_series = :scalars
 )
-    n_measurements > 0 || throw(ArgumentError("n_measurements must be positive, got $n_measurements"))
-    n_bins >= 2 || throw(ArgumentError("n_bins must be at least 2 for jackknife error estimates, got $n_bins"))
-    n_measurements >= n_bins || throw(ArgumentError("n_measurements ($n_measurements) must be at least n_bins ($n_bins)"))
-    n_measurements % n_bins == 0 ||
-        throw(ArgumentError("n_measurements ($n_measurements) must be divisible by n_bins ($n_bins)"))
+    validate_binning(n_measurements, n_bins)
 
     implicit_measurements = Symbol[]
     requested_measurements = collect(measurements)
@@ -143,29 +169,53 @@ function MeasurementContainer(
     obs = unique(observable -> observable.name, vcat(observables(model, geometry), opt_obs))
     der = unique(derived -> derived.names, vcat(derived_observables(model, geometry), opt_der))
 
+    # Diagnostic names as an NTuple{N,Symbol}; this becomes the type parameter D.
+    diag_names = Tuple(Symbol.(diagnostics))
+    allunique(diag_names) ||
+        throw(ArgumentError("Diagnostic names must be unique: $diag_names"))
+
     observable_names = [o.name for o in obs]
-    isempty(intersect(observable_names, diagnostics)) ||
-      throw(ArgumentError("Diagnostic names must not duplicate observable names"))
+    isempty(intersect(observable_names, diag_names)) ||
+        throw(ArgumentError("Diagnostic names must not duplicate observable names"))
+
+    # Validate once, at construction, instead of on every sweep.
+    if algorithm !== nothing
+        avail = available_diagnostics(algorithm)
+        for name in diag_names
+            name in avail || throw(ArgumentError(
+                "$name is not a diagnostic of $(typeof(algorithm)); " *
+                "available: $(Tuple(avail))"
+            ))
+        end
+    end
 
     validate_dependencies(obs, der)
 
     data = merge(
       NamedTuple(o.name => o.template() for o in obs),
-      NamedTuple(name => Float64[] for name in diagnostics)
+      NamedTuple(name => Float64[] for name in diag_names)
     )
     bin_sums = merge(
       NamedTuple(o.name => o.zero() for o in obs),
-      NamedTuple(name => 0.0 for name in diagnostics)
+      NamedTuple(name => 0.0 for name in diag_names)
     )
     # Unbinned per-measurement values, retained for autocorrelation analysis.
-    recorded = time_series_names(time_series, obs, diagnostics)
+    recorded = time_series_names(time_series, obs, diag_names)
     series = merge(
       NamedTuple(o.name => o.template() for o in obs if o.name in recorded),
-      NamedTuple(name => Float64[] for name in diagnostics if name in recorded)
+      NamedTuple(name => Float64[] for name in diag_names if name in recorded)
     )
 
-    return MeasurementContainer(
-        data, bin_sums, series, Int[], 0, n_measurements ÷ n_bins, obs, der, diagnostics
+    return _build_container(
+        Val(diag_names), data, bin_sums, series,
+        Int[], 0, n_measurements ÷ n_bins, obs, der
+    )
+end
+
+function _build_container(::Val{D}, data, bin_sums, series, chain_lengths,
+                          bin_count, bin_size, obs, der) where {D}
+    return MeasurementContainer{D, typeof(data), typeof(bin_sums), typeof(series)}(
+        data, bin_sums, series, chain_lengths, bin_count, bin_size, obs, der
     )
 end
 

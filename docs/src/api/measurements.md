@@ -20,6 +20,7 @@ UnitCellMC.recommended_binning
 
 ```@docs
 UnitCellMC.MeasurementContainer
+UnitCellMC.validate_binning
 UnitCellMC.validate_dependencies
 ```
 

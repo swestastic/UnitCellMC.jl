@@ -78,8 +78,10 @@ function step!(
     cluster = Int[seed]
     frontier = Int[seed]
     ghost_count = cluster_ghost_count(model, geometry, state, context)
+    any_ghost_attached = false
 
     while !isempty(frontier)
+        any_ghost_attached && break
         site = pop!(frontier)
         info = geometry.neighbor_table[site]
 
@@ -109,8 +111,11 @@ function step!(
                 "cluster_ghost_probability returned $probability; expected a value in [0, 1]"
             ))
 
-            probability > 0 && rand(rng) < probability &&
+            if probability > 0 && rand(rng) < probability
                 cluster_ghost_attached!(context, ghost)
+                any_ghost_attached = true
+                break
+            end
         end
     end
 

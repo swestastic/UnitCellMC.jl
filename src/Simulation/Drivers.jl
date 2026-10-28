@@ -18,6 +18,11 @@ steps_per_sweep(::AbstractAlgorithm, geometry::Geometry) = geometry.n_sites
 steps_per_sweep(::WolffAlgorithm, ::Geometry) = 1
 steps_per_sweep(::SwendsenWangAlgorithm, ::Geometry) = 1
 
+@inline function record_all!(stats::Tuple, values, ::Val{D}) where {D}
+    ntuple(i -> record!(stats[i], getfield(values, D[i])), Val(length(D)))
+    return nothing
+end
+
 """
     MC_Sweep!(algorithm, model, geometry, state, container, T, stats;
         rng = Random.default_rng()) on `state` at temperature `T`, accumulating
@@ -49,16 +54,13 @@ one cluster update for cluster algorithms. After each update,
 `stats`, containing the sweep-averaged diagnostic values.
 """
 function MC_Sweep!(
-    algorithm, model, geometry, state, container::MeasurementContainer, T, stats;
-    rng::AbstractRNG = Random.default_rng()
-)
+    algorithm, model, geometry, state, container::MeasurementContainer{D},
+    T, stats::Tuple; rng::AbstractRNG = Random.default_rng()
+) where {D}
     foreach(reset!, stats)
     for _ in 1:steps_per_sweep(algorithm, geometry)
         result = step!(algorithm, model, geometry, state, T; rng = rng)
-        values = diagnostic_values(algorithm, result)
-        for (index, name) in enumerate(container.diagnostics)
-            record!(stats[index], getproperty(values, name))
-        end
+        record_all!(stats, diagnostic_values(algorithm, result), Val(D))
     end
     return stats
 end
@@ -95,6 +97,12 @@ cluster update for `WolffAlgorithm` and `SwendsenWangAlgorithm`.
   task-local global RNG, so calling `Random.seed!(seed)` beforehand makes the
   run reproducible; pass e.g. `Random.Xoshiro(seed)` for an explicit stream.
 
+# Throws
+
+`ArgumentError` if `container` and `parameters` do not describe the same
+binning, or if `container` requests diagnostics that `algorithm` does not
+provide (see [`validate_run`](@ref)). The check runs before any sweep.
+
 # Returns
 
 `container`, ready for post-processing with [`analyze`](@ref).
@@ -104,12 +112,13 @@ function run_simulation(
     model::AbstractModel,
     geometry::Geometry,
     state::AbstractState,
-    container::MeasurementContainer,
+    container::MeasurementContainer{D},
     parameters::SimulationParameters;
     rng::AbstractRNG = Random.default_rng()
-)
+) where {D}
+    validate_run(algorithm, container, parameters)
     T = parameters.T
-    stats = [UpdateStatistic(name) for name in container.diagnostics]
+    stats = ntuple(i -> UpdateStatistic(D[i]), Val(length(D)))
 
     for _ in 1:parameters.n_thermalization
         MC_Sweep!(algorithm, model, geometry, state, container, T, stats; rng = rng)
@@ -117,10 +126,7 @@ function run_simulation(
 
     for _ in 1:parameters.n_measurements
         MC_Sweep!(algorithm, model, geometry, state, container, T, stats; rng = rng)
-        diagnostics = NamedTuple(
-            name => value(stats[index])
-            for (index, name) in enumerate(container.diagnostics)
-        )
+        diagnostics = NamedTuple{D}(ntuple(i -> value(stats[i]), Val(length(D))))
         measure!(container, state; diagnostics)
 
         for __ in 1:parameters.n_unmeasured
@@ -129,6 +135,51 @@ function run_simulation(
     end
 
     return container
+end
+
+"""
+    validate_run(algorithm, container, parameters)
+
+Check that `container` can record the run described by `parameters` with
+`algorithm`, so that [`run_simulation`](@ref) fills exactly
+`parameters.n_bins` complete bins and never fails mid-run.
+
+The container's bin size must equal
+`parameters.n_measurements ÷ parameters.n_bins`; otherwise measurements
+would be grouped into a different number of bins than requested, and a
+trailing partial bin would be silently dropped. Every diagnostic the
+container records must be among [`available_diagnostics`](@ref)`(algorithm)`.
+
+# Throws
+
+`ArgumentError` if either condition fails.
+
+# Returns
+
+`nothing`.
+"""
+function validate_run(
+    algorithm::AbstractAlgorithm,
+    container::MeasurementContainer,
+    parameters::SimulationParameters
+)
+    expected_bin_size = parameters.n_measurements ÷ parameters.n_bins
+    container.bin_size == expected_bin_size || throw(ArgumentError(
+        "MeasurementContainer has bin_size = $(container.bin_size), but parameters " *
+        "(n_measurements = $(parameters.n_measurements), n_bins = $(parameters.n_bins)) " *
+        "require bin_size = $expected_bin_size; build both from the same " *
+        "n_measurements and n_bins"
+    ))
+    names = diagnostic_names(container)
+    if !isempty(names)
+        available = available_diagnostics(algorithm)
+        unknown = setdiff(names, available)
+        isempty(unknown) || throw(ArgumentError(
+            "Diagnostics $unknown are not provided by $(nameof(typeof(algorithm))); " *
+            "available: $available"
+        ))
+    end
+    return nothing
 end
 
 """
@@ -179,13 +230,14 @@ function merge_containers(containers::Vector{<:MeasurementContainer})
             [length(first(container.time_series))] : container.chain_lengths
         for container in containers
     )))
+    diag_names = diagnostic_names(first_container)
     bin_sums = merge(
         NamedTuple(o.name => o.zero() for o in first_container.observables),
-        NamedTuple(name => 0.0 for name in first_container.diagnostics)
+        NamedTuple(name => 0.0 for name in diag_names)
     )
-    return MeasurementContainer(
-        data, bin_sums, time_series, chain_lengths, 0, first_container.bin_size,
-        first_container.observables, first_container.derived, first_container.diagnostics
+    return _build_container(
+        Val(diag_names), data, bin_sums, time_series, chain_lengths, 0,
+        first_container.bin_size, first_container.observables, first_container.derived
     )
 end
 
@@ -263,7 +315,12 @@ A new [`SimulationParameters`](@ref) is created for every temperature
 
 # Throws
 
-`ArgumentError` if `n_runs` is less than 1.
+`ArgumentError` if `n_runs` is less than 1, if any temperature in `Ts` or
+the sweep counts are rejected by [`SimulationParameters`](@ref), or if the
+`measurements`, `diagnostics`, or `time_series` arguments are rejected by
+[`MeasurementContainer`](@ref) or [`validate_run`](@ref). All of these are
+checked on the calling task before any thread starts, so they are thrown
+directly rather than wrapped in a `CompositeException`.
 
 # Returns
 
@@ -289,6 +346,12 @@ function sweep_Ts(
     seed = recorded_seed(rng)
 )
     n_runs >= 1 || throw(ArgumentError("n_runs must be >= 1, got $n_runs"))
+    # Validate every temperature and the binning up front, on the calling task,
+    # so invalid inputs throw here instead of from inside the threaded loop.
+    parameters_by_T = [
+        SimulationParameters(T, n_thermalization, n_measurements, n_unmeasured, n_bins)
+        for T in Ts
+    ]
 
     sweep_results = Vector{Any}(undef, length(Ts))
     n_sites = geometry.n_sites
@@ -303,9 +366,20 @@ function sweep_Ts(
     end
 
     for (i, T) in enumerate(Ts)
-        parameters = SimulationParameters(T, n_thermalization, n_measurements, n_unmeasured, n_bins)
+        parameters = parameters_by_T[i]
 
-        run_containers = Vector{MeasurementContainer}(undef, n_runs)
+        # Containers are built and checked before the threads start, so a bad
+        # `measurements`/`diagnostics`/`time_series` argument throws directly.
+        run_containers = [
+            MeasurementContainer(model, geometry, n_measurements, n_bins;
+                measurements = measurements,
+                diagnostics = diagnostics,
+                time_series = time_series
+            )
+            for _ in 1:n_runs
+        ]
+        foreach(container -> validate_run(algorithm, container, parameters), run_containers)
+
         Threads.@threads for r in 1:n_runs
             run_rng = run_rngs[r]
             run_state = states[r]
@@ -314,13 +388,8 @@ function sweep_Ts(
                 states[r] = run_state
             end
 
-            container = MeasurementContainer(model, geometry, n_measurements, n_bins;
-                measurements = measurements,
-                diagnostics = diagnostics,
-                time_series = time_series
-            )
-            run_containers[r] = run_simulation(
-                algorithm, model, geometry, run_state, container, parameters; rng = run_rng
+            run_simulation(
+                algorithm, model, geometry, run_state, run_containers[r], parameters; rng = run_rng
             )
         end
 

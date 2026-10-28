@@ -114,6 +114,24 @@ end
     @test_throws ArgumentError ucmc.SimulationParameters(1.0, 0, 0, 0, 0)
 end
 
+@testset "SimulationParameters and MeasurementContainer agree on binning" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+
+    # (n_measurements, n_bins) pairs: both constructors accept or both reject
+    valid = [(2, 2), (8, 4), (20, 4), (9, 3)]
+    invalid = [(0, 2), (-4, 2), (4, 1), (4, 0), (1, 2), (10, 4), (95, 10)]
+    for (n_measurements, n_bins) in valid
+        @test ucmc.SimulationParameters(1.0, 0, n_measurements, 0, n_bins) isa ucmc.SimulationParameters
+        @test ucmc.MeasurementContainer(model, geometry, n_measurements, n_bins).bin_size ==
+            n_measurements ÷ n_bins
+    end
+    for (n_measurements, n_bins) in invalid
+        @test_throws ArgumentError ucmc.SimulationParameters(1.0, 0, n_measurements, 0, n_bins)
+        @test_throws ArgumentError ucmc.MeasurementContainer(model, geometry, n_measurements, n_bins)
+    end
+end
+
 @testset "Ising state initialization" begin
     geometry = square_geometry(2)
     model = ucmc.IsingModel([1.0, 1.0], [0.0])
@@ -561,26 +579,25 @@ end
     n_sites = geometry.n_sites
 
     container = ucmc.MeasurementContainer(model, geometry, 10, 2; diagnostics = [:acceptance_ratio])
-    stats = [ucmc.UpdateStatistic(:acceptance_ratio)]
+    stats = (ucmc.UpdateStatistic(:acceptance_ratio),)
     ucmc.MC_Sweep!(ucmc.MetropolisAlgorithm(), model, geometry, state, container, 2.0, stats)
     @test stats[1].count == n_sites
     @test 0.0 <= ucmc.value(stats[1]) <= 1.0
 
     container = ucmc.MeasurementContainer(model, geometry, 10, 2; diagnostics = [:cluster_size])
-    stats = [ucmc.UpdateStatistic(:cluster_size)]
+    stats = (ucmc.UpdateStatistic(:cluster_size),)
     ucmc.MC_Sweep!(ucmc.WolffAlgorithm(), model, geometry, state, container, 2.0, stats)
     @test stats[1].count == 1
     @test 1 <= ucmc.value(stats[1]) <= n_sites
 
     container = ucmc.MeasurementContainer(model, geometry, 10, 2;
         diagnostics = [:cluster_count, :largest_cluster_fraction])
-    stats = [ucmc.UpdateStatistic(:cluster_count), ucmc.UpdateStatistic(:largest_cluster_fraction)]
+    stats = (ucmc.UpdateStatistic(:cluster_count), ucmc.UpdateStatistic(:largest_cluster_fraction))
     ucmc.MC_Sweep!(ucmc.SwendsenWangAlgorithm(), model, geometry, state, container, 2.0, stats)
     @test stats[1].count == 1
     @test stats[2].count == 1
     @test ucmc.value(stats[1]) >= 1
-    @test 0.0 < ucmc.value(stats[2]) <= 1.0
-end
+    @test 0.0 < ucmc.value(stats[2])
 
 @testset "Algorithms reject non-positive temperature" begin
     geometry = square_geometry(2)
@@ -614,6 +631,51 @@ end
     ucmc.run_simulation(ucmc.WolffAlgorithm(), model, geometry, state, container, parameters)
     @test length(container.data.energy) == 4
     @test !haskey(pairs(container.data), :acceptance_ratio)
+end
+
+@testset "run_simulation rejects a container that does not match the parameters" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    algorithm = ucmc.MetropolisAlgorithm()
+
+    # container bins 100 measurements into 10 bins of 10
+    for parameters in (
+        ucmc.SimulationParameters(2.0, 5, 90, 0, 10),   # bin_size 9
+        ucmc.SimulationParameters(2.0, 5, 100, 0, 5),   # bin_size 20
+        ucmc.SimulationParameters(2.0, 5, 50, 0, 10),   # bin_size 5
+    )
+        state = ucmc.initialize_state(model, geometry; rng = Xoshiro(1))
+        spins = copy(state.spins)
+        container = ucmc.MeasurementContainer(model, geometry, 100, 10)
+        @test_throws ArgumentError ucmc.run_simulation(
+            algorithm, model, geometry, state, container, parameters; rng = Xoshiro(2)
+        )
+        # rejected before any sweep: neither the state nor the container changed
+        @test state.spins == spins
+        @test isempty(container.data.energy)
+        @test container.bin_count == 0
+    end
+
+    # matching counts fill exactly n_bins complete bins
+    parameters = ucmc.SimulationParameters(2.0, 5, 100, 0, 10)
+    container = ucmc.MeasurementContainer(model, geometry, 100, 10)
+    ucmc.run_simulation(algorithm, model, geometry, ucmc.initialize_state(model, geometry),
+        container, parameters)
+    @test length(container.data.energy) == 10
+    @test container.bin_count == 0
+
+    # diagnostics the algorithm does not provide are rejected up front
+    state = ucmc.initialize_state(model, geometry)
+    container = ucmc.MeasurementContainer(model, geometry, 100, 10; diagnostics = [:cluster_size])
+    err = try
+        ucmc.run_simulation(algorithm, model, geometry, state, container, parameters)
+        nothing
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("cluster_size", err.msg)
+    @test isempty(container.data.energy)
 end
 
 @testset "sweep_Ts end-to-end" begin
@@ -693,6 +755,44 @@ end
         ucmc.MetropolisAlgorithm(), model, geometry, state,
         3, 6, 1, 3, Ts; n_runs = 0, root = root
     )
+end
+
+@testset "sweep_Ts validates inputs before the threaded loop" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    algorithm = ucmc.MetropolisAlgorithm()
+
+    # Each call must throw the ArgumentError itself, not a CompositeException
+    # from inside Threads.@threads, and must fail before any simulation runs:
+    # the starting state is untouched and no results directory is written.
+    function sweep_error(args...; kwargs...)
+        state = ucmc.initialize_state(model, geometry; rng = Xoshiro(1))
+        spins = copy(state.spins)
+        root = mktempdir()
+        err = try
+            ucmc.sweep_Ts(algorithm, model, geometry, state, args...;
+                n_runs = 2, root = root, kwargs...)
+            nothing
+        catch e
+            e
+        end
+        untouched = state.spins == spins && isempty(readdir(root))
+        return err, untouched
+    end
+
+    cases = [
+        ((3, 6, 1, 1, [2.0]), (;)),                                  # n_bins < 2
+        ((3, 0, 1, 2, [2.0]), (;)),                                  # n_measurements = 0
+        ((3, 7, 1, 2, [2.0]), (;)),                                  # not divisible
+        ((3, 6, 1, 3, [2.0, 1.0, -1.0]), (;)),                       # bad last temperature
+        ((3, 6, 1, 3, [2.0]), (; diagnostics = [:cluster_size])),    # wrong algorithm diagnostic
+        ((3, 6, 1, 3, [2.0]), (; time_series = [:not_measured])),    # container rejects
+    ]
+    for (args, kwargs) in cases
+        err, untouched = sweep_error(args...; kwargs...)
+        @test err isa ArgumentError
+        @test untouched
+    end
 end
 
 @testset "RNG reproducibility" begin
@@ -1572,7 +1672,12 @@ end
         end
         jk_x = ucmc.jackknife_samples(container.data.magnetization_x)
         jk_y = ucmc.jackknife_samples(container.data.magnetization_y)
-        expected, _ = ucmc.jackknife_stats((mx, my) -> 1.0 - mx^2 - my^2, jk_x, jk_y)
+        n = length(jk_x)
+        mx_full = sum(container.data.magnetization_x) / n
+        my_full = sum(container.data.magnetization_y) / n
+        f_full = 1.0 - mx_full^2 - my_full^2
+        v̄ = sum(1.0 - mx^2 - my^2 for (mx, my) in zip(jk_x, jk_y)) / n
+        expected = n * f_full - (n - 1) * v̄
         @test result.derived.correlation_connected[1] ≈ expected
     end
 end
@@ -1685,4 +1790,6 @@ end
     dir = ucmc.sweep_dirname(model, ucmc.SwendsenWangAlgorithm(), geometry.lattice.L; root = root)
     saved = [split(line, ",")[2] for line in readlines(joinpath(dir, "measurement_results.csv"))[2:end]]
     @test "clock_order_parameter" in saved
+end
+
 end

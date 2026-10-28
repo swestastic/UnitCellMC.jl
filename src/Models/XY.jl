@@ -33,16 +33,6 @@ function validate_model_geometry(model::XYModel, geometry::Geometry)
     return nothing
 end
 
-field_strength(model::XYModel, geometry::Geometry, site::Int) =
-    model.h[LatticeUtilities.site_to_orbital(site, geometry.unit_cell)]
-
-bond_strength(model::XYModel, geometry::Geometry, bond_id::Int) = begin
-    1 <= bond_id <= length(geometry.bond_id_to_template) || throw(ArgumentError(
-        "bond_id = $bond_id is out of bounds for geometry.bond_id_to_template of length $(length(geometry.bond_id_to_template))"
-    ))
-    model.J[geometry.bond_id_to_template[bond_id]]
-end
-
 local_operator(state::XYState, site) = state.angles[site]
 operator_product(::XYModel, first_angle::Real, second_angle::Real) =
     cos(first_angle - second_angle)

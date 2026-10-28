@@ -88,16 +88,6 @@ function validate_model_geometry(model::ClockModel, geometry::Geometry)
     return nothing
 end
 
-field_strength(model::ClockModel, geometry::Geometry, site::Int) =
-    model.h[LatticeUtilities.site_to_orbital(site, geometry.unit_cell)]
-
-bond_strength(model::ClockModel, geometry::Geometry, bond_id::Int) = begin
-    1 <= bond_id <= length(geometry.bond_id_to_template) || throw(ArgumentError(
-        "bond_id = $bond_id is out of bounds for geometry.bond_id_to_template of length $(length(geometry.bond_id_to_template))"
-    ))
-    model.J[geometry.bond_id_to_template[bond_id]]
-end
-
 local_operator(state::ClockState, site) = state.spins[site]
 operator_product(model::ClockModel, first_index::Integer, second_index::Integer) =
     clock_cos(model, first_index - second_index)

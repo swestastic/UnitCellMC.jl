@@ -17,6 +17,8 @@ UnitCellMC.SwendsenWangAlgorithm
 UnitCellMC.SwendsenWangUpdateResult
 UnitCellMC.AbstractUpdateResult
 UnitCellMC.step!
+UnitCellMC.ClusterWorkspace
+UnitCellMC.algorithm_workspace
 UnitCellMC.UpdateStatistic
 UnitCellMC.available_diagnostics
 ```

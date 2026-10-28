@@ -45,16 +45,24 @@ function apply_cluster!(::AbstractModel, ::Any, ::AbstractState, ::Vector{Int})
     throw(MethodError(apply_cluster!, ()))
 end
 
-apply_cluster!(model, geometry, state, cluster, ::Nothing) =
+# Models without a cluster context ignore both it and the reusable mask.
+apply_cluster!(model, geometry, state, cluster, ::Nothing, ::BitVector) =
     apply_cluster!(model, geometry, state, cluster)
 
+algorithm_workspace(::WolffAlgorithm, model, geometry, state) = ClusterWorkspace()
+
 """
-    step!(WolffAlgorithm(), model, geometry, state, T; rng = Random.default_rng())
+    step!(WolffAlgorithm(), model, geometry, state, T;
+        rng = Random.default_rng(), workspace = nothing)
 
 Grow and flip one Wolff cluster. Model-specific behavior is supplied by
 `cluster_bond_probability` and `apply_cluster!`, which keeps the cluster
 traversal reusable for models with different local degrees of freedom. All
 random numbers (cluster context, seed site, bond activation) come from `rng`.
+
+The cluster mask and member/frontier lists are taken from `workspace` (a
+[`ClusterWorkspace`](@ref)) when given and allocated fresh otherwise; drivers
+allocate one workspace per run via [`algorithm_workspace`](@ref).
 """
 function step!(
     ::WolffAlgorithm,
@@ -62,7 +70,8 @@ function step!(
     geometry,
     state::AbstractState,
     T::Real;
-    rng::AbstractRNG = Random.default_rng()
+    rng::AbstractRNG = Random.default_rng(),
+    workspace::Union{Nothing, ClusterWorkspace} = nothing
 )
     T > 0 || throw(ArgumentError("Temperature must be positive, got $T"))
     validate_cluster_model(model, geometry, state, T)
@@ -73,10 +82,14 @@ function step!(
         "cluster_seed returned site $seed outside 1:$(geometry.n_sites)"
     ))
 
-    in_cluster = falses(geometry.n_sites)
+    ws = workspace === nothing ? ClusterWorkspace() : workspace
+    in_cluster = _resize_buffer!(ws.in_cluster, geometry.n_sites)
+    fill!(in_cluster, false)
+    cluster = empty!(ws.cluster)
+    frontier = empty!(ws.frontier)
     in_cluster[seed] = true
-    cluster = Int[seed]
-    frontier = Int[seed]
+    push!(cluster, seed)
+    push!(frontier, seed)
     ghost_count = cluster_ghost_count(model, geometry, state, context)
     any_ghost_attached = false
 
@@ -119,6 +132,6 @@ function step!(
         end
     end
 
-    apply_cluster!(model, geometry, state, cluster, context)
+    apply_cluster!(model, geometry, state, cluster, context, in_cluster)
     return WolffUpdateResult(length(cluster))
 end

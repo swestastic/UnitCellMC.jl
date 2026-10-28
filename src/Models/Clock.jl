@@ -304,17 +304,22 @@ function apply_cluster!(
     state::ClockState,
     cluster::Vector{Int},
     context::ClockClusterContext,
+    in_cluster::BitVector,
 )
-    context.ghost_attached || apply_cluster!(model, geometry, state, cluster, context.mirror)
+    # Wolff's step! passes down the mask it built while growing the cluster.
+    context.ghost_attached || _reflect_clock_sites!(
+        model, geometry, state, cluster, in_cluster, context.mirror
+    )
     return nothing
 end
 
 """
-    apply_clusters!(rng, model::ClockModel, geometry, state, clusters, mirror::Integer)
+    apply_clusters!(rng, model::ClockModel, geometry, state, clusters::Vector{Vector{Int}}, mirror::Integer)
 
-Reflect each Swendsen-Wang cluster across clock mirror `mirror` with
-probability 1/2 (coin flips drawn from `rng`) and update the cached clock
-observables incrementally via [`_reflect_clock_sites!`](@ref).
+Explicit-partition form of [`apply_clusters!`](@ref): reflect each cluster in
+`clusters` across clock mirror `mirror` with probability 1/2. Allocates its
+own reflected-site mask; the Swendsen-Wang driver uses the workspace form
+below.
 """
 function apply_clusters!(
     rng::AbstractRNG,
@@ -322,45 +327,58 @@ function apply_clusters!(
     geometry::Geometry,
     state::ClockState,
     clusters::Vector{Vector{Int}},
-    mirror::Integer,
-)
-    flip = [rand(rng, Bool) for _ in clusters]
-    _reflect_clock_clusters!(model, geometry, state, clusters, flip, mirror)
-    return nothing
-end
-
-function apply_clusters!(
-    rng::AbstractRNG,
-    model::ClockModel,
-    geometry::Geometry,
-    state::ClockState,
-    clusters::Vector{Vector{Int}},
-    context::ClockClusterContext,
-)
-    flip = [
-        rand(rng, Bool) && !any(site -> site > geometry.n_sites, cluster)
-        for cluster in clusters
-    ]
-    _reflect_clock_clusters!(model, geometry, state, clusters, flip, context.mirror)
-    return nothing
-end
-
-function _reflect_clock_clusters!(
-    model::ClockModel,
-    geometry::Geometry,
-    state::ClockState,
-    clusters::Vector{Vector{Int}},
-    flip::Vector{Bool},
     mirror::Integer,
 )
     reflected = falses(geometry.n_sites)
-    for (c, cluster) in enumerate(clusters)
-        flip[c] || continue
+    for cluster in clusters
+        rand(rng, Bool) || continue
         for site in cluster
             site <= geometry.n_sites && (reflected[site] = true)
         end
     end
     _reflect_clock_sites!(model, geometry, state, findall(reflected), reflected, mirror)
+    return nothing
+end
+
+"""
+    apply_clusters!(rng, model::ClockModel, geometry, state, workspace, context)
+
+Reflect each Swendsen-Wang cluster across `context.mirror` with probability
+1/2 (one coin flip per cluster, drawn from `rng` in the first-encounter order
+of `workspace.roots`) and update the cached clock observables incrementally
+via [`_reflect_clock_sites!`](@ref). Clusters are described by root-id
+labels: `workspace.labels[i]` is the label of site `i`, and labels above
+`geometry.n_sites` belong to ghost sites, whose clusters are never reflected.
+The orientation decisions are recorded per label in `workspace.flip`; the
+workspace's `in_cluster`/`cluster` buffers hold the reflected-site mask and
+list.
+"""
+function apply_clusters!(
+    rng::AbstractRNG,
+    model::ClockModel,
+    geometry::Geometry,
+    state::ClockState,
+    workspace::ClusterWorkspace,
+    context::ClockClusterContext,
+)
+    labels = workspace.labels
+    flip = workspace.flip
+    for root in workspace.roots
+        flip[root] = rand(rng, Bool)
+    end
+    for ghost in (geometry.n_sites + 1):length(labels)
+        flip[labels[ghost]] = false
+    end
+    reflected = _resize_buffer!(workspace.in_cluster, geometry.n_sites)
+    reflected_sites = empty!(workspace.cluster)
+    for site in 1:geometry.n_sites
+        do_reflect = flip[labels[site]]
+        reflected[site] = do_reflect
+        do_reflect && push!(reflected_sites, site)
+    end
+    _reflect_clock_sites!(
+        model, geometry, state, reflected_sites, reflected, context.mirror
+    )
     return nothing
 end
 

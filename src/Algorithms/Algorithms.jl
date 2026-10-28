@@ -51,6 +51,7 @@ end
 
 include("Metropolis.jl")
 include("Glauber.jl")
+include("ClusterWorkspace.jl")
 include("Wolff.jl")
 include("SwendsenWang.jl")
 include("Diagnostics.jl")

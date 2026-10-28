@@ -239,7 +239,19 @@ function apply_cluster!(
     for site in cluster
         in_cluster[site] = true
     end
+    _flip_ising_cluster!(model, geometry, state, cluster, in_cluster)
+    return nothing
+end
 
+# `in_cluster` must be true exactly on the cluster's sites. Wolff's `step!`
+# passes down the mask it built while growing the cluster.
+function _flip_ising_cluster!(
+    model::IsingModel,
+    geometry::Geometry,
+    state::IsingState,
+    cluster::Vector{Int},
+    in_cluster::AbstractVector{Bool},
+)
     ΔE = zero(state.energy)
     spin_change = zero(state.magnetization)
     J = model.J
@@ -267,92 +279,107 @@ function apply_cluster!(
     state::IsingState,
     cluster::Vector{Int},
     context::IsingClusterContext,
+    in_cluster::BitVector,
 )
-    context.ghost_attached || apply_cluster!(model, geometry, state, cluster)
+    context.ghost_attached || _flip_ising_cluster!(
+        model, geometry, state, cluster, in_cluster
+    )
     return nothing
 end
 
 """
-    apply_clusters!(rng, model, geometry, state, clusters)
+    apply_clusters!(rng, model, geometry, state, clusters::Vector{Vector{Int}})
 
-Randomly orient each Swendsen-Wang cluster (coin flips drawn from `rng`) and
-update the cached Ising
-observables incrementally. A bond only changes energy when exactly one of its
-endpoints sits in a flipped cluster, so the energy update touches only bonds
-incident to flipped sites rather than resumming the whole lattice.
+Explicit-partition form of [`apply_clusters!`](@ref): flip each cluster in
+`clusters` independently with probability 1/2. Allocates its own label map;
+the Swendsen-Wang driver uses the workspace form below.
 """
-function apply_clusters!(
-    rng::AbstractRNG,
-    model::IsingModel,
-    geometry::Geometry,
-    state::IsingState,
-    clusters::Vector{Vector{Int}}
-)
-    flip = [rand(rng, Bool) for _ in clusters]
-    _flip_ising_clusters!(model, geometry, state, clusters, flip)
-    return nothing
-end
-
 function apply_clusters!(
     rng::AbstractRNG,
     model::IsingModel,
     geometry::Geometry,
     state::IsingState,
     clusters::Vector{Vector{Int}},
-    ::IsingClusterContext,
 )
-    flip = [
-        rand(rng, Bool) && !any(site -> site > geometry.n_sites, cluster)
-        for cluster in clusters
-    ]
-    _flip_ising_clusters!(model, geometry, state, clusters, flip)
+    flip = [rand(rng, Bool) for _ in clusters]
+    _flip_ising_clusters!(model, geometry, state, _cluster_labels(geometry, clusters), flip)
     return nothing
 end
 
 """
-    _flip_ising_clusters!(model, geometry, state, clusters, flip)
+    apply_clusters!(rng, model, geometry, state, workspace, context)
 
-Flip every cluster `c` with `flip[c] == true`, accumulating the exact energy
-and magnetization change. A site→cluster index map identifies each bond
-incident to a flipped site as internal (both endpoints flip, no change),
-external (neither flips, never visited), or crossing (counted once, from the
-flipped side, with pre-flip spins).
+Randomly orient each Swendsen-Wang cluster (one coin flip per cluster, drawn
+from `rng` in the first-encounter order of `workspace.roots`) and update the
+cached Ising observables incrementally via [`_flip_ising_clusters!`](@ref).
+Clusters are described by root-id labels: `workspace.labels[i]` is the label
+of site `i`, and labels above `geometry.n_sites` belong to ghost sites, whose
+clusters are never flipped. The orientation decisions are recorded per label
+in `workspace.flip`.
+
+`context` is unused for the Ising model: ghost attachment is read from the
+labels alone.
+
+A bond only changes energy when exactly one of its endpoints sits in a
+flipped cluster, so the energy update touches only bonds incident to flipped
+sites rather than resumming the whole lattice.
+"""
+function apply_clusters!(
+    rng::AbstractRNG,
+    model::IsingModel,
+    geometry::Geometry,
+    state::IsingState,
+    workspace::ClusterWorkspace,
+    context = nothing,
+)
+    labels = workspace.labels
+    flip = workspace.flip
+    for root in workspace.roots
+        flip[root] = rand(rng, Bool)
+    end
+    for ghost in (geometry.n_sites + 1):length(labels)
+        flip[labels[ghost]] = false
+    end
+    _flip_ising_clusters!(model, geometry, state, labels, flip)
+    return nothing
+end
+
+"""
+    _flip_ising_clusters!(model, geometry, state, labels, flip)
+
+Flip every lattice site whose cluster label is marked in `flip`, accumulating
+the exact energy and magnetization change. `labels[i]` is the union-find root
+of site `i` (see [`step!`](@ref) with [`SwendsenWangAlgorithm`](@ref)) and
+doubles as the site→cluster map: a bond incident to a flipped site is
+internal (both endpoints flip, no change) when `flip[labels[neighbor]]` is
+true, external (never visited) when neither endpoint flips, and crossing
+(counted once, from the flipped side, with pre-flip spins) otherwise.
 """
 function _flip_ising_clusters!(
     model::IsingModel,
     geometry::Geometry,
     state::IsingState,
-    clusters::Vector{Vector{Int}},
+    labels::Vector{Int},
     flip::Vector{Bool},
 )
-    cluster_id = zeros(Int, geometry.n_sites)
-    for (c, cluster) in enumerate(clusters), site in cluster
-        site <= geometry.n_sites && (cluster_id[site] = c)
-    end
-
     ΔE = zero(state.energy)
     ΔM = zero(state.magnetization)
     J = model.J
 
-    for (c, cluster) in enumerate(clusters)
-        flip[c] || continue
-        for site in cluster
-            s = state.spins[site]
-            info = geometry.neighbor_table[site]
-            for (template, neighbor) in zip(info.templates, info.neighbors)
-                (neighbor == site || flip[cluster_id[neighbor]]) && continue
-                ΔE += 2 * J[template] * s * state.spins[neighbor]
-            end
-            ΔE += 2 * field_strength(model, geometry, site) * s
-            state.spins[site] = -s
-            ΔM -= 2 * s
+    for site in 1:geometry.n_sites
+        flip[labels[site]] || continue
+        s = state.spins[site]
+        info = geometry.neighbor_table[site]
+        for (template, neighbor) in zip(info.templates, info.neighbors)
+            (neighbor == site || flip[labels[neighbor]]) && continue
+            ΔE += 2 * J[template] * s * state.spins[neighbor]
         end
+        ΔE += 2 * field_strength(model, geometry, site) * s
+        state.spins[site] = -s
+        ΔM -= 2 * s
     end
 
     state.energy += ΔE
     state.magnetization += ΔM
     return nothing
 end
-
-apply_clusters!(rng::AbstractRNG, model, geometry, state, clusters, ::Nothing) =
-    apply_clusters!(rng, model, geometry, state, clusters)

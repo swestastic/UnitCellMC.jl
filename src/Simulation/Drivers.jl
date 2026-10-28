@@ -48,6 +48,9 @@ one cluster update for cluster algorithms. After each update,
 - `stats`: Vector of [`UpdateStatistic`](@ref)s, one per entry in
   `container.diagnostics`. Reset at the start of the sweep.
 - `rng`: Random number generator passed to every [`step!`](@ref).
+- `workspace`: Per-run scratch space passed to [`step!`](@ref) (see
+  [`algorithm_workspace`](@ref)); `nothing` lets `step!` allocate its own.
+  Only cluster algorithms use it.
 
 # Returns
 
@@ -55,11 +58,17 @@ one cluster update for cluster algorithms. After each update,
 """
 function MC_Sweep!(
     algorithm, model, geometry, state, container::MeasurementContainer{D},
-    T, stats::Tuple; rng::AbstractRNG = Random.default_rng()
+    T, stats::Tuple; rng::AbstractRNG = Random.default_rng(), workspace = nothing
 ) where {D}
     foreach(reset!, stats)
     for _ in 1:steps_per_sweep(algorithm, geometry)
-        result = step!(algorithm, model, geometry, state, T; rng = rng)
+        # Pass the workspace only when there is one to pass, so custom
+        # algorithms need not accept the keyword.
+        result = if workspace === nothing
+            step!(algorithm, model, geometry, state, T; rng = rng)
+        else
+            step!(algorithm, model, geometry, state, T; rng = rng, workspace = workspace)
+        end
         record_all!(stats, diagnostic_values(algorithm, result), Val(D))
     end
     return stats
@@ -119,18 +128,22 @@ function run_simulation(
     validate_run(algorithm, container, parameters)
     T = parameters.T
     stats = ntuple(i -> UpdateStatistic(D[i]), Val(length(D)))
+    workspace = algorithm_workspace(algorithm, model, geometry, state)
 
     for _ in 1:parameters.n_thermalization
-        MC_Sweep!(algorithm, model, geometry, state, container, T, stats; rng = rng)
+        MC_Sweep!(algorithm, model, geometry, state, container, T, stats;
+                  rng = rng, workspace = workspace)
     end
 
     for _ in 1:parameters.n_measurements
-        MC_Sweep!(algorithm, model, geometry, state, container, T, stats; rng = rng)
+        MC_Sweep!(algorithm, model, geometry, state, container, T, stats;
+                  rng = rng, workspace = workspace)
         diagnostics = NamedTuple{D}(ntuple(i -> value(stats[i]), Val(length(D))))
         measure!(container, state; diagnostics)
 
         for __ in 1:parameters.n_unmeasured
-            MC_Sweep!(algorithm, model, geometry, state, container, T, stats; rng = rng)
+            MC_Sweep!(algorithm, model, geometry, state, container, T, stats;
+                      rng = rng, workspace = workspace)
         end
     end
 

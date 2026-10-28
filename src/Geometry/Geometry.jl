@@ -110,4 +110,22 @@ function Geometry(
     return Geometry(unit_cell, lattice, bonds, bond_id_to_template, neighbor_table, n_sites)
 end
 
+"""
+    _cluster_labels(geometry, clusters::Vector{Vector{Int}})
+
+Translate an explicit partition of sites into per-site cluster labels: a
+vector `labels` of length `geometry.n_sites` with `labels[i] = c` for site
+`i` in `clusters[c]`, and `0` for sites absent from the partition. Entries
+of `clusters` with indices above `n_sites` (ghost sites) are ignored.
+
+Shared by the explicit-partition forms of `apply_clusters!`.
+"""
+function _cluster_labels(geometry, clusters::Vector{Vector{Int}})
+    labels = zeros(Int, geometry.n_sites)
+    for (c, cluster) in enumerate(clusters), site in cluster
+        site <= geometry.n_sites && (labels[site] = c)
+    end
+    return labels
+end
+
 include("Displacements.jl")

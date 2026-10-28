@@ -17,6 +17,8 @@ struct WolffUpdateResult <: AbstractUpdateResult
     cluster_size::Int
 end
 
+steps_per_sweep(::WolffAlgorithm, ::Geometry) = 1
+
 cluster_seed(rng::AbstractRNG, ::AbstractModel, geometry, ::AbstractState) = rand(rng, 1:geometry.n_sites)
 validate_cluster_model(::AbstractModel, ::Any, ::AbstractState, ::Real) = nothing
 cluster_context(::AbstractRNG, ::AbstractModel, ::Any, ::AbstractState, ::Real) = nothing

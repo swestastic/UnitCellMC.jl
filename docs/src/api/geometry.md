@@ -11,4 +11,5 @@ UnitCellMC.build_displacement_classes
 ```@docs
 UnitCellMC.NeighborInfo
 UnitCellMC.Geometry
+UnitCellMC._cluster_labels
 ```

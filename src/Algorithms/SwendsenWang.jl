@@ -21,19 +21,10 @@ struct SwendsenWangUpdateResult <: AbstractUpdateResult
     largest_cluster_fraction::Float64
 end
 
+steps_per_sweep(::SwendsenWangAlgorithm, ::Geometry) = 1
+
 function apply_clusters!(::AbstractRNG, ::AbstractModel, ::Any, ::AbstractState, ::ClusterWorkspace)
     throw(MethodError(apply_clusters!, ()))
-end
-
-# Translate an explicit partition of sites into root-id labels (0 marks sites
-# absent from the partition), for the `clusters::Vector{Vector{Int}}` forms of
-# `apply_clusters!`.
-function _cluster_labels(geometry, clusters::Vector{Vector{Int}})
-    labels = zeros(Int, geometry.n_sites)
-    for (c, cluster) in enumerate(clusters), site in cluster
-        site <= geometry.n_sites && (labels[site] = c)
-    end
-    return labels
 end
 
 function _sw_find!(parents::Vector{Int}, site::Int)

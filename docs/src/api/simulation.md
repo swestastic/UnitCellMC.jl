@@ -13,7 +13,6 @@ UnitCellMC.SimulationParameters
 ## Drivers
 
 ```@docs
-UnitCellMC.steps_per_sweep
 UnitCellMC.MC_Sweep!
 UnitCellMC.run_simulation
 UnitCellMC.validate_run

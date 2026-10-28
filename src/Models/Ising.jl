@@ -113,10 +113,11 @@ function energy_difference(
     s = state.spins[site]
     info = geometry.neighbor_table[site]
 
-    weighted_sum = zero(promote_type(eltype(state.spins), eltype(model.J)))
-    for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+    J = model.J
+    weighted_sum = zero(promote_type(eltype(state.spins), eltype(J)))
+    for (template, neighbor) in zip(info.templates, info.neighbors)
         neighbor == site && continue
-        weighted_sum += bond_strength(model, geometry, bond_id) * state.spins[neighbor]
+        weighted_sum += J[template] * state.spins[neighbor]
     end
 
     return (s - proposal.new_value) * (weighted_sum + field_strength(model, geometry, site))
@@ -148,10 +149,12 @@ function apply_update!(
 end
 
 """
-    cluster_bond_probability(model, geometry, state, site, neighbor, bond_id, T)
+    cluster_bond_probability(model, geometry, state, site, neighbor, bond_template, T)
 
-Return the Wolff bond-activation probability for a ferromagnetic Ising bond.
-Only equal neighboring spins can join the cluster.
+Return the Wolff bond-activation probability for a ferromagnetic Ising bond,
+given `bond_template`, the index of the bond's template in `geometry.bonds`
+(taken from `neighbor_table[site].templates`). Only equal neighboring spins
+can join the cluster.
 
 # Throws
 
@@ -164,10 +167,10 @@ function cluster_bond_probability(
     state::IsingState,
     site::Int,
     neighbor::Int,
-    bond_id::Int,
+    bond_template::Int,
     T::Real
 )
-    J = bond_strength(model, geometry, bond_id)
+    J = model.J[bond_template]
     J >= 0 || throw(ArgumentError(
         "WolffAlgorithm requires non-negative Ising couplings; got J = $J"
     ))
@@ -239,14 +242,14 @@ function apply_cluster!(
 
     ΔE = zero(state.energy)
     spin_change = zero(state.magnetization)
+    J = model.J
 
     for site in cluster
         s = state.spins[site]
         info = geometry.neighbor_table[site]
-        for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+        for (template, neighbor) in zip(info.templates, info.neighbors)
             (neighbor == site || in_cluster[neighbor]) && continue
-            ΔE += 2 * bond_strength(model, geometry, bond_id) * s *
-                state.spins[neighbor]
+            ΔE += 2 * J[template] * s * state.spins[neighbor]
         end
         ΔE += 2 * field_strength(model, geometry, site) * s
         state.spins[site] = -s
@@ -329,16 +332,16 @@ function _flip_ising_clusters!(
 
     ΔE = zero(state.energy)
     ΔM = zero(state.magnetization)
+    J = model.J
 
     for (c, cluster) in enumerate(clusters)
         flip[c] || continue
         for site in cluster
             s = state.spins[site]
             info = geometry.neighbor_table[site]
-            for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+            for (template, neighbor) in zip(info.templates, info.neighbors)
                 (neighbor == site || flip[cluster_id[neighbor]]) && continue
-                ΔE += 2 * bond_strength(model, geometry, bond_id) * s *
-                    state.spins[neighbor]
+                ΔE += 2 * J[template] * s * state.spins[neighbor]
             end
             ΔE += 2 * field_strength(model, geometry, site) * s
             state.spins[site] = -s

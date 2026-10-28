@@ -8,11 +8,22 @@ include("Clock.jl")
 Return the coupling strength `J` for the bond identified by `bond_id`, looked
 up via the bond's template in `geometry`.
 
+This is the checked convenience lookup, intended for setup and analysis code.
+Performance-critical inner loops should instead iterate a site's
+[`NeighborInfo`](@ref) and index `model.J[template]` directly: the per-site
+`templates` vector is parallel to `neighbors`, so neither the bounds check
+here nor the `bond_id_to_template` indirection is needed there.
+
 # Arguments
 
-- `model`: The `IsingModel` supplying bond strengths.
+- `model`: The model supplying one coupling per bond template.
 - `geometry`: The lattice geometry mapping bond ids to templates.
 - `bond_id`: Index of the bond to look up.
+
+# Throws
+
+`ArgumentError` if `bond_id` is out of bounds for
+`geometry.bond_id_to_template`.
 """
 function bond_strength(model::AbstractModel{T}, geometry::Geometry, bond_id::Int) where {T<:Real}
     templates = geometry.bond_id_to_template

@@ -5,13 +5,19 @@ import LatticeUtilities: UnitCell, Lattice, Bond
     NeighborInfo
 
 A named tuple type recording, for a given site, the parallel lists of bond
-ids (`bonds`) and the neighboring site reached by each bond (`neighbors`).
-`bonds[k]` and `neighbors[k]` refer to the same bond/neighbor pair, so the
-two vectors always have equal length.
+ids (`bonds`), the bond template each bond was generated from (`templates`),
+and the neighboring site reached by each bond (`neighbors`). `bonds[k]`,
+`templates[k]` and `neighbors[k]` all refer to the same bond/neighbor triple,
+so the three vectors always have equal length.
+
+`templates[k]` is `bond_id_to_template[bonds[k]]`, stored per site so that
+inner loops can index a model's coupling vector directly as
+`model.J[templates[k]]` instead of going through `bond_id_to_template` (and
+the bounds check in [`bond_strength`](@ref)) on every neighbor visit.
 """
 const NeighborInfo = NamedTuple{
-    (:bonds, :neighbors),
-    Tuple{Vector{Int}, Vector{Int}}
+    (:bonds, :templates, :neighbors),
+    Tuple{Vector{Int}, Vector{Int}, Vector{Int}}
 }
 
 """
@@ -28,7 +34,8 @@ and the neighbor bookkeeping derived from them.
 - `bond_id_to_template::Vector{Int}`: Maps each concrete bond id to the index
   of the bond template (in `bonds`) it was generated from.
 - `neighbor_table::Vector{NeighborInfo}`: Indexed by site number, each entry
-  gives the bonds and neighboring sites connected to that site.
+  gives the bonds, their bond templates, and the neighboring sites connected
+  to that site.
 - `n_sites::Int`: Total number of sites in the lattice.
 
 Construct with [`Geometry(unit_cell, lattice, bonds)`](@ref).
@@ -74,7 +81,7 @@ function Geometry(
 
     if isempty(bonds)
         bond_id_to_template = Int[]
-        neighbor_table = [(bonds=Int[], neighbors=Int[]) for i in 1:n_sites]
+        neighbor_table = [(bonds=Int[], templates=Int[], neighbors=Int[]) for i in 1:n_sites]
         return Geometry(unit_cell, lattice, bonds, bond_id_to_template, neighbor_table, n_sites)
     end
 
@@ -90,10 +97,14 @@ function Geometry(
 
     neighbor_table_matrix = reduce(hcat, per_template_tables)
     neighbor_table_dict = LatticeUtilities.map_neighbor_table(neighbor_table_matrix)
-    neighbor_table = [
-        get(neighbor_table_dict, i, (bonds=Int[], neighbors=Int[]))
-        for i in 1:n_sites
-    ]
+    neighbor_table = map(1:n_sites) do i
+        info = get(neighbor_table_dict, i, (bonds=Int[], neighbors=Int[]))
+        return (
+            bonds = info.bonds,
+            templates = bond_id_to_template[info.bonds],
+            neighbors = info.neighbors,
+        )
+    end
 
     return Geometry(unit_cell, lattice, bonds, bond_id_to_template, neighbor_table, n_sites)
 end

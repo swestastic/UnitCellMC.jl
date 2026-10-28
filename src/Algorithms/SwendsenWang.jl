@@ -82,11 +82,11 @@ function step!(
 
     for site in 1:geometry.n_sites
         info = geometry.neighbor_table[site]
-        for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+        for (bond_template, neighbor) in zip(info.templates, info.neighbors)
             neighbor > site || continue
 
             probability = cluster_bond_probability(
-                model, geometry, state, site, neighbor, bond_id, T, context
+                model, geometry, state, site, neighbor, bond_template, T, context
             )
             0 <= probability <= 1 || throw(ArgumentError(
                 "cluster_bond_probability returned $probability; expected a value in [0, 1]"

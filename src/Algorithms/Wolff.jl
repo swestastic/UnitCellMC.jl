@@ -36,10 +36,10 @@ function cluster_bond_probability(
     throw(MethodError(cluster_bond_probability, ()))
 end
 
-cluster_bond_probability(model, geometry, state, site, neighbor, bond_id, T, ::Nothing) =
-    cluster_bond_probability(model, geometry, state, site, neighbor, bond_id, T)
-cluster_bond_probability(model, geometry, state, site, neighbor, bond_id, T, ::Any) =
-    cluster_bond_probability(model, geometry, state, site, neighbor, bond_id, T)
+cluster_bond_probability(model, geometry, state, site, neighbor, bond_template, T, ::Nothing) =
+    cluster_bond_probability(model, geometry, state, site, neighbor, bond_template, T)
+cluster_bond_probability(model, geometry, state, site, neighbor, bond_template, T, ::Any) =
+    cluster_bond_probability(model, geometry, state, site, neighbor, bond_template, T)
 
 function apply_cluster!(::AbstractModel, ::Any, ::AbstractState, ::Vector{Int})
     throw(MethodError(apply_cluster!, ()))
@@ -85,12 +85,12 @@ function step!(
         site = pop!(frontier)
         info = geometry.neighbor_table[site]
 
-        for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+        for (bond_template, neighbor) in zip(info.templates, info.neighbors)
             neighbor == site && continue
             in_cluster[neighbor] && continue
 
             probability = cluster_bond_probability(
-                model, geometry, state, site, neighbor, bond_id, T, context
+                model, geometry, state, site, neighbor, bond_template, T, context
             )
             0 <= probability <= 1 || throw(ArgumentError(
                 "cluster_bond_probability returned $probability; expected a value in [0, 1]"

@@ -70,10 +70,11 @@ function energy_difference(
     site = proposal.site
     angle = state.angles[site]
     info = geometry.neighbor_table[site]
-    weighted_sum = zero(promote_type(eltype(state.angles), eltype(model.J)))
-    for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+    J = model.J
+    weighted_sum = zero(promote_type(eltype(state.angles), eltype(J)))
+    for (template, neighbor) in zip(info.templates, info.neighbors)
         neighbor == site && continue
-        weighted_sum += bond_strength(model, geometry, bond_id) *
+        weighted_sum += J[template] *
             (cos(proposal.new_value - state.angles[neighbor]) - cos(angle - state.angles[neighbor]))
     end
     return -weighted_sum - field_strength(model, geometry, site) *
@@ -114,14 +115,14 @@ function cluster_bond_probability(
     state::XYState,
     site::Int,
     neighbor::Int,
-    bond_id::Int,
+    bond_template::Int,
     T::Real,
     reflection_axis::Real,
 )
     projection_product = cos(state.angles[site] - reflection_axis) *
         cos(state.angles[neighbor] - reflection_axis)
     projection_product > 0 || return 0.0
-    return -expm1(-2 * bond_strength(model, geometry, bond_id) * projection_product / T)
+    return -expm1(-2 * model.J[bond_template] * projection_product / T)
 end
 
 function cluster_bond_probability(
@@ -130,12 +131,12 @@ function cluster_bond_probability(
     state::XYState,
     site::Int,
     neighbor::Int,
-    bond_id::Int,
+    bond_template::Int,
     T::Real,
     context::XYClusterContext,
 )
     return cluster_bond_probability(
-        model, geometry, state, site, neighbor, bond_id, T,
+        model, geometry, state, site, neighbor, bond_template, T,
         context.reflection_axis
     )
 end
@@ -193,14 +194,15 @@ function apply_cluster!(
     ΔE = zero(state.energy)
     ΔMx = zero(state.magnetization_x)
     ΔMy = zero(state.magnetization_y)
+    J = model.J
 
     for site in cluster
         angle = state.angles[site]
         projection = cos(angle - reflection_axis)
         info = geometry.neighbor_table[site]
-        for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+        for (template, neighbor) in zip(info.templates, info.neighbors)
             (neighbor == site || in_cluster[neighbor]) && continue
-            ΔE += 2 * bond_strength(model, geometry, bond_id) * projection *
+            ΔE += 2 * J[template] * projection *
                 cos(state.angles[neighbor] - reflection_axis)
         end
         ΔE += 2 * field_strength(model, geometry, site) * cos_axis * projection
@@ -298,6 +300,7 @@ function _reflect_xy_clusters!(
     ΔE = zero(state.energy)
     ΔMx = zero(state.magnetization_x)
     ΔMy = zero(state.magnetization_y)
+    J = model.J
 
     for (c, cluster) in enumerate(clusters)
         flip[c] || continue
@@ -305,9 +308,9 @@ function _reflect_xy_clusters!(
             angle = state.angles[site]
             projection = cos(angle - reflection_axis)
             info = geometry.neighbor_table[site]
-            for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+            for (template, neighbor) in zip(info.templates, info.neighbors)
                 (neighbor == site || flip[cluster_id[neighbor]]) && continue
-                ΔE += 2 * bond_strength(model, geometry, bond_id) * projection *
+                ΔE += 2 * J[template] * projection *
                     cos(state.angles[neighbor] - reflection_axis)
             end
             ΔE += 2 * field_strength(model, geometry, site) * cos_axis * projection

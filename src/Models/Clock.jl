@@ -167,11 +167,12 @@ function energy_difference(
     old = state.spins[site]
     new = proposal.new_value
     info = geometry.neighbor_table[site]
-    weighted_sum = zero(promote_type(Float64, eltype(model.J)))
-    for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+    J = model.J
+    weighted_sum = zero(promote_type(Float64, eltype(J)))
+    for (template, neighbor) in zip(info.templates, info.neighbors)
         neighbor == site && continue
         n_j = state.spins[neighbor]
-        weighted_sum += bond_strength(model, geometry, bond_id) *
+        weighted_sum += J[template] *
             (clock_cos(model, new - n_j) - clock_cos(model, old - n_j))
     end
     return -weighted_sum - field_strength(model, geometry, site) * proposal.magnetization_x_change
@@ -240,14 +241,14 @@ function cluster_bond_probability(
     state::ClockState,
     site::Int,
     neighbor::Int,
-    bond_id::Int,
+    bond_template::Int,
     T::Real,
     context::ClockClusterContext,
 )
     projection_product = context.projections[state.spins[site] + 1] *
         context.projections[state.spins[neighbor] + 1]
     projection_product > 0 || return 0.0
-    return -expm1(-2 * bond_strength(model, geometry, bond_id) * projection_product / T)
+    return -expm1(-2 * model.J[bond_template] * projection_product / T)
 end
 
 function cluster_ghost_probability(
@@ -387,16 +388,17 @@ function _reflect_clock_sites!(
     ΔE = zero(state.energy)
     ΔMx = zero(state.magnetization_x)
     ΔMy = zero(state.magnetization_y)
+    J = model.J
 
     for site in sites
         old = state.spins[site]
         new = mod(mirror - old, model.q)
         new == old && continue
         info = geometry.neighbor_table[site]
-        for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+        for (template, neighbor) in zip(info.templates, info.neighbors)
             (neighbor == site || reflected[neighbor]) && continue
             n_j = state.spins[neighbor]
-            ΔE -= bond_strength(model, geometry, bond_id) *
+            ΔE -= J[template] *
                 (clock_cos(model, new - n_j) - clock_cos(model, old - n_j))
         end
         Δcos = clock_cos(model, new) - clock_cos(model, old)

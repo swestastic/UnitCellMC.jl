@@ -18,6 +18,11 @@ steps_per_sweep(::AbstractAlgorithm, geometry::Geometry) = geometry.n_sites
 steps_per_sweep(::WolffAlgorithm, ::Geometry) = 1
 steps_per_sweep(::SwendsenWangAlgorithm, ::Geometry) = 1
 
+@inline function record_all!(stats::Tuple, values, ::Val{D}) where {D}
+    ntuple(i -> record!(stats[i], getfield(values, D[i])), Val(length(D)))
+    return nothing
+end
+
 """
     MC_Sweep!(algorithm, model, geometry, state, container, T, stats;
         rng = Random.default_rng()) on `state` at temperature `T`, accumulating
@@ -48,11 +53,6 @@ one cluster update for cluster algorithms. After each update,
 
 `stats`, containing the sweep-averaged diagnostic values.
 """
-@inline function record_all!(stats::Tuple, values, ::Val{D}) where {D}
-    ntuple(i -> record!(stats[i], getfield(values, D[i])), Val(length(D)))
-    return nothing
-end
-
 function MC_Sweep!(
     algorithm, model, geometry, state, container::MeasurementContainer{D},
     T, stats::Tuple; rng::AbstractRNG = Random.default_rng()

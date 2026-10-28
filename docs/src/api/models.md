@@ -12,6 +12,9 @@ UnitCellMC.clock_cos
 UnitCellMC.ClockUpdate
 UnitCellMC.ClockClusterContext
 UnitCellMC.bond_strength
+UnitCellMC.state_type
+UnitCellMC.validate_model_state
+UnitCellMC.magnetization_value
 UnitCellMC.local_operator
 UnitCellMC.operator_product
 UnitCellMC.n_operator_components

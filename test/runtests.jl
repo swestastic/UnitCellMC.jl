@@ -474,6 +474,51 @@ end
     @test_throws ArgumentError ucmc.bond_strength(valid_model, geometry, 100)
 end
 
+struct PairingTestModel <: ucmc.AbstractModel{Float64} end
+struct PairingTestState <: ucmc.AbstractState end
+
+@testset "Model/state pairing" begin
+    geometry = square_geometry(2)
+    ising = ucmc.IsingModel([1.0, 1.0], [0.0])
+    xy = ucmc.XYModel([1.0, 1.0], [0.0])
+    clock = ucmc.ClockModel(4, [1.0, 1.0], [0.0])
+
+    @test ucmc.state_type(ising) == ucmc.IsingState
+    @test ucmc.state_type(xy) == ucmc.XYState
+    @test ucmc.state_type(clock) == ucmc.ClockState
+    @test_throws ArgumentError ucmc.state_type(PairingTestModel())
+
+    # Models without their own methods fail loudly instead of falling back
+    # to another model's physics.
+    @test_throws ArgumentError ucmc.initialize_state(PairingTestModel(), geometry)
+
+    ising_state = ucmc.initialize_state(ising, geometry)
+    xy_state = ucmc.initialize_state(xy, geometry)
+    @test ising_state isa ucmc.state_type(ising)
+    @test xy_state isa ucmc.state_type(xy)
+    @test ucmc.initialize_state(clock, geometry) isa ucmc.state_type(clock)
+
+    @test isnothing(ucmc.validate_model_state(ising, ising_state))
+    @test_throws ArgumentError ucmc.validate_model_state(ising, xy_state)
+    @test_throws ArgumentError ucmc.validate_model_state(xy, ising_state)
+    @test_throws ArgumentError ucmc.validate_model_state(PairingTestModel(), PairingTestState())
+
+    container = ucmc.MeasurementContainer(ising, geometry, 4, 2)
+    parameters = ucmc.SimulationParameters(2.0, 0, 4, 0, 2)
+    @test_throws ArgumentError ucmc.run_simulation(
+        ucmc.MetropolisAlgorithm(), ising, geometry, xy_state, container, parameters
+    )
+    @test_throws ArgumentError ucmc.sweep_Ts(
+        ucmc.MetropolisAlgorithm(), ising, geometry, xy_state, 0, 4, 0, 2, [2.0]
+    )
+
+    @test ucmc.magnetization_value(ising_state) == ising_state.magnetization
+    @test ucmc.magnetization_value(xy_state) ==
+        hypot(xy_state.magnetization_x, xy_state.magnetization_y)
+    @test ucmc.magnetization_value(ucmc.initialize_state(clock, geometry)) isa Real
+    @test_throws ArgumentError ucmc.magnetization_value(PairingTestState())
+end
+
 @testset "Optional correlation observables" begin
     geometry = square_geometry(2)
     model = ucmc.IsingModel([1.0, 1.0], [0.0])

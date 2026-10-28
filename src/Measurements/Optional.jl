@@ -1,13 +1,3 @@
-"""
-    magnetization_value(state)
-
-Return the scalar magnetization represented by `state`, using the stored total
-magnetization for an [`IsingState`](@ref) and the magnitude of the two
-components for an [`XYState`](@ref) or [`ClockState`](@ref).
-"""
-magnetization_value(state::IsingState) = state.magnetization
-magnetization_value(state::Union{XYState,ClockState}) =
-    hypot(state.magnetization_x, state.magnetization_y)
 binder_denominator(::IsingModel) = 3.0
 binder_denominator(::XYModel) = 2.0
 # For q = 2 the magnetization only has an x component (Ising universality);

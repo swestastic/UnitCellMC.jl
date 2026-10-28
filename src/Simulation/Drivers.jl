@@ -109,8 +109,10 @@ cluster update for `WolffAlgorithm` and `SwendsenWangAlgorithm`.
 # Throws
 
 `ArgumentError` if `container` and `parameters` do not describe the same
-binning, or if `container` requests diagnostics that `algorithm` does not
-provide (see [`validate_run`](@ref)). The check runs before any sweep.
+binning, if `container` requests diagnostics that `algorithm` does not
+provide (see [`validate_run`](@ref)), or if `state` is not the state type
+expected by `model` (see [`validate_model_state`](@ref)). Both checks run
+before any sweep.
 
 # Returns
 
@@ -126,6 +128,7 @@ function run_simulation(
     rng::AbstractRNG = Random.default_rng()
 ) where {D}
     validate_run(algorithm, container, parameters)
+    validate_model_state(model, state)
     T = parameters.T
     stats = ntuple(i -> UpdateStatistic(D[i]), Val(length(D)))
     workspace = algorithm_workspace(algorithm, model, geometry, state)
@@ -343,11 +346,13 @@ A new [`SimulationParameters`](@ref) is created for every temperature
 # Throws
 
 `ArgumentError` if `n_runs` is less than 1, if any temperature in `Ts` or
-the sweep counts are rejected by [`SimulationParameters`](@ref), or if the
+the sweep counts are rejected by [`SimulationParameters`](@ref), if the
 `measurements`, `diagnostics`, or `time_series` arguments are rejected by
-[`MeasurementContainer`](@ref) or [`validate_run`](@ref). All of these are
-checked on the calling task before any thread starts, so they are thrown
-directly rather than wrapped in a `CompositeException`.
+[`MeasurementContainer`](@ref) or [`validate_run`](@ref), or if
+`simulated_annealing` is true and `state` is not the state type expected by
+`model` (see [`validate_model_state`](@ref)). All of these are checked on
+the calling task before any thread starts, so they are thrown directly
+rather than wrapped in a `CompositeException`.
 
 # Returns
 
@@ -373,6 +378,9 @@ function sweep_Ts(
     seed = recorded_seed(rng)
 )
     n_runs >= 1 || throw(ArgumentError("n_runs must be >= 1, got $n_runs"))
+    # `state` seeds run 1 when annealing; catch a model/state mismatch here, on
+    # the calling task, rather than inside a thread. It is unused otherwise.
+    simulated_annealing && validate_model_state(model, state)
     # Validate every temperature and the binning up front, on the calling task,
     # so invalid inputs throw here instead of from inside the threaded loop.
     parameters_by_T = [

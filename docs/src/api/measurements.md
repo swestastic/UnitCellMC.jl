@@ -61,7 +61,6 @@ UnitCellMC.abs_magnetization_entry
 UnitCellMC.binder_cumulant_entry
 UnitCellMC.clock_order_parameter_entry
 UnitCellMC.clock_angle_order
-UnitCellMC.magnetization_value
 ```
 
 ```@docs

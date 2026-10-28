@@ -41,6 +41,10 @@ Return the value of the local spin operator at site `i` for `state`.
 """
 local_operator(state::IsingState, i) = state.spins[i]
 
+state_type(::IsingModel) = IsingState
+
+magnetization_value(state::IsingState) = state.magnetization
+
 """
     operator_product(model, a, b)
 

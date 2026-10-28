@@ -86,6 +86,11 @@ function validate_model_geometry(model::ClockModel, geometry::Geometry)
 end
 
 local_operator(state::ClockState, site) = state.spins[site]
+
+state_type(::ClockModel) = ClockState
+
+magnetization_value(state::ClockState) = hypot(state.magnetization_x, state.magnetization_y)
+
 operator_product(model::ClockModel, first_index::Integer, second_index::Integer) =
     clock_cos(model, first_index - second_index)
 

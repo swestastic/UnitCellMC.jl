@@ -31,6 +31,11 @@ function validate_model_geometry(model::XYModel, geometry::Geometry)
 end
 
 local_operator(state::XYState, site) = state.angles[site]
+
+state_type(::XYModel) = XYState
+
+magnetization_value(state::XYState) = hypot(state.magnetization_x, state.magnetization_y)
+
 operator_product(::XYModel, first_angle::Real, second_angle::Real) =
     cos(first_angle - second_angle)
 

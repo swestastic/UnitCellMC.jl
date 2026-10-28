@@ -69,7 +69,7 @@ function initialize_state(
     validate_model_geometry(model, geometry)
 
     n_sites = geometry.n_sites
-    spins = rand(rng, [-1, 1], n_sites)
+    spins = rand(rng, Int8[-1, 1], n_sites)
 
     T = promote_type(eltype(model.J), eltype(model.h))
     energy = zero(T)
@@ -83,7 +83,7 @@ function initialize_state(
         energy += -field_strength(model, geometry, i) * spins[i]
     end
 
-    magnetization = sum(spins)
+    magnetization = sum(Int, spins)
 
     return IsingState(
         spins,

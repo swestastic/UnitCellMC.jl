@@ -238,7 +238,7 @@ function apply_cluster!(
     end
 
     ΔE = zero(state.energy)
-    spin_change = zero(eltype(state.spins))
+    spin_change = zero(state.magnetization)
 
     for site in cluster
         s = state.spins[site]

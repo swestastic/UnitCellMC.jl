@@ -260,18 +260,28 @@ annealing trajectory: with `simulated_annealing = true` (default) each run
 carries its own configuration between temperatures (`state` seeds run 1;
 best practice: order `Ts` from highest to lowest); with
 `simulated_annealing = false` every run is re-initialized from a fresh
-random state at every temperature.
+random state at every temperature (`state` itself is then unused).
 
-The runs execute in parallel over Julia threads: start Julia with
-`--threads auto` (or set `JULIA_NUM_THREADS`) to use more than one.
+The simulations execute in parallel over Julia threads: start Julia with
+`--threads auto` (or set `JULIA_NUM_THREADS`) to use more than one. With
+`simulated_annealing = true` each temperature depends on the previous one,
+so only the `n_runs` runs at a temperature execute in parallel. With
+`simulated_annealing = false` the `(temperature, run)` pairs are fully
+independent, so all `length(Ts) * n_runs` simulations form a single
+parallel pool — temperatures are parallelized too, which keeps all threads
+busy even when `n_runs` is smaller than the thread count.
 
 # Reproducibility
 
-Before any threads start, one seed per run is drawn from `rng` and each run
-gets its own `Random.Xoshiro` generator, which it keeps for the whole sweep
-(state initialization and every update at every temperature). A run therefore
-consumes the same random stream whichever thread executes it, so the results
-are bit-for-bit identical for any thread count. To reproduce a sweep, call
+Before any threads start, seeds are drawn from `rng` and turned into one
+`Random.Xoshiro` generator per independent simulation: with
+`simulated_annealing = true` one per run, kept for the whole sweep (state
+initialization and every update at every temperature); with
+`simulated_annealing = false` one per `(temperature, run)` pair, used to
+initialize the state and perform every update of that simulation. Each
+simulation therefore consumes the same random stream whichever thread
+executes it, so the results are bit-for-bit identical for any thread
+count. To reproduce a sweep, call
 [`set_global_seed!`](@ref) at the start of the script and keep the inputs,
 including the initial `state`, the same. The seed is written to the sweep's
 `metadata.txt` (as `unknown` if the global RNG was seeded some other way,
@@ -289,14 +299,18 @@ A new [`SimulationParameters`](@ref) is created for every temperature
 - `model`: The model defining couplings/energetics.
 - `geometry`: The lattice geometry.
 - `state`: The starting configuration for run 1; reused across temperatures
-  when `simulated_annealing = true`.
+  when `simulated_annealing = true`. Not used when
+  `simulated_annealing = false`, where every simulation starts from a fresh
+  random state.
 - `n_thermalization`: Warmup sweeps per run and temperature.
 - `n_measurements`: Measurement sweeps per run and temperature.
 - `n_unmeasured`: Decorrelation sweeps between measurements.
 - `n_bins`: Number of bins per run for jackknife error estimation.
 - `Ts`: Temperatures to simulate.
 - `simulated_annealing`: Carry each run's state between temperatures
-  (default `true`).
+  (default `true`); when `false`, every temperature starts from a fresh
+  random state and all `length(Ts) * n_runs` simulations are independent
+  and execute in a single parallel pool.
 - `n_runs`: Number of independent runs averaged at each temperature
   (default `1`); must be at least 1.
 - `measurements`: Optional measurement names to enable in each container.
@@ -306,9 +320,9 @@ A new [`SimulationParameters`](@ref) is created for every temperature
   [`MeasurementContainer`](@ref). The default `:scalars` skips the
   correlation-function vector; use `:none` to store nothing.
 - `root`: Base directory passed to [`save_sweep_results`](@ref).
-- `rng`: Random number generator from which the per-run seeds are drawn.
-  Defaults to the task-local global RNG, which [`set_global_seed!`](@ref)
-  (or `Random.seed!`) controls.
+- `rng`: Random number generator from which the per-simulation seeds are
+  drawn. Defaults to the task-local global RNG, which
+  [`set_global_seed!`](@ref) (or `Random.seed!`) controls.
 - `seed`: Seed recorded in `metadata.txt`. Defaults to the
   [`global_seed`](@ref) when `rng` is the global RNG, and to `nothing`
   (recorded as `unknown`) for an explicit `rng`.
@@ -357,43 +371,64 @@ function sweep_Ts(
     n_sites = geometry.n_sites
     L = geometry.lattice.L
 
-    # Seed every run's generator up front on the calling task, so each run
-    # owns a fixed stream independent of thread scheduling and thread count.
-    run_rngs = [Random.Xoshiro(rand(rng, UInt64)) for _ in 1:n_runs]
-    states = AbstractState[state]
-    for r in 2:n_runs
-        push!(states, initialize_state(model, geometry; rng = run_rngs[r]))
-    end
+    build_container() = MeasurementContainer(model, geometry, n_measurements, n_bins;
+        measurements = measurements, diagnostics = diagnostics, time_series = time_series)
 
-    for (i, T) in enumerate(Ts)
-        parameters = parameters_by_T[i]
+    if simulated_annealing
+        # Seed every run's generator up front on the calling task, so each run
+        # owns a fixed stream independent of thread scheduling and thread count.
+        run_rngs = [Random.Xoshiro(rand(rng, UInt64)) for _ in 1:n_runs]
+        states = AbstractState[state]
+        for r in 2:n_runs
+            push!(states, initialize_state(model, geometry; rng = run_rngs[r]))
+        end
 
-        # Containers are built and checked before the threads start, so a bad
-        # `measurements`/`diagnostics`/`time_series` argument throws directly.
-        run_containers = [
-            MeasurementContainer(model, geometry, n_measurements, n_bins;
-                measurements = measurements,
-                diagnostics = diagnostics,
-                time_series = time_series
-            )
-            for _ in 1:n_runs
-        ]
-        foreach(container -> validate_run(algorithm, container, parameters), run_containers)
+        for (i, T) in enumerate(Ts)
+            parameters = parameters_by_T[i]
 
-        Threads.@threads for r in 1:n_runs
-            run_rng = run_rngs[r]
-            run_state = states[r]
-            if !simulated_annealing
-                run_state = initialize_state(model, geometry; rng = run_rng)
-                states[r] = run_state
+            # Containers are built and checked before the threads start, so a bad
+            # `measurements`/`diagnostics`/`time_series` argument throws directly.
+            run_containers = [build_container() for _ in 1:n_runs]
+            foreach(container -> validate_run(algorithm, container, parameters), run_containers)
+
+            Threads.@threads for r in 1:n_runs
+                run_simulation(
+                    algorithm, model, geometry, states[r], run_containers[r], parameters;
+                    rng = run_rngs[r]
+                )
             end
 
+            sweep_results[i] = analyze(merge_containers(run_containers), T, n_sites)
+        end
+    else
+        # Without annealing every (temperature, run) pair is an independent
+        # simulation, so flatten them into a single pool of length(Ts) * n_runs
+        # jobs — job (i - 1) * n_runs + r is run r at Ts[i] — to parallelize
+        # across temperatures as well as runs. One generator per job, seeded up
+        # front on the calling task, keeps every job's random stream independent
+        # of thread scheduling and thread count.
+        n_jobs = length(Ts) * n_runs
+        job_rngs = [Random.Xoshiro(rand(rng, UInt64)) for _ in 1:n_jobs]
+        job_containers = [build_container() for _ in 1:n_jobs]
+        for (i, parameters) in enumerate(parameters_by_T)
+            for job in ((i - 1) * n_runs + 1):(i * n_runs)
+                validate_run(algorithm, job_containers[job], parameters)
+            end
+        end
+
+        Threads.@threads :dynamic for job in 1:n_jobs
+            i = (job - 1) ÷ n_runs + 1
+            job_state = initialize_state(model, geometry; rng = job_rngs[job])
             run_simulation(
-                algorithm, model, geometry, run_state, run_containers[r], parameters; rng = run_rng
+                algorithm, model, geometry, job_state, job_containers[job],
+                parameters_by_T[i]; rng = job_rngs[job]
             )
         end
 
-        sweep_results[i] = analyze(merge_containers(run_containers), T, n_sites)
+        for (i, T) in enumerate(Ts)
+            run_containers = job_containers[((i - 1) * n_runs + 1):(i * n_runs)]
+            sweep_results[i] = analyze(merge_containers(run_containers), T, n_sites)
+        end
     end
 
     save_sweep_results(

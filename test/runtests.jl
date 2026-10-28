@@ -788,8 +788,8 @@ end
         ((3, 6, 1, 3, [2.0]), (; diagnostics = [:cluster_size])),    # wrong algorithm diagnostic
         ((3, 6, 1, 3, [2.0]), (; time_series = [:not_measured])),    # container rejects
     ]
-    for (args, kwargs) in cases
-        err, untouched = sweep_error(args...; kwargs...)
+    for (args, kwargs) in cases, annealing in (true, false)
+        err, untouched = sweep_error(args...; simulated_annealing = annealing, kwargs...)
         @test err isa ArgumentError
         @test untouched
     end

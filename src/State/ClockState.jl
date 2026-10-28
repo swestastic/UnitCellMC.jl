@@ -26,27 +26,3 @@ mutable struct ClockState{S,T<:Real} <: AbstractState
     magnetization_x::T
     magnetization_y::T
 end
-
-function _initialize_clock_state(model, geometry::Geometry, rng::AbstractRNG = Random.default_rng())
-    validate_model_geometry(model, geometry)
-
-    spins = rand(rng, 0:(model.q - 1), geometry.n_sites)
-    T = promote_type(Float64, eltype(model.J), eltype(model.h))
-    energy = zero(T)
-    magnetization_x = zero(T)
-    magnetization_y = zero(T)
-
-    for site in 1:geometry.n_sites
-        n = spins[site]
-        magnetization_x += clock_cos(model, n)
-        magnetization_y += clock_sin(model, n)
-        info = geometry.neighbor_table[site]
-        for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
-            energy += -0.5 * bond_strength(model, geometry, bond_id) *
-                clock_cos(model, n - spins[neighbor])
-        end
-        energy += -field_strength(model, geometry, site) * clock_cos(model, n)
-    end
-
-    return ClockState(spins, energy, magnetization_x, magnetization_y)
-end

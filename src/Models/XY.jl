@@ -20,9 +20,6 @@ function XYModel(J::Vector{<:Real}, h::AbstractVector{<:Real})
     return XYModel{T}(convert(Vector{T}, J), convert(Vector{T}, h))
 end
 
-initialize_state(model::XYModel, geometry::Geometry; rng::AbstractRNG = Random.default_rng()) =
-    _initialize_xy_state(model, geometry, rng)
-
 function validate_model_geometry(model::XYModel, geometry::Geometry)
     invoke(validate_model_geometry, Tuple{AbstractModel, Geometry}, model, geometry)
 

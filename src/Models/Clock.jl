@@ -75,9 +75,6 @@ the bond term `cos(θ_i - θ_j)`.
 clock_cos(model::ClockModel, n::Integer) = @inbounds model.cosines[mod(n, model.q) + 1]
 clock_sin(model::ClockModel, n::Integer) = @inbounds model.sines[mod(n, model.q) + 1]
 
-initialize_state(model::ClockModel, geometry::Geometry; rng::AbstractRNG = Random.default_rng()) =
-    _initialize_clock_state(model, geometry, rng)
-
 function validate_model_geometry(model::ClockModel, geometry::Geometry)
     invoke(validate_model_geometry, Tuple{AbstractModel, Geometry}, model, geometry)
 

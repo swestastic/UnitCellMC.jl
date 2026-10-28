@@ -1,5 +1,3 @@
-import LatticeUtilities as lu
-
 """
     IsingState{S,T<:Real,M<:Integer} <: AbstractState
 
@@ -25,69 +23,4 @@ mutable struct IsingState{S,T<:Real,M<:Integer} <: AbstractState
     spins::S
     energy::T
     magnetization::M
-end
-
-"""
-    initialize_state(model, geometry::Geometry; rng = Random.default_rng())
-
-Build a random initial [`IsingState`](@ref) for `model` on `geometry`, with
-energy and magnetization computed from scratch to match the random spins.
-
-Each site is assigned a uniformly random spin of `±1`. Total energy is
-computed by summing `-0.5 * J * spins[i] * spins[j]` over every bond incident
-to every site (the `0.5` avoids double-counting since each bond is visited
-from both endpoints) plus the field contribution `-model.h * spins[i]` per
-site; magnetization is simply the sum of all spins.
-
-# Arguments
-
-- `model`: The `IsingModel` supplying bond strengths `J` and field `h`.
-- `geometry`: The lattice geometry, giving `n_sites`, `bonds`, and the
-  neighbor table used to enumerate each site's bonds.
-- `rng`: Random number generator for the initial spins. Defaults to the
-  task-local global RNG, so `Random.seed!` makes the configuration
-  reproducible.
-
-# Throws
-
-`ArgumentError` if `length(model.J)` does not match `length(geometry.bonds)`,
-if any entry of `geometry.bond_id_to_template` is out of bounds for
-`model.J`, or if `length(model.h)` does not match the number of sites in the
-unit cell.
-
-# Returns
-
-A randomly initialized `IsingState` with `energy` and `magnetization`
-consistent with its `spins`.
-"""
-function initialize_state(
-    model,
-    geometry::Geometry;
-    rng::AbstractRNG = Random.default_rng()
-    )
-
-    validate_model_geometry(model, geometry)
-
-    n_sites = geometry.n_sites
-    spins = rand(rng, Int8[-1, 1], n_sites)
-
-    T = promote_type(eltype(model.J), eltype(model.h))
-    energy = zero(T)
-
-    for i in 1:n_sites
-        info = geometry.neighbor_table[i]
-        for (bond_id, j) in zip(info.bonds, info.neighbors)
-            J = bond_strength(model, geometry, bond_id)
-            energy += -0.5 * J * spins[i] * spins[j]
-        end
-        energy += -field_strength(model, geometry, i) * spins[i]
-    end
-
-    magnetization = sum(Int, spins)
-
-    return IsingState(
-        spins,
-        energy,
-        magnetization
-    )
 end

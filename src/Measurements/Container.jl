@@ -1,8 +1,13 @@
 """
-    MeasurementContainer{T, S, Ts}
+    MeasurementContainer{D, N, T, S, Ts, O}
 
 Accumulates binned Monte Carlo measurements and holds the observable
 specifications needed to analyze them.
+
+The type parameters `D` (diagnostic names) and `N` (raw observable names) are
+tuples of `Symbol`s, and `O` is the concretely typed tuple of
+[`Observable`](@ref)s, so that [`measure!`](@ref) is type-stable: observable
+values are sampled, named, and accumulated without dynamic dispatch.
 
 Raw measurements are accumulated into `bin_sums` as they're taken and
 flushed into `data` once every `bin_size` measurements. `bin_count` tracks
@@ -28,23 +33,23 @@ the codebase).
 - `bin_count::Int`: Number of measurements accumulated in the current bin;
   reset to `0` when the bin is flushed into `data`.
 - `bin_size::Int`: Number of measurements per bin (`n_measurements ÷ n_bins`).
-- `observables::Vector{Observable}`: The raw observables being measured.
+- `observables::O`: The raw observables being measured, stored as a
+  concretely typed tuple whose names and order match the leading fields of
+  `bin_sums` (the trailing fields are the diagnostics named by `D`).
 - `derived::Vector{DerivedObservable}`: The derived quantities to compute
   from the raw observables once binning is complete.
-- `diagnostics::Vector{Symbol}`: Names of per-sweep algorithm diagnostics
-  accumulated alongside the raw observables.
 
 Construct with [`MeasurementContainer(model, geometry, n_measurements,
 n_bins; measurements)`](@ref).
 """
-mutable struct MeasurementContainer{D, T, S, Ts}
+mutable struct MeasurementContainer{D, N, T, S, Ts, O}
     data::T
     bin_sums::S
     time_series::Ts
     chain_lengths::Vector{Int}
     bin_count::Int
     bin_size::Int
-    observables::Vector{Observable}
+    observables::O
     derived::Vector{DerivedObservable}
 end
 
@@ -214,8 +219,16 @@ end
 
 function _build_container(::Val{D}, data, bin_sums, series, chain_lengths,
                           bin_count, bin_size, obs, der) where {D}
-    return MeasurementContainer{D, typeof(data), typeof(bin_sums), typeof(series)}(
-        data, bin_sums, series, chain_lengths, bin_count, bin_size, obs, der
+    # A concretely typed tuple of observables makes measure! type-stable.
+    observables = obs isa Tuple ? obs : Tuple(obs)
+    obs_names = map(o -> o.name, observables)
+    keys(bin_sums)[1:length(observables)] == obs_names || throw(ArgumentError(
+        "bin_sums fields $(keys(bin_sums)) must lead with the observable " *
+        "names $obs_names in the same order"
+    ))
+    return MeasurementContainer{D, obs_names, typeof(data), typeof(bin_sums),
+                                typeof(series), typeof(observables)}(
+        data, bin_sums, series, chain_lengths, bin_count, bin_size, observables, der
     )
 end
 

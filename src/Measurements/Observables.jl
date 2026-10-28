@@ -9,22 +9,26 @@ and its history of completed bins.
 
 - `name::Symbol`: The observable's name, used as its key in
   [`MeasurementContainer`](@ref)'s `data`/`bin_sums` and elsewhere.
-- `value::Function`: `value(state)` — computes one instantaneous sample from
+- `value::F`: `value(state)` — computes one instantaneous sample from
   the current configuration.
-- `zero::Function`: `zero()` — returns the additive identity used to
+- `zero::Z`: `zero()` — returns the additive identity used to
   initialize/reset the running bin sum (e.g. `0.0` for a scalar, `zeros(n)`
   for a vector).
-- `template::Function`: `template()` — returns an empty container to
+- `template::T`: `template()` — returns an empty container to
   accumulate completed bin averages into (e.g. `Float64[]`,
   `Vector{Float64}[]`).
 
+The function fields are type parameters (`F`, `Z`, `T`) rather than abstract
+`Function`s so that a tuple of `Observable`s is concretely typed and
+[`measure!`](@ref) can call `value` without dynamic dispatch.
+
 Construct with [`Observable(name, value; zero, template)`](@ref).
 """
-struct Observable
+struct Observable{F<:Function, Z<:Function, T<:Function}
     name::Symbol
-    value::Function
-    zero::Function
-    template::Function
+    value::F
+    zero::Z
+    template::T
 end
 
 """

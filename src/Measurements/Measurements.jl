@@ -20,8 +20,9 @@ to the same named tuple. The results are added elementwise into
 `measurements.bin_sums`. Once `measurements.bin_count` reaches
 `measurements.bin_size`, the accumulated sums are averaged (dividing by
 `bin_size`) and pushed onto the corresponding vector in `measurements.data`,
-after which `bin_sums` is reset to zero (via each observable's `zero()`) and
-`bin_count` returns to `0` to begin accumulating the next bin.
+after which `bin_sums` is reset to zero (array accumulators are zeroed in
+place and reused for the next bin) and `bin_count` returns to `0` to begin
+accumulating the next bin.
 
 # Arguments
 
@@ -36,35 +37,49 @@ after which `bin_sums` is reset to zero (via each observable's `zero()`) and
 `nothing`. `measurements` is mutated in place.
 """
 function measure!(
-    measurements::MeasurementContainer{D}, state; diagnostics = NamedTuple()
-) where {D}
+    measurements::MeasurementContainer{D, N}, state; diagnostics = NamedTuple()
+) where {D, N}
     given_names = propertynames(diagnostics)
     given_names == D ||
         throw(ArgumentError("Expected diagnostics $D, got $given_names"))
 
+    # N carries the observable names at the type level and the observables are
+    # a concretely typed tuple, so this NamedTuple is fully inferred and each
+    # value function is called without dynamic dispatch.
     values = merge(
-        NamedTuple(o.name => o.value(state) for o in measurements.observables),
+        NamedTuple{N}(map(o -> o.value(state), measurements.observables)),
         diagnostics
     )
 
     measurements.bin_count += 1
-    measurements.bin_sums = map(+, measurements.bin_sums, values)
+    measurements.bin_sums = map(_accumulate, measurements.bin_sums, values)
 
-    # Record the per-sweep raw values for autocorrelation analysis.
-    for name in keys(measurements.time_series)
-        push!(getfield(measurements.time_series, name), values[name])
-    end
+    # Record the per-sweep raw values for autocorrelation analysis. Restricting
+    # `values` to the recorded names keeps this fully inferred and
+    # allocation-free (a `for` loop over `keys(series)` would not constant-fold
+    # the field accesses).
+    series = measurements.time_series
+    recorded = NamedTuple{keys(series)}(values)
+    map(push!, Base.values(series), Base.values(recorded))
 
     if measurements.bin_count == measurements.bin_size
+        bin_size = measurements.bin_size
         measurements.data = map(measurements.data, measurements.bin_sums) do bins, s
-            push!(bins, s / measurements.bin_size)
+            push!(bins, s ./ bin_size)
             bins
         end
-        measurements.bin_sums = merge(
-            NamedTuple(o.name => o.zero() for o in measurements.observables),
-            NamedTuple(name => 0.0 for name in D)
-        )
+        measurements.bin_sums = map(_reset_sum, measurements.bin_sums)
         measurements.bin_count = 0
     end
     return nothing
 end
+
+# Add one sample into a running bin sum. Array accumulators are updated in
+# place, so vector-valued observables do not allocate per measurement.
+_accumulate(sum::Number, value::Number) = sum + value
+_accumulate(sum::AbstractArray, value::AbstractArray) = (sum .+= value; sum)
+
+# Reset a flushed bin sum to zero. Array accumulators are zeroed in place and
+# reused for the next bin instead of being reallocated.
+_reset_sum(sum::Number) = zero(sum)
+_reset_sum(sum::AbstractArray) = fill!(sum, zero(eltype(sum)))

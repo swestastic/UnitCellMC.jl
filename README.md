@@ -1,6 +1,6 @@
 # UnitCellMC.jl
 
-[![CI](https://github.com/swestastic/UnitCellMC.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/swestastic/UnitCellMC.jl/actions/workflows/CI.yml)
+[![CI (main)](https://github.com/swestastic/UnitCellMC.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/swestastic/UnitCellMC.jl/actions/workflows/CI.yml?query=branch%3Amain)
 
 Classical Markov Chain Monte Carlo simulations of spin models with user-defined lattice geometries.
 

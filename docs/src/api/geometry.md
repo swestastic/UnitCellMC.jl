@@ -11,5 +11,4 @@ UnitCellMC.build_displacement_classes
 ```@docs
 UnitCellMC.NeighborInfo
 UnitCellMC.Geometry
-UnitCellMC.validate_model_geometry
 ```

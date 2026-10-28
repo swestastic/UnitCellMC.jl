@@ -24,16 +24,6 @@ function IsingModel(J::Vector{<:Real}, h::AbstractVector{<:Real})
     return IsingModel{T}(convert(Vector{T}, J), convert(Vector{T}, h))
 end
 
-function validate_model_geometry(model::IsingModel, geometry::Geometry)
-    invoke(validate_model_geometry, Tuple{AbstractModel, Geometry}, model, geometry)
-
-    n_orbitals = LatticeUtilities.norbits(geometry.unit_cell)
-    length(model.h) == n_orbitals || throw(ArgumentError(
-        "length(model.h) = $(length(model.h)) does not match the number of sites in the unit cell = $n_orbitals"
-    ))
-    return nothing
-end
-
 """
     local_operator(state, i)
 

@@ -75,16 +75,6 @@ the bond term `cos(θ_i - θ_j)`.
 clock_cos(model::ClockModel, n::Integer) = @inbounds model.cosines[mod(n, model.q) + 1]
 clock_sin(model::ClockModel, n::Integer) = @inbounds model.sines[mod(n, model.q) + 1]
 
-function validate_model_geometry(model::ClockModel, geometry::Geometry)
-    invoke(validate_model_geometry, Tuple{AbstractModel, Geometry}, model, geometry)
-
-    n_orbitals = LatticeUtilities.norbits(geometry.unit_cell)
-    length(model.h) == n_orbitals || throw(ArgumentError(
-        "length(model.h) = $(length(model.h)) does not match the number of sites in the unit cell = $n_orbitals"
-    ))
-    return nothing
-end
-
 local_operator(state::ClockState, site) = state.spins[site]
 
 state_type(::ClockModel) = ClockState

@@ -20,7 +20,34 @@ end
 steps_per_sweep(::WolffAlgorithm, ::Geometry) = 1
 
 cluster_seed(rng::AbstractRNG, ::AbstractModel, geometry, ::AbstractState) = rand(rng, 1:geometry.n_sites)
-validate_cluster_model(::AbstractModel, ::Any, ::AbstractState, ::Real) = nothing
+"""
+    validate_cluster_model(model, geometry, state, T)
+
+Check that `model` can be updated by the cluster algorithms
+([`WolffAlgorithm`](@ref), [`SwendsenWangAlgorithm`](@ref)), called once at
+the start of every cluster [`step!`](@ref).
+
+The default enforces the cluster updates' core requirement — non-negative
+(ferromagnetic) couplings, so the bond-activation probabilities stay in
+`[0, 1]` — for models with the default coupling layout (see
+[`couplings`](@ref)); a model without a `J` field passes. Models with extra
+structure extend this method with their own checks.
+
+# Throws
+
+`ArgumentError` if any coupling is negative.
+
+# Returns
+
+`nothing`.
+"""
+function validate_cluster_model(model::AbstractModel, geometry, state::AbstractState, ::Real)
+    hasproperty(model, :J) || return nothing
+    all(>=(0), couplings(model)) || throw(ArgumentError(
+        "Cluster algorithms require non-negative couplings; got J = $(couplings(model))"
+    ))
+    return nothing
+end
 cluster_context(::AbstractRNG, ::AbstractModel, ::Any, ::AbstractState, ::Real) = nothing
 cluster_ghost_count(::AbstractModel, ::Any, ::AbstractState, ::Any) = 0
 cluster_ghost_probability(::AbstractModel, ::Any, ::AbstractState, ::Int, ::Int, ::Real, ::Any) = 0.0
@@ -62,6 +89,10 @@ Grow and flip one Wolff cluster. Model-specific behavior is supplied by
 traversal reusable for models with different local degrees of freedom. All
 random numbers (cluster context, seed site, bond activation) come from `rng`.
 
+Growth stops as soon as the cluster attaches to a ghost site (see
+[`ghost_site`](@ref)): ghost-attached clusters are never flipped, so growing
+further would be wasted work.
+
 The cluster mask and member/frontier lists are taken from `workspace` (a
 [`ClusterWorkspace`](@ref)) when given and allocated fresh otherwise; drivers
 allocate one workspace per run via [`algorithm_workspace`](@ref).
@@ -96,6 +127,8 @@ function step!(
     any_ghost_attached = false
 
     while !isempty(frontier)
+        # Ghost-attached clusters are never flipped, so stop growing at the
+        # first ghost attachment; the remaining work would be discarded.
         any_ghost_attached && break
         site = pop!(frontier)
         info = geometry.neighbor_table[site]

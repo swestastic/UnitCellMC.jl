@@ -5,12 +5,16 @@ CollapsedDocStrings = true
 ```
 
 ```@docs
+UnitCellMC.AbstractModel
 UnitCellMC.IsingModel
 UnitCellMC.XYModel
 UnitCellMC.ClockModel
 UnitCellMC.clock_cos
 UnitCellMC.ClockClusterContext
+UnitCellMC.couplings
+UnitCellMC.fields
 UnitCellMC.bond_strength
+UnitCellMC.field_strength
 UnitCellMC.validate_model_geometry
 UnitCellMC.binder_denominator
 UnitCellMC.clock_angle_order
@@ -23,6 +27,7 @@ UnitCellMC.n_operator_components
 UnitCellMC.operator_components
 UnitCellMC.propose
 UnitCellMC.energy_difference
+UnitCellMC.validate_cluster_model
 UnitCellMC.cluster_bond_probability
 UnitCellMC.apply_cluster!
 UnitCellMC.apply_clusters!

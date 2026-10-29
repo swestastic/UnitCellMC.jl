@@ -44,7 +44,7 @@ function initialize_state(
     n_sites = geometry.n_sites
     spins = rand(rng, Int8[-1, 1], n_sites)
 
-    T = promote_type(eltype(model.J), eltype(model.h))
+    T = promote_type(eltype(couplings(model)), eltype(fields(model)))
     energy = zero(T)
 
     for i in 1:n_sites
@@ -96,7 +96,7 @@ function initialize_state(
     validate_model_geometry(model, geometry)
 
     angles = 2π .* rand(rng, geometry.n_sites)
-    T = promote_type(Float64, eltype(model.J), eltype(model.h))
+    T = promote_type(Float64, eltype(couplings(model)), eltype(fields(model)))
     energy = zero(T)
     magnetization_x = zero(T)
     magnetization_y = zero(T)
@@ -153,7 +153,7 @@ function initialize_state(
     validate_model_geometry(model, geometry)
 
     spins = rand(rng, 0:(model.q - 1), geometry.n_sites)
-    T = promote_type(Float64, eltype(model.J), eltype(model.h))
+    T = promote_type(Float64, eltype(couplings(model)), eltype(fields(model)))
     energy = zero(T)
     magnetization_x = zero(T)
     magnetization_y = zero(T)

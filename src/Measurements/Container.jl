@@ -145,7 +145,6 @@ function MeasurementContainer(
     geometry,
     n_measurements,
     n_bins;
-    algorithm = nothing,          # lets diagnostics be validated once, here
     measurements = Symbol[],
     diagnostics = Symbol[],
     time_series = :scalars
@@ -167,17 +166,6 @@ function MeasurementContainer(
     observable_names = [o.name for o in obs]
     isempty(intersect(observable_names, diag_names)) ||
         throw(ArgumentError("Diagnostic names must not duplicate observable names"))
-
-    # Validate once, at construction, instead of on every sweep.
-    if algorithm !== nothing
-        avail = available_diagnostics(algorithm)
-        for name in diag_names
-            name in avail || throw(ArgumentError(
-                "$name is not a diagnostic of $(typeof(algorithm)); " *
-                "available: $(Tuple(avail))"
-            ))
-        end
-    end
 
     validate_dependencies(obs, der)
 

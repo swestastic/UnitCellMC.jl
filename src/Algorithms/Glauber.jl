@@ -6,11 +6,19 @@ dispatch [`propose`](@ref) and [`step!`](@ref) to the Glauber acceptance
 rule, which accepts a trial move with probability
 `1 / (1 + exp(ΔE / T))` instead of the Metropolis `min(1, exp(-ΔE / T))`.
 
-Every model proposes the same symmetric single-site trial moves as for
-[`MetropolisAlgorithm`](@ref), so detailed balance holds with respect to the
-Boltzmann distribution.
+By default every model proposes the same symmetric single-site trial moves as
+for [`MetropolisAlgorithm`](@ref) — a generic fallback [`propose`](@ref)
+method forwards to it — so detailed balance holds with respect to the
+Boltzmann distribution. A model may override the fallback with a
+Glauber-specific proposal.
 """
 struct GlauberAlgorithm <: AbstractAlgorithm end
+
+# By default a model's Glauber proposal is its Metropolis one (the same
+# symmetric trial move); a model can override this fallback with a
+# Glauber-specific proposal.
+propose(rng::AbstractRNG, ::GlauberAlgorithm, model::AbstractModel, geometry, state::AbstractState) =
+    propose(rng, MetropolisAlgorithm(), model, geometry, state)
 
 """
     step!(alg::GlauberAlgorithm, model, geometry, state, T; rng = Random.default_rng())

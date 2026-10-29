@@ -41,22 +41,6 @@ function propose(rng::AbstractRNG, ::MetropolisAlgorithm, ::XYModel, geometry, s
     return SpinUpdate(site, new, (cos(new) - cos(old), sin(new) - sin(old)))
 end
 
-"""
-    propose(rng, ::GlauberAlgorithm, model::XYModel, geometry, state)
-
-Generate a Glauber trial move for the XY model: pick a random site and
-propose a new angle drawn uniformly from `[0, 2π)`, both drawn from `rng`.
-This is the same symmetric proposal as for [`MetropolisAlgorithm`](@ref);
-only the acceptance rule in [`step!`](@ref) differs.
-
-# Returns
-
-A `SpinUpdate` for the chosen site and new angle.
-"""
-function propose(rng::AbstractRNG, ::GlauberAlgorithm, model::XYModel, geometry, state::XYState)
-    return propose(rng, MetropolisAlgorithm(), model, geometry, state)
-end
-
 function energy_difference(
     model::XYModel,
     geometry::Geometry,
@@ -66,7 +50,7 @@ function energy_difference(
     site = proposal.site
     angle = state.angles[site]
     info = geometry.neighbor_table[site]
-    J = model.J
+    J = couplings(model)
     weighted_sum = zero(promote_type(eltype(state.angles), eltype(J)))
     for (template, neighbor) in zip(info.templates, info.neighbors)
         neighbor == site && continue
@@ -75,13 +59,6 @@ function energy_difference(
     end
     return -weighted_sum - field_strength(model, geometry, site) *
         (cos(proposal.new_value) - cos(angle))
-end
-
-validate_cluster_model(model::XYModel, ::Geometry, ::XYState, ::Real) = begin
-    all(>=(0), model.J) || throw(ArgumentError(
-        "XY cluster algorithms require non-negative couplings; got J = $(model.J)"
-    ))
-    nothing
 end
 
 mutable struct XYClusterContext
@@ -107,7 +84,7 @@ function cluster_bond_probability(
     projection_product = cos(state.angles[site] - reflection_axis) *
         cos(state.angles[neighbor] - reflection_axis)
     projection_product > 0 || return 0.0
-    return -expm1(-2 * model.J[bond_template] * projection_product / T)
+    return -expm1(-2 * couplings(model)[bond_template] * projection_product / T)
 end
 
 function cluster_bond_probability(
@@ -161,6 +138,9 @@ contributes `ΔE = 2 * J * p_i * p_j` (via
 `cos(2φ - θ_i - θ_j) + cos(θ_i - θ_j) = 2 * p_i * p_j`), and each reflected
 site contributes `ΔE = 2 * h * cos(φ) * p_i`, `ΔM_x = -2 * cos(φ) * p_i`, and
 `ΔM_y = -2 * sin(φ) * p_i`.
+This explicit form allocates a membership mask per call and is the
+readable reference implementation exercised by the tests; the Wolff
+driver passes down the mask it already built.
 """
 function apply_cluster!(
     model::XYModel,
@@ -192,7 +172,7 @@ function _reflect_xy_cluster!(
     ΔE = zero(state.energy)
     ΔMx = zero(state.magnetization_x)
     ΔMy = zero(state.magnetization_y)
-    J = model.J
+    J = couplings(model)
 
     for site in cluster
         angle = state.angles[site]
@@ -234,8 +214,10 @@ end
 
 Explicit-partition form of [`apply_clusters!`](@ref): reflect each cluster in
 `clusters` about `reflection_axis` independently with probability 1/2.
-Allocates its own label map; the Swendsen-Wang driver uses the workspace form
-below.
+Allocates its own label map; the Swendsen-Wang driver uses the allocation-free
+workspace form below. This
+explicit form is the readable reference implementation exercised by the
+tests.
 """
 function apply_clusters!(
     rng::AbstractRNG,
@@ -302,7 +284,7 @@ function _reflect_xy_clusters!(
     ΔE = zero(state.energy)
     ΔMx = zero(state.magnetization_x)
     ΔMy = zero(state.magnetization_y)
-    J = model.J
+    J = couplings(model)
 
     for site in 1:geometry.n_sites
         flip[labels[site]] || continue

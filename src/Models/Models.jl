@@ -14,8 +14,9 @@ to a valid coupling, and a field vector `model.h` must have one entry per
 unit-cell orbital. Models with `J` and `h` fields ([`IsingModel`](@ref),
 [`XYModel`](@ref), [`ClockModel`](@ref)) need no method of their own.
 
-Models that store couplings or fields differently should extend this method
-with their own checks.
+Models that store couplings or fields differently override
+[`couplings`](@ref)/[`fields`](@ref) and should extend this method with their
+own checks.
 
 # Throws
 
@@ -50,16 +51,39 @@ function validate_model_geometry(model::AbstractModel, geometry::Geometry)
 end
 
 """
+    couplings(model)
+
+Return the model's bond couplings, one per bond template of the
+[`Geometry`](@ref) (see the layout contract under [`AbstractModel`](@ref)).
+The default is `model.J`; a model storing couplings differently overrides
+this accessor rather than every read site.
+
+Inner loops hoist `J = couplings(model)` once and index `J[template]` with
+the per-site `templates` of the neighbor table.
+"""
+couplings(model::AbstractModel) = model.J
+
+"""
+    fields(model)
+
+Return the model's external field strengths, one per unit-cell orbital (see
+the layout contract under [`AbstractModel`](@ref)). The default is `model.h`;
+a model storing fields differently overrides this accessor.
+"""
+fields(model::AbstractModel) = model.h
+
+"""
     bond_strength(model, geometry, bond_id)
 
 Return the coupling strength `J` for the bond identified by `bond_id`, looked
-up via the bond's template in `geometry`.
+up via the bond's template in `geometry` and the model's
+[`couplings`](@ref).
 
 This is the checked convenience lookup, intended for setup and analysis code.
 Performance-critical inner loops should instead iterate a site's
-[`NeighborInfo`](@ref) and index `model.J[template]` directly: the per-site
-`templates` vector is parallel to `neighbors`, so neither the bounds check
-here nor the `bond_id_to_template` indirection is needed there.
+[`NeighborInfo`](@ref) and index `couplings(model)[template]` directly: the
+per-site `templates` vector is parallel to `neighbors`, so neither the bounds
+check here nor the `bond_id_to_template` indirection is needed there.
 
 # Arguments
 
@@ -77,12 +101,27 @@ function bond_strength(model::AbstractModel{T}, geometry::Geometry, bond_id::Int
     1 <= bond_id <= length(templates) || throw(ArgumentError(
         "bond_id = $bond_id is out of bounds for geometry.bond_id_to_template of length $(length(templates))"
     ))
-    return model.J[templates[bond_id]]
+    return couplings(model)[templates[bond_id]]
 end
 
+"""
+    field_strength(model, geometry, site)
+
+Return the external field strength acting on `site`, looked up via the site's
+unit-cell orbital in [`fields`](@ref).
+
+No per-call bounds check is needed: the orbital of a valid site is always in
+range when [`validate_model_geometry`](@ref) passed at initialization.
+
+# Arguments
+
+- `model`: The model supplying one field per unit-cell orbital.
+- `geometry`: The lattice geometry mapping sites to orbitals.
+- `site`: Index of the site to look up.
+"""
 function field_strength(model::AbstractModel, geometry::Geometry, site::Int)
     orbital = LatticeUtilities.site_to_orbital(site, geometry.unit_cell)
-    return model.h[orbital]
+    return fields(model)[orbital]
 end
 
 """

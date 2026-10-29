@@ -557,6 +557,30 @@ end
     end
 end
 
+@testset "Coupling and field accessors" begin
+    geometry = two_orbital_geometry(2)
+    for model in (ucmc.IsingModel([1.0, 2.0], [0.5, -0.25]),
+                  ucmc.XYModel([1.0, 2.0], [0.5, -0.25]),
+                  ucmc.ClockModel(4, [1.0, 2.0], [0.5, -0.25]))
+        @test ucmc.couplings(model) === model.J
+        @test ucmc.fields(model) === model.h
+        for site in 1:geometry.n_sites
+            orbital = lu.site_to_orbital(site, geometry.unit_cell)
+            @test ucmc.field_strength(model, geometry, site) === model.h[orbital]
+        end
+    end
+
+    # cluster algorithms reject antiferromagnetic couplings for every model
+    for model in (ucmc.IsingModel([1.0, -1.0], [0.0, 0.0]),
+                  ucmc.XYModel([1.0, -1.0], [0.0, 0.0]),
+                  ucmc.ClockModel(3, [1.0, -1.0], [0.0, 0.0]))
+        state = ucmc.initialize_state(model, geometry)
+        for algorithm in (ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
+            @test_throws ArgumentError ucmc.step!(algorithm, model, geometry, state, 1.0)
+        end
+    end
+end
+
 @testset "Optional correlation observables" begin
     geometry = square_geometry(2)
     model = ucmc.IsingModel([1.0, 1.0], [0.0])

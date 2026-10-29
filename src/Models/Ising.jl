@@ -65,22 +65,6 @@ function propose(rng::AbstractRNG, ::MetropolisAlgorithm, ::IsingModel, geometry
 end
 
 """
-    propose(rng, ::GlauberAlgorithm, model::IsingModel, geometry, state)
-
-Generate a Glauber trial move for `model`: pick a random site, drawn from
-`rng`, and propose flipping its spin. This is the same symmetric proposal as
-for [`MetropolisAlgorithm`](@ref); only the acceptance rule in
-[`step!`](@ref) differs.
-
-# Returns
-
-A `SpinUpdate` describing the site and its proposed (flipped) value.
-"""
-function propose(rng::AbstractRNG, ::GlauberAlgorithm, model::IsingModel, geometry, state)
-    return propose(rng, MetropolisAlgorithm(), model, geometry, state)
-end
-
-"""
     energy_difference(model, geometry, state, proposal)
 
 Compute the change in total energy `ΔE` that would result from changing the
@@ -110,7 +94,7 @@ function energy_difference(
     s = state.spins[site]
     info = geometry.neighbor_table[site]
 
-    J = model.J
+    J = couplings(model)
     weighted_sum = zero(promote_type(eltype(state.spins), eltype(J)))
     for (template, neighbor) in zip(info.templates, info.neighbors)
         neighbor == site && continue
@@ -128,10 +112,9 @@ given `bond_template`, the index of the bond's template in `geometry.bonds`
 (taken from `neighbor_table[site].templates`). Only equal neighboring spins
 can join the cluster.
 
-# Throws
-
-`ArgumentError` if the bond coupling is negative; Wolff cluster updates
-require non-negative (ferromagnetic) couplings.
+The coupling signs are checked once per update by
+[`validate_cluster_model`](@ref) (cluster updates require non-negative,
+ferromagnetic couplings), not per bond visit.
 """
 function cluster_bond_probability(
     model::IsingModel,
@@ -142,10 +125,7 @@ function cluster_bond_probability(
     bond_template::Int,
     T::Real
 )
-    J = model.J[bond_template]
-    J >= 0 || throw(ArgumentError(
-        "WolffAlgorithm requires non-negative Ising couplings; got J = $J"
-    ))
+    J = couplings(model)[bond_template]
     state.spins[site] == state.spins[neighbor] || return 0.0
     return -expm1(-2 * J / T)
 end
@@ -180,18 +160,6 @@ function cluster_ghost_attached!(context::IsingClusterContext, ::Int)
     return nothing
 end
 
-function validate_cluster_model(
-    model::IsingModel,
-    ::Geometry,
-    ::IsingState,
-    ::Real
-)
-    all(>=(0), model.J) || throw(ArgumentError(
-        "Ising cluster algorithms require non-negative couplings; got J = $(model.J)"
-    ))
-    return nothing
-end
-
 """
     apply_cluster!(model, geometry, state, cluster)
 
@@ -200,6 +168,10 @@ Only bonds crossing the cluster boundary change energy: with pre-flip spins,
 a boundary bond `(i, j)` with `i` in the cluster contributes
 `ΔE = 2 * J * spins[i] * spins[j]`, and each flipped site contributes a field
 term `ΔE = 2 * h * spins[i]` and `ΔM = -2 * spins[i]`.
+
+This explicit form allocates a membership mask per call and serves as the
+readable reference implementation (exercised by the tests); the Wolff driver
+passes down the mask it already built.
 """
 function apply_cluster!(
     model::IsingModel,
@@ -226,7 +198,7 @@ function _flip_ising_cluster!(
 )
     ΔE = zero(state.energy)
     spin_change = zero(state.magnetization)
-    J = model.J
+    J = couplings(model)
 
     for site in cluster
         s = state.spins[site]
@@ -264,7 +236,9 @@ end
 
 Explicit-partition form of [`apply_clusters!`](@ref): flip each cluster in
 `clusters` independently with probability 1/2. Allocates its own label map;
-the Swendsen-Wang driver uses the workspace form below.
+the Swendsen-Wang driver uses the allocation-free workspace form below. This
+explicit form is the readable reference implementation exercised by the
+tests.
 """
 function apply_clusters!(
     rng::AbstractRNG,
@@ -328,7 +302,7 @@ function _flip_ising_clusters!(
 )
     ΔE = zero(state.energy)
     ΔM = zero(state.magnetization)
-    J = model.J
+    J = couplings(model)
 
     for site in 1:geometry.n_sites
         flip[labels[site]] || continue

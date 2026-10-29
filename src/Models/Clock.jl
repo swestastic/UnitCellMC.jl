@@ -138,23 +138,6 @@ function propose(rng::AbstractRNG, ::MetropolisAlgorithm, model::ClockModel, geo
     )
 end
 
-"""
-    propose(rng, ::GlauberAlgorithm, model::ClockModel, geometry, state)
-
-Generate a Glauber trial move for the clock model: pick a random site and
-propose one of the other `q - 1` clock states uniformly at random, both drawn
-from `rng`. This is the same symmetric proposal as for
-[`MetropolisAlgorithm`](@ref); only the acceptance rule in [`step!`](@ref)
-differs.
-
-# Returns
-
-A [`SpinUpdate`](@ref) for the chosen site and new clock index, carrying the magnetization change.
-"""
-function propose(rng::AbstractRNG, ::GlauberAlgorithm, model::ClockModel, geometry, state::ClockState)
-    return propose(rng, MetropolisAlgorithm(), model, geometry, state)
-end
-
 function energy_difference(
     model::ClockModel,
     geometry::Geometry,
@@ -165,7 +148,7 @@ function energy_difference(
     old = state.spins[site]
     new = proposal.new_value
     info = geometry.neighbor_table[site]
-    J = model.J
+    J = couplings(model)
     weighted_sum = zero(promote_type(Float64, eltype(J)))
     for (template, neighbor) in zip(info.templates, info.neighbors)
         neighbor == site && continue
@@ -174,13 +157,6 @@ function energy_difference(
             (clock_cos(model, new - n_j) - clock_cos(model, old - n_j))
     end
     return -weighted_sum - field_strength(model, geometry, site) * proposal.magnetization_change[1]
-end
-
-validate_cluster_model(model::ClockModel, ::Geometry, ::ClockState, ::Real) = begin
-    all(>=(0), model.J) || throw(ArgumentError(
-        "Clock cluster algorithms require non-negative couplings; got J = $(model.J)"
-    ))
-    nothing
 end
 
 """
@@ -238,7 +214,7 @@ function cluster_bond_probability(
     projection_product = context.projections[state.spins[site] + 1] *
         context.projections[state.spins[neighbor] + 1]
     projection_product > 0 || return 0.0
-    return -expm1(-2 * model.J[bond_template] * projection_product / T)
+    return -expm1(-2 * couplings(model)[bond_template] * projection_product / T)
 end
 
 function cluster_ghost_probability(
@@ -272,6 +248,9 @@ Reflect a Wolff cluster across clock mirror `mirror`
 (`n ↦ mod(mirror - n, q)`, see [`ClockClusterContext`](@ref)) and update the
 cached clock observables incrementally via
 [`_reflect_clock_sites!`](@ref).
+This explicit form allocates a membership mask per call and is the
+readable reference implementation exercised by the tests; the Wolff
+driver passes down the mask it already built.
 """
 function apply_cluster!(
     model::ClockModel,
@@ -309,7 +288,9 @@ end
 Explicit-partition form of [`apply_clusters!`](@ref): reflect each cluster in
 `clusters` across clock mirror `mirror` with probability 1/2. Allocates its
 own label map (via [`_cluster_labels`](@ref)); the Swendsen-Wang driver uses
-the workspace form below.
+the allocation-free workspace form below. This
+explicit form is the readable reference implementation exercised by the
+tests.
 """
 function apply_clusters!(
     rng::AbstractRNG,
@@ -375,7 +356,7 @@ function _reflect_clock_sites!(
     ΔE = zero(state.energy)
     ΔMx = zero(state.magnetization_x)
     ΔMy = zero(state.magnetization_y)
-    J = model.J
+    J = couplings(model)
 
     for site in sites
         old = state.spins[site]
@@ -427,7 +408,7 @@ function _reflect_clock_clusters!(
     ΔE = zero(state.energy)
     ΔMx = zero(state.magnetization_x)
     ΔMy = zero(state.magnetization_y)
-    J = model.J
+    J = couplings(model)
 
     for site in 1:geometry.n_sites
         flip[labels[site]] || continue

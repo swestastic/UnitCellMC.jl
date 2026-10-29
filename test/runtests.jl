@@ -1531,6 +1531,31 @@ end
     end
 end
 
+@testset "correlation via inverse DFT" begin
+    for (model, algorithm) in (
+        (ucmc.IsingModel([1.0, 0.5], [0.0, 0.0]), ucmc.MetropolisAlgorithm()),
+        (ucmc.XYModel([1.0, 0.5], [0.0, 0.0]), ucmc.WolffAlgorithm()),
+        (ucmc.ClockModel(4, [1.0, 0.5], [0.0, 0.0]), ucmc.SwendsenWangAlgorithm()),
+    )
+        rng = Xoshiro(9)
+        for geometry in (rectangular_two_orbital_geometry(3, 4),                  # periodic: DFT path
+                         rectangular_two_orbital_geometry(3, 4; periodic = [true, false]))  # open: direct fallback
+            disp = ucmc.build_displacement_classes(geometry)
+            state = ucmc.initialize_state(model, geometry; rng = rng)
+            for _ in 1:3
+                for _ in 1:ucmc.steps_per_sweep(algorithm, geometry)
+                    ucmc.step!(algorithm, model, geometry, state, 1.5; rng = rng)
+                end
+            end
+            container = ucmc.MeasurementContainer(model, geometry, 4, 2;
+                measurements = [:raw_correlation])
+            observable = only(o for o in container.observables if o.name == :correlation)
+            direct = ucmc.correlation_instantaneous(model, state, disp)
+            @test observable.value(state) ≈ direct atol = 1e-10
+        end
+    end
+end
+
 @testset "structure factor of ordered states" begin
     L = 4
     geometry = square_geometry(L)

@@ -23,7 +23,10 @@ end
     correlation_instantaneous(model, state, disp)
 
 Compute one instantaneous sample of the correlation function for `state`,
-one value per displacement class in `disp`.
+one value per displacement class in `disp`, by direct summation over site
+pairs. On fully periodic lattices the much cheaper
+[`correlation_instantaneous_dft`](@ref) is used instead; this direct path
+remains for open boundary conditions (and as the reference for tests).
 
 For each displacement class `r`, averages `operator_product(model, ...)`
 over every valid starting site (site `i`, orbital `oi`) paired with its
@@ -66,6 +69,48 @@ function correlation_instantaneous(model, state, disp)
 end
 
 """
+    correlation_instantaneous_dft(model, state, grid, index_map)
+
+Compute one instantaneous sample of the correlation function on a fully
+periodic lattice via the Wiener–Khinchin theorem: the correlation function is
+the inverse discrete Fourier transform of the structure factor,
+
+    C_ab(Δ) = (1/N_c) Σ_k S_ab(k) e^{ik·Δ}.
+
+The sample costs the same separable DFT as
+[`structure_factor_instantaneous`](@ref), O(N_c Σ_d L[d]), once forward and
+once back — instead of the O(N_c · n_displacements) direct sum of
+[`correlation_instantaneous`](@ref), which remains in use for open boundary
+conditions (no translation invariance there).
+
+# Arguments
+
+- `model`: The model (through [`structure_factor_instantaneous`](@ref)'s
+  hooks).
+- `state`: The current configuration.
+- `grid`: Momentum data from [`build_momentum_grid`](@ref) (phases, grid
+  sizes).
+- `index_map`: Map from displacement-class index (ordered as
+  [`build_displacement_classes`](@ref)) to the flat (orbital-pair, Δ) layout
+  of the inverse transform; built once in [`correlation_entry`](@ref).
+
+# Returns
+
+A `Vector{Float64}` with one correlation value per displacement class, in the
+same order as [`correlation_instantaneous`](@ref).
+"""
+function correlation_instantaneous_dft(model, state, grid, index_map)
+    S = structure_factor_instantaneous(model, state, grid)
+    dims = size(first(grid.sites))
+    n_pairs = grid.n_orbitals^2
+    C = reshape(S, dims..., n_pairs)
+    for d in 1:length(grid.phases)
+        C = fourier_transform_dim(C, grid.phases[d]' ./ dims[d], d)
+    end
+    return real.(vec(C)[index_map])
+end
+
+"""
     correlation_entry(model, geometry)
 
 Build the raw and derived observable entries needed to measure the
@@ -73,8 +118,11 @@ correlation function of `model` on `geometry`.
 
 Precomputes the displacement classes once (via
 [`build_displacement_classes`](@ref)) and wraps them in an
-[`Observable`](@ref) named `:correlation` (sampled per measurement with
-[`correlation_instantaneous`](@ref)) and a [`DerivedObservable`](@ref) that
+[`Observable`](@ref) named `:correlation`, sampled per measurement with
+[`correlation_instantaneous_dft`](@ref) on fully periodic lattices (the
+inverse-DFT / Wiener–Khinchin path) and with the direct sum
+[`correlation_instantaneous`](@ref) on lattices with any open dimension; and
+a [`DerivedObservable`](@ref) that
 computes the connected correlation via jackknife resampling (see
 [`jackknife_stats`](@ref)), subtracting the per-orbital magnetization product
 `⟨S_oi⟩·⟨S_oj⟩` of each class's orbital pair (summed over operator
@@ -106,9 +154,29 @@ function correlation_entry(model, geometry)
         for r in 1:n_disp
     ]
 
+    # On a fully periodic lattice the correlation function is the inverse DFT
+    # of the structure factor (see correlation_instantaneous_dft), which is
+    # orders of magnitude cheaper than the direct sum. Open boundaries keep
+    # the direct sum: their displacement classes are not translation
+    # invariant.
+    if all(geometry.lattice.periodic)
+        grid = build_momentum_grid(geometry)
+        lin = LinearIndices(Tuple(geometry.lattice.L))
+        n_orb = grid.n_orbitals
+        index_map = Vector{Int}(undef, n_disp)
+        for r in 1:n_disp
+            oi, oj = disp.orbitals[r]
+            index_map[r] = ((oi - 1) * n_orb + (oj - 1)) * grid.n_cells +
+                lin[(disp.displacements[r] .+ 1)...]
+        end
+        sample = state -> correlation_instantaneous_dft(model, state, grid, index_map)
+    else
+        sample = state -> correlation_instantaneous(model, state, disp)
+    end
+
     observable = Observable(
         :correlation,
-        state -> correlation_instantaneous(model, state, disp);
+        sample;
         zero     = () -> zeros(n_disp),
         template = () -> Vector{Float64}[],
     )

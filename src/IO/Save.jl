@@ -306,7 +306,7 @@ function save_autocorrelation(dir, results)
 end
 
 """
-    save_results(model, algorithm, L, T, results, parameters;
+    save_results(model, algorithm, geometry, T, results, parameters;
         root = "results", seed = global_seed())
 
 Save all output for a single-temperature run: create the run directory,
@@ -320,8 +320,9 @@ one call.
 
 # Arguments
 
-- `model`, `algorithm`, `L`, `T`: Identify the run, used to name the directory
-  and recorded in its metadata.
+- `model`, `algorithm`, `geometry`, `T`: Identify the run; the system size is
+  read from `geometry.lattice.L` to name the directory and record the
+  metadata.
 - `results`: The measurement results to save.
 - `parameters`: Simulation parameters recorded in the metadata.
 - `root`: Base directory under which the run directory is created.
@@ -332,9 +333,10 @@ one call.
 The path to the created run directory.
 """
 function save_results(
-    model, algorithm, L, T, results, parameters;
+    model, algorithm, geometry, T, results, parameters;
     root::AbstractString = "results", seed = global_seed()
 )
+    L = geometry.lattice.L
     dir = results_dirname(model, algorithm, L, T; root = root)
     mkpath(dir)
     save_metadata(dir, model, algorithm, L, T, parameters; seed = seed)
@@ -409,7 +411,7 @@ function save_sweep_metadata(
 end
 
 """
-    save_sweep_results(sweep_results, Ts, model, algorithm, L,
+    save_sweep_results(sweep_results, Ts, model, algorithm, geometry,
                         n_thermalization, n_measurements, n_unmeasured, n_bins;
                         root = "results", seed = global_seed())
 
@@ -432,8 +434,8 @@ written at all. Autocorrelation times are in units of measurements, i.e.
 
 - `sweep_results`: Results for each temperature, same length and order as `Ts`.
 - `Ts`: Temperatures included in the sweep.
-- `model`, `algorithm`, `L`: Identify the run, used to name the directory
-  and recorded in its metadata.
+- `model`, `algorithm`, `geometry`: Identify the run; the system size is read
+  from `geometry.lattice.L` to name the directory and record the metadata.
 - `n_thermalization`, `n_measurements`, `n_unmeasured`, `n_bins`: Sweep
   simulation parameters, recorded in the metadata.
 - `root`: Base directory under which the sweep directory is created.
@@ -448,11 +450,12 @@ written at all. Autocorrelation times are in units of measurements, i.e.
 The path to the created sweep directory.
 """
 function save_sweep_results(
-    sweep_results, Ts, model, algorithm, L,
+    sweep_results, Ts, model, algorithm, geometry,
     n_thermalization, n_measurements, n_unmeasured, n_bins;
     root::AbstractString = "results",
     seed = global_seed()
 )
+    L = geometry.lattice.L
     if isempty(sweep_results) && isempty(Ts)
         dir = sweep_dirname(model, algorithm, L; root = root)
         mkpath(dir)

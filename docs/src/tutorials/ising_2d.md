@@ -155,12 +155,12 @@ processed_results = ucmc.analyze(container, T, n_sites)
 Finally, save them to a CSV file with `save_results`
 
 ```julia
-ucmc.save_results(model, algorithm, L, T, processed_results, parameters)
+ucmc.save_results(model, algorithm, geometry, T, processed_results, parameters)
 ```
 
 ### Multiple Temperature Run
 
-For multiple temperature runs, the package provides `sweep_Ts`, which initializes a new `SimulationParameters` and measurement container for every temperature, runs `run_simulation` and `analyze` at each one, and finally saves the combined results to a condensed CSV output folder with `save_sweep_results` (the output directory can be changed with the `root` keyword).
+For multiple temperature runs, the package provides `sweep_Ts`, which initializes a new `SimulationParameters` and measurement container for every temperature, runs `run_simulation` and `analyze` at each one, and finally saves the combined results to a condensed CSV output folder with `save_sweep_results` (the output directory can be changed with the `root` keyword, and saving can be skipped entirely with `save = false`).
 
 The `simulated_annealing` flag determines whether the lattice configuration is preserved between temperature changes. If `simulated_annealing = false` is set, then a new random lattice configuration will be initialized for every new temperature.
 

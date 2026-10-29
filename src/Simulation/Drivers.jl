@@ -242,11 +242,11 @@ end
         n_thermalization, n_measurements, n_unmeasured, n_bins, Ts;
         simulated_annealing = true, n_runs = 1, measurements = Symbol[],
         diagnostics = Symbol[], time_series = :scalars, root = "results",
-        rng = Random.default_rng(), seed = recorded_seed(rng))
+        save = true, rng = Random.default_rng(), seed = recorded_seed(rng))
 
 Run a temperature sweep: [`run_simulation`](@ref) at each temperature in
-`Ts`, followed by [`analyze`](@ref), and save the combined results with
-[`save_sweep_results`](@ref).
+`Ts`, followed by [`analyze`](@ref). Unless `save = false`, the combined
+results are saved with [`save_sweep_results`](@ref).
 
 With `n_runs > 1`, `n_runs` independent simulations are performed at each
 temperature and their bins are merged with [`merge_containers`](@ref) before
@@ -316,6 +316,9 @@ A new [`SimulationParameters`](@ref) is created for every temperature
   [`MeasurementContainer`](@ref). The default `:scalars` skips the
   correlation-function vector; use `:none` to store nothing.
 - `root`: Base directory passed to [`save_sweep_results`](@ref).
+- `save`: Save the sweep results under `root` via [`save_sweep_results`](@ref)
+  (default `true`). With `save = false` nothing is written; the returned
+  results are the only output.
 - `rng`: Random number generator from which the per-simulation seeds are
   drawn. Defaults to the task-local global RNG, which
   [`set_global_seed!`](@ref) (or `Random.seed!`) controls.
@@ -354,6 +357,7 @@ function sweep_Ts(
     diagnostics::Vector{Symbol} = Symbol[],
     time_series = :scalars,
     root::AbstractString = "results",
+    save::Bool = true,
     rng::AbstractRNG = Random.default_rng(),
     seed = recorded_seed(rng)
 )
@@ -370,7 +374,6 @@ function sweep_Ts(
 
     sweep_results = Vector{Any}(undef, length(Ts))
     n_sites = geometry.n_sites
-    L = geometry.lattice.L
 
     build_container() = MeasurementContainer(model, geometry, n_measurements, n_bins;
         measurements = measurements, diagnostics = diagnostics, time_series = time_series)
@@ -432,8 +435,8 @@ function sweep_Ts(
         end
     end
 
-    save_sweep_results(
-        sweep_results, Ts, model, algorithm, L,
+    save && save_sweep_results(
+        sweep_results, Ts, model, algorithm, geometry,
         n_thermalization, n_measurements, n_unmeasured, n_bins;
         root = root, seed = seed
     )

@@ -597,16 +597,36 @@ end
 @testset "Sweep save edge cases" begin
     model = ucmc.IsingModel([1.0, 1.0], [0.0])
     algorithm = ucmc.MetropolisAlgorithm()
-    L = [2, 2]
+    geometry = square_geometry(2)
     root = mktempdir()
 
-    empty_dir = ucmc.save_sweep_results([], Float64[], model, algorithm, L, 0, 0, 0, 1; root = root)
+    empty_dir = ucmc.save_sweep_results([], Float64[], model, algorithm, geometry, 0, 0, 0, 1; root = root)
     @test isdir(empty_dir)
     @test isfile(joinpath(empty_dir, "metadata.txt"))
     @test !isfile(joinpath(empty_dir, "measurement_results.csv"))
     @test !isfile(joinpath(empty_dir, "correlation_results.csv"))
 
-    @test_throws ArgumentError ucmc.save_sweep_results([Dict()], [1.0, 2.0], model, algorithm, L, 0, 0, 0, 1; root = root)
+    @test_throws ArgumentError ucmc.save_sweep_results([Dict()], [1.0, 2.0], model, algorithm, geometry, 0, 0, 0, 1; root = root)
+end
+
+@testset "sweep_Ts save keyword" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    state = ucmc.initialize_state(model, geometry)
+    root = mktempdir()
+
+    # save = false: pure computation, nothing written
+    results = ucmc.sweep_Ts(ucmc.MetropolisAlgorithm(), model, geometry, state,
+        1, 4, 0, 2, [2.0]; root = root, save = false)
+    @test length(results) == 1
+    @test haskey(results[1].primary, :energy)
+    @test isempty(readdir(root))
+
+    # default (save = true) writes the sweep directory
+    ucmc.sweep_Ts(ucmc.MetropolisAlgorithm(), model, geometry, state,
+        1, 4, 0, 2, [2.0]; root = root)
+    dir = ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L; root = root)
+    @test isfile(joinpath(dir, "measurement_results.csv"))
 end
 
 @testset "steps_per_sweep" begin
@@ -943,10 +963,10 @@ end
     container = ucmc.MeasurementContainer(model, geometry, 4, 2)
     ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state, container, parameters)
     results = ucmc.analyze(container, 2.0, geometry.n_sites)
-    single = ucmc.save_results(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L, 2.0,
+    single = ucmc.save_results(model, ucmc.MetropolisAlgorithm(), geometry, 2.0,
         results, parameters; root = root)
     @test "seed = 7" in metadata(single)
-    single = ucmc.save_results(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L, 2.0,
+    single = ucmc.save_results(model, ucmc.MetropolisAlgorithm(), geometry, 2.0,
         results, parameters; root = root, seed = nothing)
     @test "seed = unknown" in metadata(single)
 end
@@ -1261,7 +1281,7 @@ end
     @test rows.observable == sort(rows.observable)
     @test ucmc.autocorrelation_rows((primary = Dict(), derived = NamedTuple())) === nothing
 
-    single = ucmc.save_results(model, ucmc.WolffAlgorithm(), geometry.lattice.L, 3.0,
+    single = ucmc.save_results(model, ucmc.WolffAlgorithm(), geometry, 3.0,
         sweep_results[1], ucmc.SimulationParameters(3.0, 10, 40, 0, 4); root = root)
     @test isfile(joinpath(single, "autocorrelation_results.csv"))
 end
@@ -1500,7 +1520,7 @@ end
         "real_value,real_error,imag_value,imag_error"
     @test length(lines) == 1 + length(Ts) * 4
 
-    single = ucmc.save_results(model, ucmc.WolffAlgorithm(), geometry.lattice.L, 3.0,
+    single = ucmc.save_results(model, ucmc.WolffAlgorithm(), geometry, 3.0,
         sweep_results[1], ucmc.SimulationParameters(3.0, 4, 8, 0, 2); root = root)
     @test isfile(joinpath(single, "structure_factor_results.csv"))
     @test length(readlines(joinpath(single, "structure_factor_results.csv"))) == 1 + 4

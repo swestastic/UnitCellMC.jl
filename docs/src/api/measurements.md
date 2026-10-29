@@ -28,7 +28,7 @@ UnitCellMC.validate_dependencies
 UnitCellMC.CorrelationClass
 UnitCellMC.correlation_instantaneous
 UnitCellMC.correlation_entry
-UnitCellMC.magnetization_components
+UnitCellMC.magnetization_per_orbital_entry
 ```
 
 ## Structure factor

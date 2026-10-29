@@ -613,6 +613,74 @@ end
     result = ucmc.analyze(connected_container, 2.0, geometry.n_sites)
     @test haskey(result.primary, :correlation)
     @test haskey(result.derived, :correlation_connected)
+    @test haskey(connected_container.data, :magnetization_per_orbital)
+end
+
+@testset "Connected correlation is per-orbital" begin
+    # Two decoupled sublattices under opposite fields have inequivalent
+    # sublattice magnetizations, so the per-orbital subtraction differs from
+    # the lattice-averaged one.
+    geometry = two_orbital_geometry(2)
+    N = geometry.n_sites
+    n_orb = lu.norbits(geometry.unit_cell)
+    n_cells = N ÷ n_orb
+    T = 1.0
+    model = ucmc.IsingModel([1.0, 1.0], [0.5, -0.25])
+    disp = ucmc.build_displacement_classes(geometry)
+    L = geometry.lattice.L
+
+    # Exact per-class correlations and per-orbital magnetizations by enumeration.
+    Z = 0.0
+    m_exact = zeros(n_orb)
+    C_exact = zeros(length(disp.displacements))
+    for c in 0:(2^N - 1)
+        spins = 2 .* digits(c; base = 2, pad = N) .- 1
+        w = exp(-spin_energy(model, geometry, spins) / T)
+        Z += w
+        for site in 1:N
+            m_exact[lu.site_to_orbital(site, geometry.unit_cell)] += w * spins[site]
+        end
+        for r in eachindex(disp.displacements)
+            Δl = disp.displacements[r]
+            oi, oj = disp.orbitals[r]
+            acc = 0.0
+            for loc_i in Iterators.product(disp.valid_ranges[r]...)
+                i = ucmc.site_at(geometry, loc_i, oi)
+                loc_j = ntuple(d -> mod(loc_i[d] + Δl[d], L[d]), length(L))
+                acc += spins[i] * spins[ucmc.site_at(geometry, loc_j, oj)]
+            end
+            C_exact[r] += w * acc / disp.counts[r]
+        end
+    end
+    m_exact ./= Z * n_cells
+    C_exact ./= Z
+    connected_exact = [
+        C_exact[r] - m_exact[oi] * m_exact[oj]
+        for (r, (oi, oj)) in enumerate(disp.orbitals)
+    ]
+
+    rng = Xoshiro(11)
+    state = ucmc.initialize_state(model, geometry; rng = rng)
+    container = ucmc.MeasurementContainer(model, geometry, 20_000, 20;
+        measurements = [:connected_correlation])
+    ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state, container,
+        ucmc.SimulationParameters(T, 500, 20_000, 0, 20); rng = rng)
+    result = ucmc.analyze(container, T, N)
+
+    # the per-orbital magnetization observable matches enumeration
+    m_meas, m_err = result.primary[:magnetization_per_orbital]
+    @test size(m_meas) == (1, n_orb)
+    @test all(abs.(m_meas .- reshape(m_exact, 1, n_orb)) .< 4 .* m_err .+ 5e-3)
+
+    # the connected correlation subtracts ⟨S_oi⟩⟨S_oj⟩ per orbital pair
+    conn, conn_err = result.derived.correlation_connected, result.derived.correlation_connected_err
+    @test all(abs.(conn .- connected_exact) .< 4 .* conn_err .+ 5e-3)
+
+    # and the two sublattices really are inequivalent here, so the old
+    # lattice-averaged subtraction would give a resolvably wrong answer
+    wrong = [C_exact[r] - (sum(m_exact) / n_orb)^2 for r in eachindex(disp.displacements)]
+    cross = [r for (r, (oi, oj)) in enumerate(disp.orbitals) if oi != oj]
+    @test maximum(abs.(connected_exact[cross] .- wrong[cross])) > 0.02
 end
 
 @testset "Optional magnetization and Binder observables" begin
@@ -1763,10 +1831,6 @@ end
     geometry = square_geometry(3)
     N = geometry.n_sites
     model = ucmc.ClockModel(5, [1.0, 1.0], [0.2])
-    @test ucmc.magnetization_components(model) == (:magnetization_x, :magnetization_y)
-    @test ucmc.magnetization_components(ucmc.XYModel([1.0, 1.0], [0.0])) ==
-        (:magnetization_x, :magnetization_y)
-    @test ucmc.magnetization_components(ucmc.IsingModel([1.0, 1.0], [0.0])) == (:magnetization,)
 
     parameters = ucmc.SimulationParameters(1.5, 2, 8, 0, 2)
     for algorithm in (ucmc.MetropolisAlgorithm(), ucmc.GlauberAlgorithm(),
@@ -1778,7 +1842,7 @@ end
             diagnostics = ucmc.available_diagnostics(algorithm))
 
         connected = only(filter(d -> :correlation_connected in d.names, container.derived))
-        @test connected.depends_on == (:correlation, :magnetization_x, :magnetization_y)
+        @test connected.depends_on == (:correlation, :magnetization_per_orbital)
 
         values = Dict(o.name => o.value(state) for o in container.observables)
         @test values[:magnetization] ≈ hypot(state.magnetization_x, state.magnetization_y) / N

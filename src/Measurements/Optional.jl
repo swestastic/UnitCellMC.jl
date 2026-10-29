@@ -105,6 +105,60 @@ clock_order_parameter_entry(model, geometry) = throw(ArgumentError(
 ))
 
 """
+    magnetization_per_orbital_entry(model, geometry)
+
+Build the optional per-orbital magnetization measurement.
+
+The raw observable `:magnetization_per_orbital` samples, per measurement, an
+`n_components × n_orbitals` matrix whose `(α, o)` entry is component `α` of
+the local operator (see [`operator_components`](@ref)) averaged over the
+sites of orbital `o` — the magnetization of each sublattice.
+
+The `:connected_correlation` derived quantity needs it: the correct connected
+subtraction for a class with orbitals `(oi, oj)` is `⟨S_oi⟩·⟨S_oj⟩` from this
+per-orbital observable, not the lattice-averaged `⟨m⟩²`; the two differ
+whenever sublattices are inequivalent (per-orbital fields, ferrimagnets,
+decorated lattices).
+
+# Returns
+
+An `(obs, der)` tuple: `obs` holds the matrix-valued
+`:magnetization_per_orbital` observable; `der` is empty.
+
+# Throws
+
+`ArgumentError` if `model` does not implement [`n_operator_components`](@ref).
+"""
+function magnetization_per_orbital_entry(model, geometry)
+    n_comp = n_operator_components(model)   # fail at container construction
+    n_orb = LatticeUtilities.norbits(geometry.unit_cell)
+    n_cells = geometry.n_sites ÷ n_orb
+    orbitals = [LatticeUtilities.site_to_orbital(site, geometry.unit_cell)
+                for site in 1:geometry.n_sites]
+
+    function sample(state)
+        m = zeros(Float64, n_comp, n_orb)
+        for site in 1:geometry.n_sites
+            components = operator_components(model, local_operator(state, site))
+            for α in 1:n_comp
+                m[α, orbitals[site]] += components[α]
+            end
+        end
+        return m ./= n_cells
+    end
+
+    obs = Observable[
+        Observable(
+            :magnetization_per_orbital,
+            sample;
+            zero = () -> zeros(Float64, n_comp, n_orb),
+            template = () -> Matrix{Float64}[],
+        ),
+    ]
+    return obs, DerivedObservable[]
+end
+
+"""
     structure_factor_entry(model, geometry)
 
 Build the optional structure-factor observable for a model.
@@ -174,7 +228,8 @@ canonical_measurement_name(name::Symbol) = get(_MEASUREMENT_ALIASES, name, name)
 # Measurement names implicitly included by each optional measurement. The
 # per-name `optional_observables` methods already build the implied
 # observables; this drives only the construction-time notice.
-measurement_implies(::Val{:connected_correlation}) = (:raw_correlation,)
+measurement_implies(::Val{:connected_correlation}) =
+    (:raw_correlation, :magnetization_per_orbital)
 measurement_implies(::Val{:abs_magnetization}) = (:abs_magnetization_squared,)
 measurement_implies(::Val{:binder_cumulant}) = (:magnetization_fourth,)
 measurement_implies(::Val) = ()
@@ -188,9 +243,9 @@ measurement has its own method — `Val(:raw_correlation)` and
 `Val(:connected_correlation)` in `Correlations.jl`, and
 `Val(:abs_magnetization)`, `Val(:abs_magnetization_squared)`,
 `Val(:binder_cumulant)`, `Val(:magnetization_fourth)`,
-`Val(:clock_order_parameter)`, and `Val(:structure_factor)` here — defined
-next to its builder, so adding a measurement never requires editing shared
-code. This fallback lists the names
+`Val(:magnetization_per_orbital)`, `Val(:clock_order_parameter)`, and
+`Val(:structure_factor)` here — defined next to its builder, so adding a
+measurement never requires editing shared code. This fallback lists the names
 accepted by `model`.
 
 # Throws
@@ -223,6 +278,9 @@ optional_observables(model, geometry, ::Val{:magnetization_fourth}) = (
     )],
     DerivedObservable[],
 )
+
+optional_observables(model, geometry, ::Val{:magnetization_per_orbital}) =
+    magnetization_per_orbital_entry(model, geometry)
 
 optional_observables(model, geometry, ::Val{:clock_order_parameter}) =
     clock_order_parameter_entry(model, geometry)
@@ -308,6 +366,7 @@ const _COMMON_MEASUREMENTS = (
     :abs_magnetization_squared,
     :binder_cumulant,
     :magnetization_fourth,
+    :magnetization_per_orbital,
     :structure_factor,
 )
 

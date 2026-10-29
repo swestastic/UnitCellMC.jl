@@ -88,6 +88,28 @@ function average_and_error(values::Vector{Vector{ComplexF64}})
 end
 
 """
+    average_and_error(values::Vector{Matrix{Float64}})
+
+Compute the elementwise bin average and standard error of the mean for a
+matrix-valued observable (e.g. `:magnetization_per_orbital`), one matrix per
+bin.
+
+# Throws
+
+`ArgumentError` if fewer than two bins are given.
+
+# Returns
+
+An `(averages, errors)` tuple of matrices, each the size of the per-bin
+matrices in `values`.
+"""
+function average_and_error(values::Vector{Matrix{Float64}})
+    n_bins = length(values)
+    n_bins > 1 || throw(ArgumentError("At least two bins are required"))
+    return Statistics.mean(values), Statistics.std(values) ./ sqrt(n_bins)
+end
+
+"""
     jackknife_samples(bin_values::Vector{T}) where T
 
 Compute leave-one-out jackknife samples from per-bin values.

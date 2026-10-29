@@ -66,22 +66,6 @@ function correlation_instantaneous(model, state, disp)
 end
 
 """
-    magnetization_components(model)
-
-Return the names of the raw observables holding the Cartesian components of
-the per-site magnetization of `model`, as measured by
-[`observables`](@ref). The connected correlation built by
-[`correlation_entry`](@ref) subtracts the sum of their squared averages.
-
-Defaults to `(:magnetization,)` (a single-component order parameter such as
-the Ising magnetization). Planar models ([`XYModel`](@ref),
-[`ClockModel`](@ref)) return `(:magnetization_x, :magnetization_y)`. A new
-model with a multi-component order parameter extends this method.
-"""
-magnetization_components(model) = (:magnetization,)
-magnetization_components(::Union{XYModel,ClockModel}) = (:magnetization_x, :magnetization_y)
-
-"""
     correlation_entry(model, geometry)
 
 Build the raw and derived observable entries needed to measure the
@@ -92,9 +76,11 @@ Precomputes the displacement classes once (via
 [`Observable`](@ref) named `:correlation` (sampled per measurement with
 [`correlation_instantaneous`](@ref)) and a [`DerivedObservable`](@ref) that
 computes the connected correlation via jackknife resampling (see
-[`jackknife_stats`](@ref)), subtracting the squared average of every
-magnetization component named by [`magnetization_components`](@ref):
-`⟨m_x⟩² + ⟨m_y⟩²` for the XY and clock models, `⟨m⟩²` for Ising. The
+[`jackknife_stats`](@ref)), subtracting the per-orbital magnetization product
+`⟨S_oi⟩·⟨S_oj⟩` of each class's orbital pair (summed over operator
+components) from the `:magnetization_per_orbital` observable (see
+[`magnetization_per_orbital_entry`](@ref)) — not the lattice-averaged
+`⟨m⟩²`, which is only correct when the sublattices are equivalent. The
 result also includes the [`CorrelationClass`](@ref) list labeling each entry.
 
 # Arguments
@@ -109,10 +95,9 @@ An `(observable, derived)` tuple:
   `Vector{Float64}` (one value per displacement class) each measurement.
 - `derived`: A `DerivedObservable` computing `:correlation_connected`,
   `:correlation_connected_err`, and `:correlation_classes` from `:correlation`
-    and the Cartesian magnetization components (their declared `depends_on`).
+    and `:magnetization_per_orbital` (its declared `depends_on`).
 """
 function correlation_entry(model, geometry)
-    components = magnetization_components(model)
     disp = build_displacement_classes(geometry)
     n_disp = length(disp.displacements)
 
@@ -131,13 +116,19 @@ function correlation_entry(model, geometry)
     derived = DerivedObservable(
         (:correlation_connected, :correlation_connected_err, :correlation_classes),
         (jk, T, N) -> begin
+            mpo = jk[:magnetization_per_orbital]
+            n_comp = size(first(mpo), 1)
+            # The product ⟨S_oi⟩·⟨S_oj⟩ is evaluated *inside* the jackknifed
+            # function so its O(1/n_bins) bias is corrected along with the rest.
+            # The series order is [oi components..., oj components...] (in a
+            # `for`-chain the last iterator is the innermost loop).
             connected = [
                 jackknife_stats(
-                    (c, ms...) -> foldl((acc, m) -> acc - m^2, ms; init = c),
+                    (c, comps...) -> c - sum(comps[α] * comps[n_comp + α] for α in 1:n_comp),
                     [s[r] for s in jk[:correlation]],
-                    (jk[name] for name in components)...,
+                    ([s[α, o] for s in mpo] for o in (oi, oj) for α in 1:n_comp)...,
                 )
-                for r in 1:n_disp
+                for (r, (oi, oj)) in enumerate(disp.orbitals)
             ]
             (
                 correlation_connected     = first.(connected),
@@ -145,7 +136,7 @@ function correlation_entry(model, geometry)
                 correlation_classes       = classes,
             )
         end;
-        depends_on = (:correlation, components...),
+        depends_on = (:correlation, :magnetization_per_orbital),
     )
 
     return observable, derived
@@ -160,5 +151,6 @@ end
 
 function optional_observables(model, geometry, ::Val{:connected_correlation})
     observable, derived = correlation_entry(model, geometry)
-    return [observable], [derived]
+    orbital_obs, _ = magnetization_per_orbital_entry(model, geometry)
+    return [observable; orbital_obs], [derived]
 end

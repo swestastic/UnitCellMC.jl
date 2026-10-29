@@ -30,11 +30,22 @@ and is controlled by the algorithm's proposal scheme
   sites in column-major unit-cell order, consecutive updates target
   neighboring sites — on a square lattice the sweep proceeds column by
   column (equivalently row by row, up to transposition).
+- `CheckerboardProposal()`: for bipartite lattices, sites are 2-colored so
+  that no bond connects same-color sites, and each sweep updates all sites of
+  one color and then all sites of the other. Same-color sites share no bond,
+  so the updates within each half-sweep do not interact directly. A
+  non-bipartite lattice (e.g. triangular) is rejected with an error when the
+  run starts.
+- `ColoredProposal(k)`: the same idea with up to `k` colors, for lattices
+  that need more than two — e.g. `ColoredProposal(3)` for the tripartite
+  triangular or kagome lattices. The coloring is a saturation-first greedy
+  (DSATUR) heuristic; if it cannot color the lattice with `k` colors the run
+  fails with an error when it starts.
 
-Each single-site update satisfies detailed balance in either scheme, so the
+Each single-site update satisfies detailed balance in every scheme, so the
 completed sweep leaves the Boltzmann distribution invariant; the schemes
 differ only in visiting order, and hence in how successive measurements are
-correlated. Comparing the two is a simple way to study how site-selection
+correlated. Comparing them is a simple way to study how site-selection
 order affects autocorrelation times. The scheme is orthogonal to the
 acceptance rule: `GlauberAlgorithm(SequentialProposal())` works the same way.
 

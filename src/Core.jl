@@ -35,9 +35,10 @@ Abstract supertype for the site-selection schemes of local-update algorithms
 
 A scheme decides which site each [`step!`](@ref) update visits —
 [`RandomProposal`](@ref) draws uniformly at random,
-[`SequentialProposal`](@ref) cycles through the lattice in site-index order —
-while the model's [`propose`](@ref) method decides the new value at that
-site. Stateful schemes carry their per-run state in a workspace built by
+[`SequentialProposal`](@ref) cycles through the lattice in site-index order,
+[`CheckerboardProposal`](@ref) and [`ColoredProposal`](@ref) sweep one color
+class of sites and then the next — while the model's [`propose`](@ref)
+method decides the new value at that site. Stateful schemes carry their per-run state in a workspace built by
 [`proposal_workspace`](@ref), which the drivers thread into [`step!`](@ref).
 """
 abstract type AbstractProposalScheme end

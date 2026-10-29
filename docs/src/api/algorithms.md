@@ -21,6 +21,11 @@ UnitCellMC.AbstractProposalScheme
 UnitCellMC.RandomProposal
 UnitCellMC.SequentialProposal
 UnitCellMC.SequentialProposalWorkspace
+UnitCellMC.CheckerboardProposal
+UnitCellMC.ColoredProposal
+UnitCellMC.ColoredProposalWorkspace
+UnitCellMC.checkerboard_colors
+UnitCellMC.color_lattice
 UnitCellMC.propose_site
 UnitCellMC.proposal_workspace
 UnitCellMC.ClusterWorkspace

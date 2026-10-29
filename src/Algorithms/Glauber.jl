@@ -14,7 +14,8 @@ Glauber-specific proposal.
 # Fields
 
 - `proposal::AbstractProposalScheme`: Which site each update visits —
-  [`RandomProposal`](@ref) (the default) or [`SequentialProposal`](@ref).
+  [`RandomProposal`](@ref) (the default), [`SequentialProposal`](@ref),
+  [`CheckerboardProposal`](@ref), or [`ColoredProposal`](@ref).
 """
 struct GlauberAlgorithm{P<:AbstractProposalScheme} <: AbstractAlgorithm
     proposal::P

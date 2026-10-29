@@ -8,8 +8,9 @@ the energy, or with probability `exp(-ΔE / T)` otherwise (see [`step!`](@ref)).
 # Fields
 
 - `proposal::AbstractProposalScheme`: Which site each update visits —
-  [`RandomProposal`](@ref) (the default) or [`SequentialProposal`](@ref).
-  The model's [`propose`](@ref) method decides the new value at that site.
+  [`RandomProposal`](@ref) (the default), [`SequentialProposal`](@ref),
+  [`CheckerboardProposal`](@ref), or [`ColoredProposal`](@ref). The model's
+  [`propose`](@ref) method decides the new value at that site.
 """
 struct MetropolisAlgorithm{P<:AbstractProposalScheme} <: AbstractAlgorithm
     proposal::P

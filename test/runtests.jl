@@ -25,6 +25,18 @@ function two_orbital_geometry(L::Int)
     return ucmc.Geometry(unit_cell, lattice, [bond_1, bond_2])
 end
 
+function triangular_geometry(L::Int)
+    unit_cell = lu.UnitCell(
+        lattice_vecs = [[1.0, 0.0], [0.5, sqrt(3) / 2]],
+        basis_vecs = [[0.0, 0.0]],
+    )
+    lattice = lu.Lattice(L = [L, L], periodic = [true, true])
+    bonds = [lu.Bond(orbitals = (1, 1), displacement = [1, 0]),
+             lu.Bond(orbitals = (1, 1), displacement = [0, 1]),
+             lu.Bond(orbitals = (1, 1), displacement = [1, -1])]
+    return ucmc.Geometry(unit_cell, lattice, bonds)
+end
+
 function spin_energy(model, geometry, spins)
     energy = zero(promote_type(eltype(model.J), eltype(model.h)))
     for i in 1:geometry.n_sites
@@ -532,7 +544,11 @@ end
     for (model, energy) in models_and_energy, algorithm in
             (ucmc.MetropolisAlgorithm(), ucmc.GlauberAlgorithm(),
              ucmc.MetropolisAlgorithm(ucmc.SequentialProposal()),
-             ucmc.GlauberAlgorithm(ucmc.SequentialProposal()))
+             ucmc.GlauberAlgorithm(ucmc.SequentialProposal()),
+             ucmc.MetropolisAlgorithm(ucmc.CheckerboardProposal()),
+             ucmc.GlauberAlgorithm(ucmc.CheckerboardProposal()),
+             ucmc.MetropolisAlgorithm(ucmc.ColoredProposal(2)),
+             ucmc.GlauberAlgorithm(ucmc.ColoredProposal(2)))
         rng = Xoshiro(7)
         state = ucmc.initialize_state(model, geometry; rng = rng)
         workspace = ucmc.algorithm_workspace(algorithm, model, geometry, state)
@@ -620,6 +636,180 @@ end
     @test ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L) !=
         ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(ucmc.SequentialProposal()),
                            geometry.lattice.L)
+end
+
+@testset "Checkerboard proposal" begin
+    geometry = square_geometry(4)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    rng = Xoshiro(11)
+    state = ucmc.initialize_state(model, geometry; rng = rng)
+
+    checkerboard_algorithms = (ucmc.MetropolisAlgorithm(ucmc.CheckerboardProposal()),
+                               ucmc.GlauberAlgorithm(ucmc.CheckerboardProposal()))
+
+    # the coloring is the square-lattice parity mod(x + y, 2)
+    colors = ucmc.checkerboard_colors(geometry)
+    @test length(colors) == geometry.n_sites
+    for site in 1:geometry.n_sites
+        (loc, orbital) = lu.site_to_loc(site, geometry.unit_cell, geometry.lattice)
+        @test colors[site] == mod(sum(loc), 2)
+    end
+
+    for algorithm in checkerboard_algorithms
+        workspace = ucmc.algorithm_workspace(algorithm, model, geometry, state)
+        @test workspace isa ucmc.ColoredProposalWorkspace
+
+        # one sweep visits every site exactly once, color block by color block
+        sites = [ucmc.propose(rng, algorithm, model, geometry, state; workspace = workspace).site
+                 for _ in 1:geometry.n_sites]
+        @test sort(sites) == collect(1:geometry.n_sites)
+        half = geometry.n_sites ÷ 2
+        @test all(==(0), colors[sites[1:half]])
+        @test all(==(1), colors[sites[(half + 1):end]])
+        # wraps around to the first color-0 site
+        @test ucmc.propose(rng, algorithm, model, geometry, state; workspace = workspace).site ==
+            findfirst(==(0), colors)
+
+        # no bond connects two sites updated in the same half-sweep
+        for block in (sites[1:half], sites[(half + 1):end])
+            in_block = falses(geometry.n_sites)
+            in_block[block] .= true
+            for site in block
+                @test !any(in_block[geometry.neighbor_table[site].neighbors])
+            end
+        end
+
+        # a stateful scheme without its workspace is an explicit error
+        @test_throws ArgumentError ucmc.propose(rng, algorithm, model, geometry, state)
+        @test_throws ArgumentError ucmc.step!(algorithm, model, geometry, state, 2.0; rng = rng)
+
+        # running totals stay exact through checkerboard sweeps
+        cb_state = ucmc.initialize_state(model, geometry; rng = rng)
+        cb_workspace = ucmc.algorithm_workspace(algorithm, model, geometry, cb_state)
+        for _ in 1:(3 * geometry.n_sites)
+            ucmc.step!(algorithm, model, geometry, cb_state, 2.0;
+                       rng = rng, workspace = cb_workspace)
+            @test cb_state.energy ≈ spin_energy(model, geometry, cb_state.spins)
+            @test cb_state.magnetization == sum(cb_state.spins)
+        end
+    end
+
+    # non-bipartite lattices are rejected eagerly, when the workspace is built
+    triangular = triangular_geometry(3)
+    tri_model = ucmc.IsingModel([1.0, 1.0, 1.0], [0.0])
+    tri_state = ucmc.initialize_state(tri_model, triangular)
+    for algorithm in checkerboard_algorithms
+        @test_throws ArgumentError ucmc.algorithm_workspace(algorithm, tri_model, triangular, tri_state)
+    end
+
+    # the drivers build and thread the workspace automatically
+    for algorithm in checkerboard_algorithms
+        container = ucmc.MeasurementContainer(model, geometry, 4, 2;
+                                              diagnostics = [:acceptance_ratio])
+        parameters = ucmc.SimulationParameters(2.0, 2, 4, 0, 2)
+        ucmc.run_simulation(algorithm, model, geometry,
+                            ucmc.initialize_state(model, geometry; rng = rng),
+                            container, parameters; rng = rng)
+        @test all(isfinite, container.data[:energy])
+        @test all(isfinite, container.data[:acceptance_ratio])
+    end
+
+    # sweeps with different schemes write to different results directories
+    @test ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(ucmc.CheckerboardProposal()),
+                             geometry.lattice.L) !=
+        ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L)
+end
+
+@testset "Colored proposal" begin
+    rng = Xoshiro(17)
+
+    @test ucmc.ColoredProposal(3).ncolors == 3
+    @test_throws ArgumentError ucmc.ColoredProposal(1)
+    @test_throws ArgumentError ucmc.ColoredProposal(0)
+
+    # tripartite coloring of the triangular lattice
+    triangular = triangular_geometry(3)
+    tri_model = ucmc.IsingModel([1.0, 1.0, 1.0], [0.0])
+    tri_state = ucmc.initialize_state(tri_model, triangular; rng = rng)
+    colors = ucmc.color_lattice(triangular, 3)
+    @test sort(unique(colors)) == [1, 2, 3]
+    for site in 1:triangular.n_sites
+        for neighbor in triangular.neighbor_table[site].neighbors
+            @test colors[site] != colors[neighbor]
+        end
+    end
+
+    # the triangular lattice needs all three colors
+    @test_throws ArgumentError ucmc.color_lattice(triangular, 2)
+
+    colored_algorithms = (ucmc.MetropolisAlgorithm(ucmc.ColoredProposal(3)),
+                          ucmc.GlauberAlgorithm(ucmc.ColoredProposal(3)))
+
+    for algorithm in colored_algorithms
+        workspace = ucmc.algorithm_workspace(algorithm, tri_model, triangular, tri_state)
+        @test workspace isa ucmc.ColoredProposalWorkspace
+
+        # one sweep visits every site exactly once, color block by color block
+        sites = [ucmc.propose(rng, algorithm, tri_model, triangular, tri_state; workspace = workspace).site
+                 for _ in 1:triangular.n_sites]
+        @test sort(sites) == collect(1:triangular.n_sites)
+        @test issorted(colors[sites])
+        @test ucmc.propose(rng, algorithm, tri_model, triangular, tri_state; workspace = workspace).site ==
+            findfirst(==(1), colors)
+
+        # no bond connects two sites updated in the same color block
+        for color in unique(colors)
+            block = sites[colors[sites] .== color]
+            in_block = falses(triangular.n_sites)
+            in_block[block] .= true
+            for site in block
+                @test !any(in_block[triangular.neighbor_table[site].neighbors])
+            end
+        end
+
+        # a stateful scheme without its workspace is an explicit error
+        @test_throws ArgumentError ucmc.propose(rng, algorithm, tri_model, triangular, tri_state)
+        @test_throws ArgumentError ucmc.step!(algorithm, tri_model, triangular, tri_state, 2.0; rng = rng)
+
+        # running totals stay exact through colored sweeps
+        col_state = ucmc.initialize_state(tri_model, triangular; rng = rng)
+        col_workspace = ucmc.algorithm_workspace(algorithm, tri_model, triangular, col_state)
+        for _ in 1:(3 * triangular.n_sites)
+            ucmc.step!(algorithm, tri_model, triangular, col_state, 2.0;
+                       rng = rng, workspace = col_workspace)
+            @test col_state.energy ≈ spin_energy(tri_model, triangular, col_state.spins)
+            @test col_state.magnetization == sum(col_state.spins)
+        end
+    end
+
+    # a self-bond can never be colored
+    square = square_geometry(3)
+    self_table = deepcopy(square.neighbor_table)
+    push!(self_table[1].bonds, -1)
+    push!(self_table[1].templates, 1)
+    push!(self_table[1].neighbors, 1)
+    self_geometry = ucmc.Geometry(square.unit_cell, square.lattice, square.bonds,
+                                  square.bond_id_to_template, self_table, square.n_sites)
+    @test_throws ArgumentError ucmc.color_lattice(self_geometry, 3)
+
+    # the drivers build and thread the workspace automatically
+    for algorithm in colored_algorithms
+        container = ucmc.MeasurementContainer(tri_model, triangular, 4, 2;
+                                              diagnostics = [:acceptance_ratio])
+        parameters = ucmc.SimulationParameters(2.0, 2, 4, 0, 2)
+        ucmc.run_simulation(algorithm, tri_model, triangular,
+                            ucmc.initialize_state(tri_model, triangular; rng = rng),
+                            container, parameters; rng = rng)
+        @test all(isfinite, container.data[:energy])
+        @test all(isfinite, container.data[:acceptance_ratio])
+    end
+
+    # results directories distinguish colorings by count as well as name
+    L = triangular.lattice.L
+    @test ucmc.sweep_dirname(tri_model, ucmc.MetropolisAlgorithm(ucmc.ColoredProposal(2)), L) !=
+        ucmc.sweep_dirname(tri_model, ucmc.MetropolisAlgorithm(ucmc.ColoredProposal(3)), L)
+    @test ucmc.sweep_dirname(tri_model, ucmc.MetropolisAlgorithm(ucmc.ColoredProposal(2)), L) !=
+        ucmc.sweep_dirname(tri_model, ucmc.MetropolisAlgorithm(ucmc.CheckerboardProposal()), L)
 end
 
 @testset "Coupling and field accessors" begin

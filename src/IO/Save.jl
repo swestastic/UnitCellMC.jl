@@ -6,8 +6,9 @@ using DataFrames
 
 Return the string identifying `algorithm` in results directory names: its
 type name, with a non-default proposal scheme appended for local-update
-algorithms (e.g. `"MetropolisAlgorithm-SequentialProposal"`), so that runs
-comparing site-selection schemes do not overwrite each other. The default
+algorithms (e.g. `"MetropolisAlgorithm-SequentialProposal"`,
+`"MetropolisAlgorithm-ColoredProposal3"`), so that runs comparing
+site-selection schemes do not overwrite each other. The default
 [`RandomProposal`](@ref) keeps the bare type name.
 """
 algorithm_label(algorithm) = string(nameof(typeof(algorithm)))
@@ -18,6 +19,8 @@ algorithm_label(alg::Union{MetropolisAlgorithm, GlauberAlgorithm}) =
 algorithm_label(name, ::RandomProposal) = string(name)
 algorithm_label(name, proposal::AbstractProposalScheme) =
     string(name, "-", nameof(typeof(proposal)))
+algorithm_label(name, proposal::ColoredProposal) =
+    string(name, "-", nameof(typeof(proposal)), proposal.ncolors)
 
 """
     results_dirname(model, algorithm, L, T; root = "results")

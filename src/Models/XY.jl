@@ -36,7 +36,9 @@ operator_components(::XYModel, angle::Real) = (cos(angle), sin(angle))
 
 function propose(rng::AbstractRNG, ::MetropolisAlgorithm, ::XYModel, geometry, state::XYState)
     site = rand(rng, eachindex(state.angles))
-    return SpinUpdate(site, 2π * rand(rng))
+    old = state.angles[site]
+    new = 2π * rand(rng)
+    return SpinUpdate(site, new, (cos(new) - cos(old), sin(new) - sin(old)))
 end
 
 """
@@ -73,17 +75,6 @@ function energy_difference(
     end
     return -weighted_sum - field_strength(model, geometry, site) *
         (cos(proposal.new_value) - cos(angle))
-end
-
-function apply_update!(state::XYState, proposal::SpinUpdate, ΔE::Real)
-    site = proposal.site
-    old_angle = state.angles[site]
-    new_angle = proposal.new_value
-    state.angles[site] = new_angle
-    state.energy += ΔE
-    state.magnetization_x += cos(new_angle) - cos(old_angle)
-    state.magnetization_y += sin(new_angle) - sin(old_angle)
-    return nothing
 end
 
 validate_cluster_model(model::XYModel, ::Geometry, ::XYState, ::Real) = begin

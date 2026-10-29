@@ -24,3 +24,11 @@ mutable struct IsingState{S,T<:Real,M<:Integer} <: AbstractState
     energy::T
     magnetization::M
 end
+
+# The proposal's carried magnetization change is `new_value - old spin`.
+function apply_update!(state::IsingState, proposal::SpinUpdate, ΔE::Real)
+    state.spins[proposal.site] = proposal.new_value
+    state.energy += ΔE
+    state.magnetization += proposal.magnetization_change
+    return nothing
+end

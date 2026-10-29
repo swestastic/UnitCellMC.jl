@@ -26,3 +26,13 @@ mutable struct ClockState{S,T<:Real} <: AbstractState
     magnetization_x::T
     magnetization_y::T
 end
+
+# The proposal carries `(cos(θ_new) - cos(θ_old), sin(θ_new) - sin(θ_old))`,
+# computed by `propose` from the model's lookup tables.
+function apply_update!(state::ClockState, proposal::SpinUpdate, ΔE::Real)
+    state.spins[proposal.site] = proposal.new_value
+    state.energy += ΔE
+    state.magnetization_x += proposal.magnetization_change[1]
+    state.magnetization_y += proposal.magnetization_change[2]
+    return nothing
+end

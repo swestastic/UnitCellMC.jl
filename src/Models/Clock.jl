@@ -117,29 +117,6 @@ n_operator_components(::ClockModel) = 2
 operator_components(model::ClockModel, n::Integer) = (clock_cos(model, n), clock_sin(model, n))
 
 """
-    ClockUpdate
-
-A proposed single-site clock move: change the clock index at `site` to
-`new_value`. The proposal carries the magnetization change of the move,
-computed by [`propose`](@ref) from the model's lookup tables, so that
-[`apply_update!`](@ref) can keep the cached totals exact without access to
-the model.
-
-# Fields
-
-- `site::Int`: Index of the site to update.
-- `new_value::Int`: The proposed clock index, in `0:q-1`.
-- `magnetization_x_change::Float64`: `cos(θ_new) - cos(θ_old)`.
-- `magnetization_y_change::Float64`: `sin(θ_new) - sin(θ_old)`.
-"""
-struct ClockUpdate
-    site::Int
-    new_value::Int
-    magnetization_x_change::Float64
-    magnetization_y_change::Float64
-end
-
-"""
     propose(rng, ::MetropolisAlgorithm, model::ClockModel, geometry, state)
 
 Generate a Metropolis trial move for the clock model: pick a random site and
@@ -148,16 +125,16 @@ symmetric proposal), both drawn from `rng`.
 
 # Returns
 
-A [`ClockUpdate`](@ref) for the chosen site and new clock index.
+A [`SpinUpdate`](@ref) for the chosen site and new clock index, carrying the magnetization change.
 """
 function propose(rng::AbstractRNG, ::MetropolisAlgorithm, model::ClockModel, geometry, state::ClockState)
     site = rand(rng, eachindex(state.spins))
     old = state.spins[site]
     new = mod(old + rand(rng, 1:(model.q - 1)), model.q)
-    return ClockUpdate(
+    return SpinUpdate(
         site, new,
-        clock_cos(model, new) - clock_cos(model, old),
-        clock_sin(model, new) - clock_sin(model, old),
+        (clock_cos(model, new) - clock_cos(model, old),
+            clock_sin(model, new) - clock_sin(model, old)),
     )
 end
 
@@ -172,7 +149,7 @@ differs.
 
 # Returns
 
-A [`ClockUpdate`](@ref) for the chosen site and new clock index.
+A [`SpinUpdate`](@ref) for the chosen site and new clock index, carrying the magnetization change.
 """
 function propose(rng::AbstractRNG, ::GlauberAlgorithm, model::ClockModel, geometry, state::ClockState)
     return propose(rng, MetropolisAlgorithm(), model, geometry, state)
@@ -182,7 +159,7 @@ function energy_difference(
     model::ClockModel,
     geometry::Geometry,
     state::ClockState,
-    proposal::ClockUpdate
+    proposal::SpinUpdate
 )
     site = proposal.site
     old = state.spins[site]
@@ -196,15 +173,7 @@ function energy_difference(
         weighted_sum += J[template] *
             (clock_cos(model, new - n_j) - clock_cos(model, old - n_j))
     end
-    return -weighted_sum - field_strength(model, geometry, site) * proposal.magnetization_x_change
-end
-
-function apply_update!(state::ClockState, proposal::ClockUpdate, ΔE::Real)
-    state.spins[proposal.site] = proposal.new_value
-    state.energy += ΔE
-    state.magnetization_x += proposal.magnetization_x_change
-    state.magnetization_y += proposal.magnetization_y_change
-    return nothing
+    return -weighted_sum - field_strength(model, geometry, site) * proposal.magnetization_change[1]
 end
 
 validate_cluster_model(model::ClockModel, ::Geometry, ::ClockState, ::Real) = begin

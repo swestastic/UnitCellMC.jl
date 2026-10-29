@@ -5,7 +5,6 @@ CollapsedDocStrings = true
 ```
 
 ```@docs
-UnitCellMC.SpinUpdate
 UnitCellMC.MetropolisAlgorithm
 UnitCellMC.MetropolisUpdateResult
 UnitCellMC.GlauberAlgorithm

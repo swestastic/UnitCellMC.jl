@@ -18,3 +18,12 @@ mutable struct XYState{S,T<:Real} <: AbstractState
     magnetization_x::T
     magnetization_y::T
 end
+
+# The proposal carries `(cos(new) - cos(old), sin(new) - sin(old))`.
+function apply_update!(state::XYState, proposal::SpinUpdate, ΔE::Real)
+    state.angles[proposal.site] = proposal.new_value
+    state.energy += ΔE
+    state.magnetization_x += proposal.magnetization_change[1]
+    state.magnetization_y += proposal.magnetization_change[2]
+    return nothing
+end

@@ -519,6 +519,44 @@ struct PairingTestState <: ucmc.AbstractState end
     @test_throws ArgumentError ucmc.magnetization_value(PairingTestState())
 end
 
+@testset "Single-site update contract" begin
+    geometry = square_geometry(2)
+    models_and_energy = (
+        (ucmc.IsingModel([1.0, 1.0], [0.5]), spin_energy),
+        (ucmc.XYModel([1.0, 1.0], [0.5]), xy_energy),
+        (ucmc.ClockModel(4, [1.0, 1.0], [0.5]), clock_energy),
+    )
+    mag_totals(s::ucmc.IsingState) = (s.magnetization,)
+    mag_totals(s) = (s.magnetization_x, s.magnetization_y)
+
+    for (model, energy) in models_and_energy, algorithm in
+            (ucmc.MetropolisAlgorithm(), ucmc.GlauberAlgorithm())
+        rng = Xoshiro(7)
+        state = ucmc.initialize_state(model, geometry; rng = rng)
+        for _ in 1:10
+            proposal = ucmc.propose(rng, algorithm, model, geometry, state)
+
+            # one shared proposal type across models and local algorithms
+            @test proposal isa ucmc.SpinUpdate
+
+            ΔE = ucmc.energy_difference(model, geometry, state, proposal)
+            before_e = state.energy
+            before_m = mag_totals(state)
+            @test ucmc.apply_update!(state, proposal, ΔE) === nothing
+
+            # the carried delta matches the actual magnetization change, and
+            # the running totals stay exact
+            carried = proposal.magnetization_change
+            carried = carried isa Tuple ? collect(carried) : [carried]
+            Δm = collect(mag_totals(state)) - collect(before_m)
+            @test all(Δm .≈ carried)
+            @test state.energy == before_e + ΔE
+            values = state isa ucmc.XYState ? state.angles : state.spins
+            @test state.energy ≈ energy(model, geometry, values) atol = 1e-10
+        end
+    end
+end
+
 @testset "Optional correlation observables" begin
     geometry = square_geometry(2)
     model = ucmc.IsingModel([1.0, 1.0], [0.0])

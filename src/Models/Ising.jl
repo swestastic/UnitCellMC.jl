@@ -60,7 +60,8 @@ A `SpinUpdate` describing the site and its proposed (flipped) value.
 """
 function propose(rng::AbstractRNG, ::MetropolisAlgorithm, ::IsingModel, geometry, state)
     site = rand(rng, eachindex(state.spins))
-    return SpinUpdate(site, -state.spins[site])
+    s = state.spins[site]
+    return SpinUpdate(site, -s, -2s)
 end
 
 """
@@ -117,31 +118,6 @@ function energy_difference(
     end
 
     return (s - proposal.new_value) * (weighted_sum + field_strength(model, geometry, site))
-end
-
-"""
-    apply_update!(state, proposal, ΔE)
-
-Apply `proposal` to `state` in place, updating the spin at the proposed site
-along with the running total energy and magnetization.
-
-# Arguments
-
-- `state`: The `IsingState` to mutate.
-- `proposal`: A `SpinUpdate` describing the site and its new value.
-- `ΔE`: The precomputed energy change from applying `proposal`.
-"""
-function apply_update!(
-    state::IsingState,
-    proposal::SpinUpdate,
-    ΔE::Real
-)
-    site = proposal.site
-    s = state.spins[site]
-    state.spins[site] = proposal.new_value
-    state.energy += ΔE
-    state.magnetization += proposal.new_value - s
-    return nothing
 end
 
 """

@@ -1,3 +1,4 @@
+include("Updates.jl")
 include("IsingState.jl")
 include("XYState.jl")
 include("ClockState.jl")

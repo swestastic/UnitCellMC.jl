@@ -119,7 +119,7 @@ function step!(
             ))
 
             probability > 0 && rand(rng) < probability && _sw_union!(
-                parents, ranks, site, geometry.n_sites + ghost
+                parents, ranks, site, ghost_site(geometry, ghost)
             )
         end
     end
@@ -149,7 +149,8 @@ function step!(
         cluster_count += 1
     end
     for ghost in 1:ghost_count
-        labels[geometry.n_sites + ghost] = _sw_find!(parents, geometry.n_sites + ghost)
+        g = ghost_site(geometry, ghost)
+        labels[g] = _sw_find!(parents, g)
     end
     largest_cluster_fraction = geometry.n_sites > 0 ? largest_cluster_size / geometry.n_sites : 0.0
 

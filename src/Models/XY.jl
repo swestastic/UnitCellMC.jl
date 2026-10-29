@@ -263,12 +263,11 @@ end
     apply_clusters!(rng, model, geometry, state, workspace, context)
 
 Randomly reflect each Swendsen-Wang cluster about `context.reflection_axis`
-(one coin flip per cluster, drawn from `rng` in the first-encounter order of
-`workspace.roots`) and update the cached XY observables incrementally via
-[`_reflect_xy_clusters!`](@ref). Clusters are described by root-id labels:
-`workspace.labels[i]` is the label of site `i`, and labels above
-`geometry.n_sites` belong to ghost sites, whose clusters are never reflected.
-The orientation decisions are recorded per label in `workspace.flip`.
+and update the cached XY observables incrementally via
+[`_reflect_xy_clusters!`](@ref). The orientation decisions are drawn by
+[`draw_cluster_flips!`](@ref) — one coin flip per cluster, in the
+first-encounter order of `workspace.roots`, with ghost-attached clusters
+never reflected — and recorded per root-id label in `workspace.flip`.
 """
 function apply_clusters!(
     rng::AbstractRNG,
@@ -278,16 +277,9 @@ function apply_clusters!(
     workspace::ClusterWorkspace,
     context::XYClusterContext,
 )
-    labels = workspace.labels
-    flip = workspace.flip
-    for root in workspace.roots
-        flip[root] = rand(rng, Bool)
-    end
-    for ghost in (geometry.n_sites + 1):length(labels)
-        flip[labels[ghost]] = false
-    end
+    flip = draw_cluster_flips!(rng, workspace, geometry)
     _reflect_xy_clusters!(
-        model, geometry, state, labels, flip, context.reflection_axis
+        model, geometry, state, workspace.labels, flip, context.reflection_axis
     )
     return nothing
 end

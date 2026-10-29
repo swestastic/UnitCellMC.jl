@@ -310,8 +310,8 @@ end
 
 Explicit-partition form of [`apply_clusters!`](@ref): reflect each cluster in
 `clusters` across clock mirror `mirror` with probability 1/2. Allocates its
-own reflected-site mask; the Swendsen-Wang driver uses the workspace form
-below.
+own label map (via [`_cluster_labels`](@ref)); the Swendsen-Wang driver uses
+the workspace form below.
 """
 function apply_clusters!(
     rng::AbstractRNG,
@@ -321,29 +321,22 @@ function apply_clusters!(
     clusters::Vector{Vector{Int}},
     mirror::Integer,
 )
-    reflected = falses(geometry.n_sites)
-    for cluster in clusters
-        rand(rng, Bool) || continue
-        for site in cluster
-            site <= geometry.n_sites && (reflected[site] = true)
-        end
-    end
-    _reflect_clock_sites!(model, geometry, state, findall(reflected), reflected, mirror)
+    flip = [rand(rng, Bool) for _ in clusters]
+    _reflect_clock_clusters!(
+        model, geometry, state, _cluster_labels(geometry, clusters), flip, mirror
+    )
     return nothing
 end
 
 """
     apply_clusters!(rng, model::ClockModel, geometry, state, workspace, context)
 
-Reflect each Swendsen-Wang cluster across `context.mirror` with probability
-1/2 (one coin flip per cluster, drawn from `rng` in the first-encounter order
-of `workspace.roots`) and update the cached clock observables incrementally
-via [`_reflect_clock_sites!`](@ref). Clusters are described by root-id
-labels: `workspace.labels[i]` is the label of site `i`, and labels above
-`geometry.n_sites` belong to ghost sites, whose clusters are never reflected.
-The orientation decisions are recorded per label in `workspace.flip`; the
-workspace's `in_cluster`/`cluster` buffers hold the reflected-site mask and
-list.
+Reflect each Swendsen-Wang cluster across `context.mirror` and update the
+cached clock observables incrementally via
+[`_reflect_clock_clusters!`](@ref). The orientation decisions are drawn by
+[`draw_cluster_flips!`](@ref) — one coin flip per cluster, in the
+first-encounter order of `workspace.roots`, with ghost-attached clusters
+never reflected — and recorded per root-id label in `workspace.flip`.
 """
 function apply_clusters!(
     rng::AbstractRNG,
@@ -353,23 +346,9 @@ function apply_clusters!(
     workspace::ClusterWorkspace,
     context::ClockClusterContext,
 )
-    labels = workspace.labels
-    flip = workspace.flip
-    for root in workspace.roots
-        flip[root] = rand(rng, Bool)
-    end
-    for ghost in (geometry.n_sites + 1):length(labels)
-        flip[labels[ghost]] = false
-    end
-    reflected = _resize_buffer!(workspace.in_cluster, geometry.n_sites)
-    reflected_sites = empty!(workspace.cluster)
-    for site in 1:geometry.n_sites
-        do_reflect = flip[labels[site]]
-        reflected[site] = do_reflect
-        do_reflect && push!(reflected_sites, site)
-    end
-    _reflect_clock_sites!(
-        model, geometry, state, reflected_sites, reflected, context.mirror
+    flip = draw_cluster_flips!(rng, workspace, geometry)
+    _reflect_clock_clusters!(
+        model, geometry, state, workspace.labels, flip, context.mirror
     )
     return nothing
 end
@@ -407,6 +386,59 @@ function _reflect_clock_sites!(
         info = geometry.neighbor_table[site]
         for (template, neighbor) in zip(info.templates, info.neighbors)
             (neighbor == site || reflected[neighbor]) && continue
+            n_j = state.spins[neighbor]
+            ΔE -= J[template] *
+                (clock_cos(model, new - n_j) - clock_cos(model, old - n_j))
+        end
+        Δcos = clock_cos(model, new) - clock_cos(model, old)
+        ΔE -= field_strength(model, geometry, site) * Δcos
+        ΔMx += Δcos
+        ΔMy += clock_sin(model, new) - clock_sin(model, old)
+        state.spins[site] = new
+    end
+
+    state.energy += ΔE
+    state.magnetization_x += ΔMx
+    state.magnetization_y += ΔMy
+    return nothing
+end
+
+"""
+    _reflect_clock_clusters!(model, geometry, state, labels, flip, mirror)
+
+Reflect every lattice site whose cluster label is marked in `flip` across
+clock mirror `mirror` (`n -> mod(mirror - n, q)`), accumulating the exact
+energy and magnetization change from the lookup tables. `labels[i]` is the
+union-find root of site `i` (see [`step!`](@ref) with
+[`SwendsenWangAlgorithm`](@ref)) and doubles as the site-to-cluster map: a
+bond incident to a reflected site is internal (both endpoints reflect, and
+reflection preserves `cos(θ_i - θ_j)`) when `flip[labels[neighbor]]`
+is true, external (never visited) when neither endpoint reflects, and
+crossing (counted once, from the reflected side, with pre-reflection indices)
+otherwise. Sites lying on the mirror (`new == old`) do not move, so their
+incident bonds are unchanged and are skipped together with the site itself.
+"""
+function _reflect_clock_clusters!(
+    model::ClockModel,
+    geometry::Geometry,
+    state::ClockState,
+    labels::Vector{Int},
+    flip::Vector{Bool},
+    mirror::Integer,
+)
+    ΔE = zero(state.energy)
+    ΔMx = zero(state.magnetization_x)
+    ΔMy = zero(state.magnetization_y)
+    J = model.J
+
+    for site in 1:geometry.n_sites
+        flip[labels[site]] || continue
+        old = state.spins[site]
+        new = mod(mirror - old, model.q)
+        new == old && continue
+        info = geometry.neighbor_table[site]
+        for (template, neighbor) in zip(info.templates, info.neighbors)
+            (neighbor == site || flip[labels[neighbor]]) && continue
             n_j = state.spins[neighbor]
             ΔE -= J[template] *
                 (clock_cos(model, new - n_j) - clock_cos(model, old - n_j))

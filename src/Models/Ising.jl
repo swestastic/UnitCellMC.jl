@@ -303,13 +303,12 @@ end
 """
     apply_clusters!(rng, model, geometry, state, workspace, context)
 
-Randomly orient each Swendsen-Wang cluster (one coin flip per cluster, drawn
-from `rng` in the first-encounter order of `workspace.roots`) and update the
-cached Ising observables incrementally via [`_flip_ising_clusters!`](@ref).
-Clusters are described by root-id labels: `workspace.labels[i]` is the label
-of site `i`, and labels above `geometry.n_sites` belong to ghost sites, whose
-clusters are never flipped. The orientation decisions are recorded per label
-in `workspace.flip`.
+Randomly orient each Swendsen-Wang cluster and update the cached Ising
+observables incrementally via [`_flip_ising_clusters!`](@ref). The
+orientation decisions are drawn by [`draw_cluster_flips!`](@ref) — one coin
+flip per cluster, in the first-encounter order of `workspace.roots`, with
+ghost-attached clusters never flipped — and recorded per root-id label in
+`workspace.flip`.
 
 `context` is unused for the Ising model: ghost attachment is read from the
 labels alone.
@@ -326,15 +325,8 @@ function apply_clusters!(
     workspace::ClusterWorkspace,
     context = nothing,
 )
-    labels = workspace.labels
-    flip = workspace.flip
-    for root in workspace.roots
-        flip[root] = rand(rng, Bool)
-    end
-    for ghost in (geometry.n_sites + 1):length(labels)
-        flip[labels[ghost]] = false
-    end
-    _flip_ising_clusters!(model, geometry, state, labels, flip)
+    flip = draw_cluster_flips!(rng, workspace, geometry)
+    _flip_ising_clusters!(model, geometry, state, workspace.labels, flip)
     return nothing
 end
 

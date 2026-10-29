@@ -29,4 +29,5 @@ UnitCellMC.apply_clusters!
 UnitCellMC._reflect_xy_clusters!
 UnitCellMC._flip_ising_clusters!
 UnitCellMC._reflect_clock_sites!
+UnitCellMC._reflect_clock_clusters!
 ```

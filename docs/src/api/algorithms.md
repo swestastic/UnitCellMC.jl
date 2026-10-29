@@ -20,6 +20,8 @@ UnitCellMC.step!
 UnitCellMC.steps_per_sweep
 UnitCellMC.ClusterWorkspace
 UnitCellMC.algorithm_workspace
+UnitCellMC.ghost_site
+UnitCellMC.draw_cluster_flips!
 UnitCellMC.UpdateStatistic
 UnitCellMC.available_diagnostics
 ```

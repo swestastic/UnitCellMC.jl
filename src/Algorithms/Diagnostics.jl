@@ -29,6 +29,26 @@ function value(statistic::UpdateStatistic)
     return statistic.total / statistic.count
 end
 
+"""
+    diagnostic_values(algorithm, result)
+
+Turn the [`AbstractUpdateResult`](@ref) returned by one [`step!`](@ref) of
+`algorithm` into a `NamedTuple` of per-update diagnostic values (e.g.
+`(acceptance_ratio = ...)` for local updates). The keys must match
+[`available_diagnostics`](@ref)`(algorithm)`; [`MC_Sweep!`](@ref) accumulates
+them into [`UpdateStatistic`](@ref)s and the measurement container records
+the sweep averages.
+
+# Throws
+
+`ArgumentError` if no method exists for the algorithm/result pair.
+"""
+diagnostic_values(::AbstractAlgorithm, ::AbstractUpdateResult) = throw(ArgumentError(
+    "diagnostic_values is not implemented for this algorithm/result pair; " *
+    "define `diagnostic_values(::MyAlgorithm, ::MyUpdateResult)` and list the " *
+    "keys in `available_diagnostics(::Type{<:MyAlgorithm})`"
+))
+
 diagnostic_values(::MetropolisAlgorithm, result::MetropolisUpdateResult) =
     (acceptance_ratio = result.accepted ? 1.0 : 0.0,)
 diagnostic_values(::GlauberAlgorithm, result::GlauberUpdateResult) =

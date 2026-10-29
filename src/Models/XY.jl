@@ -20,30 +20,14 @@ function XYModel(J::Vector{<:Real}, h::AbstractVector{<:Real})
     return XYModel{T}(convert(Vector{T}, J), convert(Vector{T}, h))
 end
 
-initialize_state(model::XYModel, geometry::Geometry; rng::AbstractRNG = Random.default_rng()) =
-    _initialize_xy_state(model, geometry, rng)
-
-function validate_model_geometry(model::XYModel, geometry::Geometry)
-    invoke(validate_model_geometry, Tuple{AbstractModel, Geometry}, model, geometry)
-
-    n_orbitals = LatticeUtilities.norbits(geometry.unit_cell)
-    length(model.h) == n_orbitals || throw(ArgumentError(
-        "length(model.h) = $(length(model.h)) does not match the number of sites in the unit cell = $n_orbitals"
-    ))
-    return nothing
-end
-
-field_strength(model::XYModel, geometry::Geometry, site::Int) =
-    model.h[LatticeUtilities.site_to_orbital(site, geometry.unit_cell)]
-
-bond_strength(model::XYModel, geometry::Geometry, bond_id::Int) = begin
-    1 <= bond_id <= length(geometry.bond_id_to_template) || throw(ArgumentError(
-        "bond_id = $bond_id is out of bounds for geometry.bond_id_to_template of length $(length(geometry.bond_id_to_template))"
-    ))
-    model.J[geometry.bond_id_to_template[bond_id]]
-end
-
 local_operator(state::XYState, site) = state.angles[site]
+
+state_type(::XYModel) = XYState
+
+magnetization_value(state::XYState) = hypot(state.magnetization_x, state.magnetization_y)
+
+binder_denominator(::XYModel) = 2.0
+
 operator_product(::XYModel, first_angle::Real, second_angle::Real) =
     cos(first_angle - second_angle)
 
@@ -52,23 +36,9 @@ operator_components(::XYModel, angle::Real) = (cos(angle), sin(angle))
 
 function propose(rng::AbstractRNG, ::MetropolisAlgorithm, ::XYModel, geometry, state::XYState)
     site = rand(rng, eachindex(state.angles))
-    return SpinUpdate(site, 2π * rand(rng))
-end
-
-"""
-    propose(rng, ::GlauberAlgorithm, model::XYModel, geometry, state)
-
-Generate a Glauber trial move for the XY model: pick a random site and
-propose a new angle drawn uniformly from `[0, 2π)`, both drawn from `rng`.
-This is the same symmetric proposal as for [`MetropolisAlgorithm`](@ref);
-only the acceptance rule in [`step!`](@ref) differs.
-
-# Returns
-
-A `SpinUpdate` for the chosen site and new angle.
-"""
-function propose(rng::AbstractRNG, ::GlauberAlgorithm, model::XYModel, geometry, state::XYState)
-    return propose(rng, MetropolisAlgorithm(), model, geometry, state)
+    old = state.angles[site]
+    new = 2π * rand(rng)
+    return SpinUpdate(site, new, (cos(new) - cos(old), sin(new) - sin(old)))
 end
 
 function energy_difference(
@@ -80,32 +50,15 @@ function energy_difference(
     site = proposal.site
     angle = state.angles[site]
     info = geometry.neighbor_table[site]
-    weighted_sum = zero(promote_type(eltype(state.angles), eltype(model.J)))
-    for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+    J = couplings(model)
+    weighted_sum = zero(promote_type(eltype(state.angles), eltype(J)))
+    for (template, neighbor) in zip(info.templates, info.neighbors)
         neighbor == site && continue
-        weighted_sum += bond_strength(model, geometry, bond_id) *
+        weighted_sum += J[template] *
             (cos(proposal.new_value - state.angles[neighbor]) - cos(angle - state.angles[neighbor]))
     end
     return -weighted_sum - field_strength(model, geometry, site) *
         (cos(proposal.new_value) - cos(angle))
-end
-
-function apply_update!(state::XYState, proposal::SpinUpdate, ΔE::Real)
-    site = proposal.site
-    old_angle = state.angles[site]
-    new_angle = proposal.new_value
-    state.angles[site] = new_angle
-    state.energy += ΔE
-    state.magnetization_x += cos(new_angle) - cos(old_angle)
-    state.magnetization_y += sin(new_angle) - sin(old_angle)
-    return nothing
-end
-
-validate_cluster_model(model::XYModel, ::Geometry, ::XYState, ::Real) = begin
-    all(>=(0), model.J) || throw(ArgumentError(
-        "XY cluster algorithms require non-negative couplings; got J = $(model.J)"
-    ))
-    nothing
 end
 
 mutable struct XYClusterContext
@@ -124,14 +77,14 @@ function cluster_bond_probability(
     state::XYState,
     site::Int,
     neighbor::Int,
-    bond_id::Int,
+    bond_template::Int,
     T::Real,
     reflection_axis::Real,
 )
     projection_product = cos(state.angles[site] - reflection_axis) *
         cos(state.angles[neighbor] - reflection_axis)
     projection_product > 0 || return 0.0
-    return -expm1(-2 * bond_strength(model, geometry, bond_id) * projection_product / T)
+    return -expm1(-2 * couplings(model)[bond_template] * projection_product / T)
 end
 
 function cluster_bond_probability(
@@ -140,12 +93,12 @@ function cluster_bond_probability(
     state::XYState,
     site::Int,
     neighbor::Int,
-    bond_id::Int,
+    bond_template::Int,
     T::Real,
     context::XYClusterContext,
 )
     return cluster_bond_probability(
-        model, geometry, state, site, neighbor, bond_id, T,
+        model, geometry, state, site, neighbor, bond_template, T,
         context.reflection_axis
     )
 end
@@ -185,6 +138,9 @@ contributes `ΔE = 2 * J * p_i * p_j` (via
 `cos(2φ - θ_i - θ_j) + cos(θ_i - θ_j) = 2 * p_i * p_j`), and each reflected
 site contributes `ΔE = 2 * h * cos(φ) * p_i`, `ΔM_x = -2 * cos(φ) * p_i`, and
 `ΔM_y = -2 * sin(φ) * p_i`.
+This explicit form allocates a membership mask per call and is the
+readable reference implementation exercised by the tests; the Wolff
+driver passes down the mask it already built.
 """
 function apply_cluster!(
     model::XYModel,
@@ -197,20 +153,34 @@ function apply_cluster!(
     for site in cluster
         in_cluster[site] = true
     end
+    _reflect_xy_cluster!(model, geometry, state, cluster, in_cluster, reflection_axis)
+    return nothing
+end
 
+# `in_cluster` must be true exactly on the cluster's sites. Wolff's `step!`
+# passes down the mask it built while growing the cluster.
+function _reflect_xy_cluster!(
+    model::XYModel,
+    geometry::Geometry,
+    state::XYState,
+    cluster::Vector{Int},
+    in_cluster::AbstractVector{Bool},
+    reflection_axis::Real,
+)
     cos_axis = cos(reflection_axis)
     sin_axis = sin(reflection_axis)
     ΔE = zero(state.energy)
     ΔMx = zero(state.magnetization_x)
     ΔMy = zero(state.magnetization_y)
+    J = couplings(model)
 
     for site in cluster
         angle = state.angles[site]
         projection = cos(angle - reflection_axis)
         info = geometry.neighbor_table[site]
-        for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+        for (template, neighbor) in zip(info.templates, info.neighbors)
             (neighbor == site || in_cluster[neighbor]) && continue
-            ΔE += 2 * bond_strength(model, geometry, bond_id) * projection *
+            ΔE += 2 * J[template] * projection *
                 cos(state.angles[neighbor] - reflection_axis)
         end
         ΔE += 2 * field_strength(model, geometry, site) * cos_axis * projection
@@ -231,22 +201,23 @@ function apply_cluster!(
     state::XYState,
     cluster::Vector{Int},
     context::XYClusterContext,
+    in_cluster::BitVector,
 )
-    context.ghost_attached || apply_cluster!(
-        model, geometry, state, cluster, context.reflection_axis
+    context.ghost_attached || _reflect_xy_cluster!(
+        model, geometry, state, cluster, in_cluster, context.reflection_axis
     )
     return nothing
 end
 
 """
-    apply_clusters!(rng, model, geometry, state, clusters, reflection_axis)
+    apply_clusters!(rng, model, geometry, state, clusters::Vector{Vector{Int}}, reflection_axis)
 
-Randomly reflect each Swendsen-Wang cluster (coin flips drawn from `rng`)
-about `reflection_axis` and update
-the cached XY observables incrementally. A bond only changes energy when
-exactly one of its endpoints sits in a reflected cluster, so the energy update
-touches only bonds incident to reflected sites rather than resumming the
-whole lattice.
+Explicit-partition form of [`apply_clusters!`](@ref): reflect each cluster in
+`clusters` about `reflection_axis` independently with probability 1/2.
+Allocates its own label map; the Swendsen-Wang driver uses the allocation-free
+workspace form below. This
+explicit form is the readable reference implementation exercised by the
+tests.
 """
 function apply_clusters!(
     rng::AbstractRNG,
@@ -258,73 +229,77 @@ function apply_clusters!(
 )
     flip = [rand(rng, Bool) for _ in clusters]
     _reflect_xy_clusters!(
-        model, geometry, state, clusters, flip, reflection_axis
+        model, geometry, state, _cluster_labels(geometry, clusters), flip, reflection_axis
     )
     return nothing
 end
 
+"""
+    apply_clusters!(rng, model, geometry, state, workspace, context)
+
+Randomly reflect each Swendsen-Wang cluster about `context.reflection_axis`
+and update the cached XY observables incrementally via
+[`_reflect_xy_clusters!`](@ref). The orientation decisions are drawn by
+[`draw_cluster_flips!`](@ref) — one coin flip per cluster, in the
+first-encounter order of `workspace.roots`, with ghost-attached clusters
+never reflected — and recorded per root-id label in `workspace.flip`.
+"""
 function apply_clusters!(
     rng::AbstractRNG,
     model::XYModel,
     geometry::Geometry,
     state::XYState,
-    clusters::Vector{Vector{Int}},
+    workspace::ClusterWorkspace,
     context::XYClusterContext,
 )
-    flip = [
-        rand(rng, Bool) && !any(site -> site > geometry.n_sites, cluster)
-        for cluster in clusters
-    ]
+    flip = draw_cluster_flips!(rng, workspace, geometry)
     _reflect_xy_clusters!(
-        model, geometry, state, clusters, flip, context.reflection_axis
+        model, geometry, state, workspace.labels, flip, context.reflection_axis
     )
     return nothing
 end
 
 """
-    _reflect_xy_clusters!(model, geometry, state, clusters, flip, reflection_axis)
+    _reflect_xy_clusters!(model, geometry, state, labels, flip, reflection_axis)
 
-Reflect every cluster `c` with `flip[c] == true`, accumulating the exact
-energy and magnetization change. A site→cluster index map identifies each
-bond incident to a reflected site as internal (both endpoints reflect, no
-change), external (neither reflects, never visited), or crossing (counted
-once, from the reflected side, with pre-reflection angles).
+Reflect every lattice site whose cluster label is marked in `flip`,
+accumulating the exact energy and magnetization change. `labels[i]` is the
+union-find root of site `i` (see [`step!`](@ref) with
+[`SwendsenWangAlgorithm`](@ref)) and doubles as the site→cluster map: a bond
+incident to a reflected site is internal (both endpoints reflect, no change)
+when `flip[labels[neighbor]]` is true, external (never visited) when neither
+endpoint reflects, and crossing (counted once, from the reflected side, with
+pre-reflection angles) otherwise.
 """
 function _reflect_xy_clusters!(
     model::XYModel,
     geometry::Geometry,
     state::XYState,
-    clusters::Vector{Vector{Int}},
+    labels::Vector{Int},
     flip::Vector{Bool},
     reflection_axis::Real,
 )
-    cluster_id = zeros(Int, geometry.n_sites)
-    for (c, cluster) in enumerate(clusters), site in cluster
-        site <= geometry.n_sites && (cluster_id[site] = c)
-    end
-
     cos_axis = cos(reflection_axis)
     sin_axis = sin(reflection_axis)
     ΔE = zero(state.energy)
     ΔMx = zero(state.magnetization_x)
     ΔMy = zero(state.magnetization_y)
+    J = couplings(model)
 
-    for (c, cluster) in enumerate(clusters)
-        flip[c] || continue
-        for site in cluster
-            angle = state.angles[site]
-            projection = cos(angle - reflection_axis)
-            info = geometry.neighbor_table[site]
-            for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
-                (neighbor == site || flip[cluster_id[neighbor]]) && continue
-                ΔE += 2 * bond_strength(model, geometry, bond_id) * projection *
-                    cos(state.angles[neighbor] - reflection_axis)
-            end
-            ΔE += 2 * field_strength(model, geometry, site) * cos_axis * projection
-            ΔMx -= 2 * cos_axis * projection
-            ΔMy -= 2 * sin_axis * projection
-            state.angles[site] = mod(2 * reflection_axis + π - angle, 2π)
+    for site in 1:geometry.n_sites
+        flip[labels[site]] || continue
+        angle = state.angles[site]
+        projection = cos(angle - reflection_axis)
+        info = geometry.neighbor_table[site]
+        for (template, neighbor) in zip(info.templates, info.neighbors)
+            (neighbor == site || flip[labels[neighbor]]) && continue
+            ΔE += 2 * J[template] * projection *
+                cos(state.angles[neighbor] - reflection_axis)
         end
+        ΔE += 2 * field_strength(model, geometry, site) * cos_axis * projection
+        ΔMx -= 2 * cos_axis * projection
+        ΔMy -= 2 * sin_axis * projection
+        state.angles[site] = mod(2 * reflection_axis + π - angle, 2π)
     end
 
     state.energy += ΔE

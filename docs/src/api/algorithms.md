@@ -5,7 +5,6 @@ CollapsedDocStrings = true
 ```
 
 ```@docs
-UnitCellMC.SpinUpdate
 UnitCellMC.MetropolisAlgorithm
 UnitCellMC.MetropolisUpdateResult
 UnitCellMC.GlauberAlgorithm
@@ -17,6 +16,12 @@ UnitCellMC.SwendsenWangAlgorithm
 UnitCellMC.SwendsenWangUpdateResult
 UnitCellMC.AbstractUpdateResult
 UnitCellMC.step!
+UnitCellMC.steps_per_sweep
+UnitCellMC.ClusterWorkspace
+UnitCellMC.algorithm_workspace
+UnitCellMC.ghost_site
+UnitCellMC.draw_cluster_flips!
 UnitCellMC.UpdateStatistic
 UnitCellMC.available_diagnostics
+UnitCellMC.diagnostic_values
 ```

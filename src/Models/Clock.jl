@@ -75,58 +75,46 @@ the bond term `cos(θ_i - θ_j)`.
 clock_cos(model::ClockModel, n::Integer) = @inbounds model.cosines[mod(n, model.q) + 1]
 clock_sin(model::ClockModel, n::Integer) = @inbounds model.sines[mod(n, model.q) + 1]
 
-initialize_state(model::ClockModel, geometry::Geometry; rng::AbstractRNG = Random.default_rng()) =
-    _initialize_clock_state(model, geometry, rng)
-
-function validate_model_geometry(model::ClockModel, geometry::Geometry)
-    invoke(validate_model_geometry, Tuple{AbstractModel, Geometry}, model, geometry)
-
-    n_orbitals = LatticeUtilities.norbits(geometry.unit_cell)
-    length(model.h) == n_orbitals || throw(ArgumentError(
-        "length(model.h) = $(length(model.h)) does not match the number of sites in the unit cell = $n_orbitals"
-    ))
-    return nothing
-end
-
-field_strength(model::ClockModel, geometry::Geometry, site::Int) =
-    model.h[LatticeUtilities.site_to_orbital(site, geometry.unit_cell)]
-
-bond_strength(model::ClockModel, geometry::Geometry, bond_id::Int) = begin
-    1 <= bond_id <= length(geometry.bond_id_to_template) || throw(ArgumentError(
-        "bond_id = $bond_id is out of bounds for geometry.bond_id_to_template of length $(length(geometry.bond_id_to_template))"
-    ))
-    model.J[geometry.bond_id_to_template[bond_id]]
-end
-
 local_operator(state::ClockState, site) = state.spins[site]
+
+state_type(::ClockModel) = ClockState
+
+magnetization_value(state::ClockState) = hypot(state.magnetization_x, state.magnetization_y)
+
+
+# For q = 2 the magnetization only has an x component (Ising universality);
+# for q >= 3 the clock states are isotropic to second order, so the
+# high-temperature magnetization is a two-component Gaussian, as for XY.
+binder_denominator(model::ClockModel) = model.q == 2 ? 3.0 : 2.0
+
+"""
+    clock_angle_order(model::ClockModel, state::ClockState)
+
+Return the instantaneous angular order parameter `cos(q φ_M)` of `state`,
+where `φ_M = atan(M_y, M_x)` is the direction of the total magnetization.
+
+The magnetization is resummed from `state.spins` (`O(N)`) rather than read
+from the running totals. On small lattices `M = 0` is a common
+configuration, and there the running totals hold only rounding residue whose
+direction is meaningless and grows with run length. A fresh sum is accurate
+to about `N * eps()`, so `|M| <= √eps()` is treated as zero, for which the
+direction is undefined and `0.0` is returned.
+"""
+function clock_angle_order(model::ClockModel, state::ClockState)
+    mx = my = 0.0
+    for n in state.spins
+        mx += clock_cos(model, n)
+        my += clock_sin(model, n)
+    end
+    hypot(mx, my) <= sqrt(eps(Float64)) && return 0.0
+    return cos(model.q * atan(my, mx))
+end
+
 operator_product(model::ClockModel, first_index::Integer, second_index::Integer) =
     clock_cos(model, first_index - second_index)
 
 n_operator_components(::ClockModel) = 2
 operator_components(model::ClockModel, n::Integer) = (clock_cos(model, n), clock_sin(model, n))
-
-"""
-    ClockUpdate
-
-A proposed single-site clock move: change the clock index at `site` to
-`new_value`. The proposal carries the magnetization change of the move,
-computed by [`propose`](@ref) from the model's lookup tables, so that
-[`apply_update!`](@ref) can keep the cached totals exact without access to
-the model.
-
-# Fields
-
-- `site::Int`: Index of the site to update.
-- `new_value::Int`: The proposed clock index, in `0:q-1`.
-- `magnetization_x_change::Float64`: `cos(θ_new) - cos(θ_old)`.
-- `magnetization_y_change::Float64`: `sin(θ_new) - sin(θ_old)`.
-"""
-struct ClockUpdate
-    site::Int
-    new_value::Int
-    magnetization_x_change::Float64
-    magnetization_y_change::Float64
-end
 
 """
     propose(rng, ::MetropolisAlgorithm, model::ClockModel, geometry, state)
@@ -137,69 +125,38 @@ symmetric proposal), both drawn from `rng`.
 
 # Returns
 
-A [`ClockUpdate`](@ref) for the chosen site and new clock index.
+A [`SpinUpdate`](@ref) for the chosen site and new clock index, carrying the magnetization change.
 """
 function propose(rng::AbstractRNG, ::MetropolisAlgorithm, model::ClockModel, geometry, state::ClockState)
     site = rand(rng, eachindex(state.spins))
     old = state.spins[site]
     new = mod(old + rand(rng, 1:(model.q - 1)), model.q)
-    return ClockUpdate(
+    return SpinUpdate(
         site, new,
-        clock_cos(model, new) - clock_cos(model, old),
-        clock_sin(model, new) - clock_sin(model, old),
+        (clock_cos(model, new) - clock_cos(model, old),
+            clock_sin(model, new) - clock_sin(model, old)),
     )
-end
-
-"""
-    propose(rng, ::GlauberAlgorithm, model::ClockModel, geometry, state)
-
-Generate a Glauber trial move for the clock model: pick a random site and
-propose one of the other `q - 1` clock states uniformly at random, both drawn
-from `rng`. This is the same symmetric proposal as for
-[`MetropolisAlgorithm`](@ref); only the acceptance rule in [`step!`](@ref)
-differs.
-
-# Returns
-
-A [`ClockUpdate`](@ref) for the chosen site and new clock index.
-"""
-function propose(rng::AbstractRNG, ::GlauberAlgorithm, model::ClockModel, geometry, state::ClockState)
-    return propose(rng, MetropolisAlgorithm(), model, geometry, state)
 end
 
 function energy_difference(
     model::ClockModel,
     geometry::Geometry,
     state::ClockState,
-    proposal::ClockUpdate
+    proposal::SpinUpdate
 )
     site = proposal.site
     old = state.spins[site]
     new = proposal.new_value
     info = geometry.neighbor_table[site]
-    weighted_sum = zero(promote_type(Float64, eltype(model.J)))
-    for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+    J = couplings(model)
+    weighted_sum = zero(promote_type(Float64, eltype(J)))
+    for (template, neighbor) in zip(info.templates, info.neighbors)
         neighbor == site && continue
         n_j = state.spins[neighbor]
-        weighted_sum += bond_strength(model, geometry, bond_id) *
+        weighted_sum += J[template] *
             (clock_cos(model, new - n_j) - clock_cos(model, old - n_j))
     end
-    return -weighted_sum - field_strength(model, geometry, site) * proposal.magnetization_x_change
-end
-
-function apply_update!(state::ClockState, proposal::ClockUpdate, ΔE::Real)
-    state.spins[proposal.site] = proposal.new_value
-    state.energy += ΔE
-    state.magnetization_x += proposal.magnetization_x_change
-    state.magnetization_y += proposal.magnetization_y_change
-    return nothing
-end
-
-validate_cluster_model(model::ClockModel, ::Geometry, ::ClockState, ::Real) = begin
-    all(>=(0), model.J) || throw(ArgumentError(
-        "Clock cluster algorithms require non-negative couplings; got J = $(model.J)"
-    ))
-    nothing
+    return -weighted_sum - field_strength(model, geometry, site) * proposal.magnetization_change[1]
 end
 
 """
@@ -250,14 +207,14 @@ function cluster_bond_probability(
     state::ClockState,
     site::Int,
     neighbor::Int,
-    bond_id::Int,
+    bond_template::Int,
     T::Real,
     context::ClockClusterContext,
 )
     projection_product = context.projections[state.spins[site] + 1] *
         context.projections[state.spins[neighbor] + 1]
     projection_product > 0 || return 0.0
-    return -expm1(-2 * bond_strength(model, geometry, bond_id) * projection_product / T)
+    return -expm1(-2 * couplings(model)[bond_template] * projection_product / T)
 end
 
 function cluster_ghost_probability(
@@ -291,6 +248,9 @@ Reflect a Wolff cluster across clock mirror `mirror`
 (`n ↦ mod(mirror - n, q)`, see [`ClockClusterContext`](@ref)) and update the
 cached clock observables incrementally via
 [`_reflect_clock_sites!`](@ref).
+This explicit form allocates a membership mask per call and is the
+readable reference implementation exercised by the tests; the Wolff
+driver passes down the mask it already built.
 """
 function apply_cluster!(
     model::ClockModel,
@@ -313,17 +273,24 @@ function apply_cluster!(
     state::ClockState,
     cluster::Vector{Int},
     context::ClockClusterContext,
+    in_cluster::BitVector,
 )
-    context.ghost_attached || apply_cluster!(model, geometry, state, cluster, context.mirror)
+    # Wolff's step! passes down the mask it built while growing the cluster.
+    context.ghost_attached || _reflect_clock_sites!(
+        model, geometry, state, cluster, in_cluster, context.mirror
+    )
     return nothing
 end
 
 """
-    apply_clusters!(rng, model::ClockModel, geometry, state, clusters, mirror::Integer)
+    apply_clusters!(rng, model::ClockModel, geometry, state, clusters::Vector{Vector{Int}}, mirror::Integer)
 
-Reflect each Swendsen-Wang cluster across clock mirror `mirror` with
-probability 1/2 (coin flips drawn from `rng`) and update the cached clock
-observables incrementally via [`_reflect_clock_sites!`](@ref).
+Explicit-partition form of [`apply_clusters!`](@ref): reflect each cluster in
+`clusters` across clock mirror `mirror` with probability 1/2. Allocates its
+own label map (via [`_cluster_labels`](@ref)); the Swendsen-Wang driver uses
+the allocation-free workspace form below. This
+explicit form is the readable reference implementation exercised by the
+tests.
 """
 function apply_clusters!(
     rng::AbstractRNG,
@@ -334,42 +301,34 @@ function apply_clusters!(
     mirror::Integer,
 )
     flip = [rand(rng, Bool) for _ in clusters]
-    _reflect_clock_clusters!(model, geometry, state, clusters, flip, mirror)
+    _reflect_clock_clusters!(
+        model, geometry, state, _cluster_labels(geometry, clusters), flip, mirror
+    )
     return nothing
 end
 
+"""
+    apply_clusters!(rng, model::ClockModel, geometry, state, workspace, context)
+
+Reflect each Swendsen-Wang cluster across `context.mirror` and update the
+cached clock observables incrementally via
+[`_reflect_clock_clusters!`](@ref). The orientation decisions are drawn by
+[`draw_cluster_flips!`](@ref) — one coin flip per cluster, in the
+first-encounter order of `workspace.roots`, with ghost-attached clusters
+never reflected — and recorded per root-id label in `workspace.flip`.
+"""
 function apply_clusters!(
     rng::AbstractRNG,
     model::ClockModel,
     geometry::Geometry,
     state::ClockState,
-    clusters::Vector{Vector{Int}},
+    workspace::ClusterWorkspace,
     context::ClockClusterContext,
 )
-    flip = [
-        rand(rng, Bool) && !any(site -> site > geometry.n_sites, cluster)
-        for cluster in clusters
-    ]
-    _reflect_clock_clusters!(model, geometry, state, clusters, flip, context.mirror)
-    return nothing
-end
-
-function _reflect_clock_clusters!(
-    model::ClockModel,
-    geometry::Geometry,
-    state::ClockState,
-    clusters::Vector{Vector{Int}},
-    flip::Vector{Bool},
-    mirror::Integer,
-)
-    reflected = falses(geometry.n_sites)
-    for (c, cluster) in enumerate(clusters)
-        flip[c] || continue
-        for site in cluster
-            site <= geometry.n_sites && (reflected[site] = true)
-        end
-    end
-    _reflect_clock_sites!(model, geometry, state, findall(reflected), reflected, mirror)
+    flip = draw_cluster_flips!(rng, workspace, geometry)
+    _reflect_clock_clusters!(
+        model, geometry, state, workspace.labels, flip, context.mirror
+    )
     return nothing
 end
 
@@ -397,16 +356,70 @@ function _reflect_clock_sites!(
     ΔE = zero(state.energy)
     ΔMx = zero(state.magnetization_x)
     ΔMy = zero(state.magnetization_y)
+    J = couplings(model)
 
     for site in sites
         old = state.spins[site]
         new = mod(mirror - old, model.q)
         new == old && continue
         info = geometry.neighbor_table[site]
-        for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+        for (template, neighbor) in zip(info.templates, info.neighbors)
             (neighbor == site || reflected[neighbor]) && continue
             n_j = state.spins[neighbor]
-            ΔE -= bond_strength(model, geometry, bond_id) *
+            ΔE -= J[template] *
+                (clock_cos(model, new - n_j) - clock_cos(model, old - n_j))
+        end
+        Δcos = clock_cos(model, new) - clock_cos(model, old)
+        ΔE -= field_strength(model, geometry, site) * Δcos
+        ΔMx += Δcos
+        ΔMy += clock_sin(model, new) - clock_sin(model, old)
+        state.spins[site] = new
+    end
+
+    state.energy += ΔE
+    state.magnetization_x += ΔMx
+    state.magnetization_y += ΔMy
+    return nothing
+end
+
+"""
+    _reflect_clock_clusters!(model, geometry, state, labels, flip, mirror)
+
+Reflect every lattice site whose cluster label is marked in `flip` across
+clock mirror `mirror` (`n -> mod(mirror - n, q)`), accumulating the exact
+energy and magnetization change from the lookup tables. `labels[i]` is the
+union-find root of site `i` (see [`step!`](@ref) with
+[`SwendsenWangAlgorithm`](@ref)) and doubles as the site-to-cluster map: a
+bond incident to a reflected site is internal (both endpoints reflect, and
+reflection preserves `cos(θ_i - θ_j)`) when `flip[labels[neighbor]]`
+is true, external (never visited) when neither endpoint reflects, and
+crossing (counted once, from the reflected side, with pre-reflection indices)
+otherwise. Sites lying on the mirror (`new == old`) do not move, so their
+incident bonds are unchanged and are skipped together with the site itself.
+"""
+function _reflect_clock_clusters!(
+    model::ClockModel,
+    geometry::Geometry,
+    state::ClockState,
+    labels::Vector{Int},
+    flip::Vector{Bool},
+    mirror::Integer,
+)
+    ΔE = zero(state.energy)
+    ΔMx = zero(state.magnetization_x)
+    ΔMy = zero(state.magnetization_y)
+    J = couplings(model)
+
+    for site in 1:geometry.n_sites
+        flip[labels[site]] || continue
+        old = state.spins[site]
+        new = mod(mirror - old, model.q)
+        new == old && continue
+        info = geometry.neighbor_table[site]
+        for (template, neighbor) in zip(info.templates, info.neighbors)
+            (neighbor == site || flip[labels[neighbor]]) && continue
+            n_j = state.spins[neighbor]
+            ΔE -= J[template] *
                 (clock_cos(model, new - n_j) - clock_cos(model, old - n_j))
         end
         Δcos = clock_cos(model, new) - clock_cos(model, old)

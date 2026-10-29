@@ -1,8 +1,13 @@
 """
-    MeasurementContainer{T, S, Ts}
+    MeasurementContainer{D, N, T, S, Ts, O}
 
 Accumulates binned Monte Carlo measurements and holds the observable
 specifications needed to analyze them.
+
+The type parameters `D` (diagnostic names) and `N` (raw observable names) are
+tuples of `Symbol`s, and `O` is the concretely typed tuple of
+[`Observable`](@ref)s, so that [`measure!`](@ref) is type-stable: observable
+values are sampled, named, and accumulated without dynamic dispatch.
 
 Raw measurements are accumulated into `bin_sums` as they're taken and
 flushed into `data` once every `bin_size` measurements. `bin_count` tracks
@@ -28,23 +33,23 @@ the codebase).
 - `bin_count::Int`: Number of measurements accumulated in the current bin;
   reset to `0` when the bin is flushed into `data`.
 - `bin_size::Int`: Number of measurements per bin (`n_measurements ÷ n_bins`).
-- `observables::Vector{Observable}`: The raw observables being measured.
+- `observables::O`: The raw observables being measured, stored as a
+  concretely typed tuple whose names and order match the leading fields of
+  `bin_sums` (the trailing fields are the diagnostics named by `D`).
 - `derived::Vector{DerivedObservable}`: The derived quantities to compute
   from the raw observables once binning is complete.
-- `diagnostics::Vector{Symbol}`: Names of per-sweep algorithm diagnostics
-  accumulated alongside the raw observables.
 
 Construct with [`MeasurementContainer(model, geometry, n_measurements,
 n_bins; measurements)`](@ref).
 """
-mutable struct MeasurementContainer{D, T, S, Ts}
+mutable struct MeasurementContainer{D, N, T, S, Ts, O}
     data::T
     bin_sums::S
     time_series::Ts
     chain_lengths::Vector{Int}
     bin_count::Int
     bin_size::Int
-    observables::Vector{Observable}
+    observables::O
     derived::Vector{DerivedObservable}
 end
 
@@ -122,11 +127,13 @@ observable's initial `data` and `bin_sums` entries are built from its
 
 `ArgumentError` if `n_measurements` and `n_bins` fail
 [`validate_binning`](@ref) (`n_measurements` not positive, `n_bins` less
-than 2, or `n_measurements` not a multiple of `n_bins`), if any name in
-`diagnostics` duplicates a raw observable name, if a requested derived
-quantity depends on an observable that isn't being measured (via
-[`validate_dependencies`](@ref)), or if `time_series` is not a recognized
-option or names an observable that isn't being measured.
+than 2, or `n_measurements` not a multiple of `n_bins`), if `measurements`
+contains a name not available for `model` (see
+[`available_measurements`](@ref)), if any name in `diagnostics` duplicates a
+raw observable name, if a requested derived quantity depends on an
+observable that isn't being measured (via [`validate_dependencies`](@ref)),
+or if `time_series` is not a recognized option or names an observable that
+isn't being measured.
 
 # Returns
 
@@ -138,33 +145,15 @@ function MeasurementContainer(
     geometry,
     n_measurements,
     n_bins;
-    algorithm = nothing,          # lets diagnostics be validated once, here
     measurements = Symbol[],
     diagnostics = Symbol[],
     time_series = :scalars
 )
     validate_binning(n_measurements, n_bins)
 
-    implicit_measurements = Symbol[]
-    requested_measurements = collect(measurements)
-    if :connected_correlation in measurements && :raw_correlation ∉ measurements
-      push!(implicit_measurements, :raw_correlation)
-      push!(requested_measurements, :raw_correlation)
-    end
-    if (:abs_magnetization in measurements || :magnetization_abs in measurements) &&
-       :abs_magnetization_squared ∉ measurements
-      push!(implicit_measurements, :abs_magnetization_squared)
-    end
-    if (:binder_cumulant in measurements || :binder in measurements) &&
-       :magnetization_fourth ∉ measurements
-      push!(implicit_measurements, :magnetization_fourth)
-    end
-    isempty(implicit_measurements) || println(
-      "Additional measurements $(implicit_measurements) are included by the " *
-      "requested measurements $(measurements)."
-    )
-
-    opt_obs, opt_der = optional_observables(model, geometry, requested_measurements)
+    # Alias canonicalization, availability validation, and the
+    # implicit-dependency notice all live in `optional_observables`.
+    opt_obs, opt_der = optional_observables(model, geometry, measurements)
 
     obs = unique(observable -> observable.name, vcat(observables(model, geometry), opt_obs))
     der = unique(derived -> derived.names, vcat(derived_observables(model, geometry), opt_der))
@@ -177,17 +166,6 @@ function MeasurementContainer(
     observable_names = [o.name for o in obs]
     isempty(intersect(observable_names, diag_names)) ||
         throw(ArgumentError("Diagnostic names must not duplicate observable names"))
-
-    # Validate once, at construction, instead of on every sweep.
-    if algorithm !== nothing
-        avail = available_diagnostics(algorithm)
-        for name in diag_names
-            name in avail || throw(ArgumentError(
-                "$name is not a diagnostic of $(typeof(algorithm)); " *
-                "available: $(Tuple(avail))"
-            ))
-        end
-    end
 
     validate_dependencies(obs, der)
 
@@ -214,8 +192,16 @@ end
 
 function _build_container(::Val{D}, data, bin_sums, series, chain_lengths,
                           bin_count, bin_size, obs, der) where {D}
-    return MeasurementContainer{D, typeof(data), typeof(bin_sums), typeof(series)}(
-        data, bin_sums, series, chain_lengths, bin_count, bin_size, obs, der
+    # A concretely typed tuple of observables makes measure! type-stable.
+    observables = obs isa Tuple ? obs : Tuple(obs)
+    obs_names = map(o -> o.name, observables)
+    keys(bin_sums)[1:length(observables)] == obs_names || throw(ArgumentError(
+        "bin_sums fields $(keys(bin_sums)) must lead with the observable " *
+        "names $obs_names in the same order"
+    ))
+    return MeasurementContainer{D, obs_names, typeof(data), typeof(bin_sums),
+                                typeof(series), typeof(observables)}(
+        data, bin_sums, series, chain_lengths, bin_count, bin_size, observables, der
     )
 end
 

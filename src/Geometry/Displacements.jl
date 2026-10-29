@@ -26,7 +26,7 @@ given orbital pair and displacement.
 # Returns
 
 A named tuple with matching-length vectors describing each class, plus the
-source `unit_cell` and `lattice`:
+source geometry:
 
 - `displacements`: The displacement `Δl` (an `NTuple{D,Int}`) for each class.
 - `orbitals`: The `(oi, oj)` orbital index pair for each class.
@@ -34,8 +34,8 @@ source `unit_cell` and `lattice`:
   coordinates for each class.
 - `counts`: Number of valid starting sites for each class (the product of
   `valid_ranges` lengths).
-- `unit_cell`: The unit cell from `geometry`, passed through unchanged.
-- `lattice`: The lattice from `geometry`, passed through unchanged.
+- `geometry`: The source `geometry`, passed through unchanged (so consumers
+  can use [`site_at`](@ref) and the lattice's boundary conditions).
 """
 function build_displacement_classes(geometry::Geometry{D}) where D
     (; unit_cell, lattice) = geometry
@@ -72,5 +72,5 @@ function build_displacement_classes(geometry::Geometry{D}) where D
 
     return (displacements = displacements, orbitals = orbitals,
             valid_ranges = valid_ranges, counts = counts,
-            unit_cell = unit_cell, lattice = lattice)
+            geometry = geometry)
 end

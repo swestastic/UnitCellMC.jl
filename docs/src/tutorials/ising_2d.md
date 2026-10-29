@@ -155,12 +155,12 @@ processed_results = ucmc.analyze(container, T, n_sites)
 Finally, save them to a CSV file with `save_results`
 
 ```julia
-ucmc.save_results(model, algorithm, L, T, processed_results, parameters)
+ucmc.save_results(model, algorithm, geometry, T, processed_results, parameters)
 ```
 
 ### Multiple Temperature Run
 
-For multiple temperature runs, the package provides `sweep_Ts`, which initializes a new `SimulationParameters` and measurement container for every temperature, runs `run_simulation` and `analyze` at each one, and finally saves the combined results to a condensed CSV output folder with `save_sweep_results` (the output directory can be changed with the `root` keyword).
+For multiple temperature runs, the package provides `sweep_Ts`, which initializes a new `SimulationParameters` and measurement container for every temperature, runs `run_simulation` and `analyze` at each one, and finally saves the combined results to a condensed CSV output folder with `save_sweep_results` (the output directory can be changed with the `root` keyword, and saving can be skipped entirely with `save = false`).
 
 The `simulated_annealing` flag determines whether the lattice configuration is preserved between temperature changes. If `simulated_annealing = false` is set, then a new random lattice configuration will be initialized for every new temperature.
 
@@ -185,6 +185,6 @@ sweep_results = ucmc.sweep_Ts(
 )
 ```
 
-To average over several independent simulation runs at each temperature, set the `n_runs` keyword (e.g. `n_runs = 20`). The bins of all runs are merged before the jackknife analysis, so the reported error bars reflect the variance between independent runs as well as within them. Each run anneals its own configuration across the temperature sweep when `simulated_annealing = true`, and is re-initialized randomly at every temperature otherwise. The runs execute in parallel over Julia threads; start Julia with `--threads auto` to benefit. Before the threads start, `sweep_Ts` draws one seed per run from the global RNG (or from its `rng` keyword) and gives every run its own generator for the whole sweep, so each run consumes the same random stream no matter which thread executes it. The results are therefore reproducible from the seed set above, independent of the thread count.
+To average over several independent simulation runs at each temperature, set the `n_runs` keyword (e.g. `n_runs = 20`). The bins of all runs are merged before the jackknife analysis, so the reported error bars reflect the variance between independent runs as well as within them. Each run anneals its own configuration across the temperature sweep when `simulated_annealing = true`, and is re-initialized randomly at every temperature otherwise. The simulations execute in parallel over Julia threads; start Julia with `--threads auto` to benefit. With `simulated_annealing = true` the temperatures run one after another (each run carries its configuration forward), so the `n_runs` runs at each temperature are the parallel unit; with `simulated_annealing = false` every (temperature, run) pair is independent, so all `length(Ts) * n_runs` simulations form a single parallel pool. Before the threads start, `sweep_Ts` draws one seed per simulation from the global RNG (or from its `rng` keyword) and gives every simulation its own generator, so each one consumes the same random stream no matter which thread executes it. The results are therefore reproducible from the seed set above, independent of the thread count.
 
 Now you should see an output folder with results saved in a CSV format, which can easily be used for plotting.

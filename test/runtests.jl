@@ -474,6 +474,113 @@ end
     @test_throws ArgumentError ucmc.bond_strength(valid_model, geometry, 100)
 end
 
+struct PairingTestModel <: ucmc.AbstractModel{Float64} end
+struct PairingTestState <: ucmc.AbstractState end
+
+@testset "Model/state pairing" begin
+    geometry = square_geometry(2)
+    ising = ucmc.IsingModel([1.0, 1.0], [0.0])
+    xy = ucmc.XYModel([1.0, 1.0], [0.0])
+    clock = ucmc.ClockModel(4, [1.0, 1.0], [0.0])
+
+    @test ucmc.state_type(ising) == ucmc.IsingState
+    @test ucmc.state_type(xy) == ucmc.XYState
+    @test ucmc.state_type(clock) == ucmc.ClockState
+    @test_throws ArgumentError ucmc.state_type(PairingTestModel())
+
+    # Models without their own methods fail loudly instead of falling back
+    # to another model's physics.
+    @test_throws ArgumentError ucmc.initialize_state(PairingTestModel(), geometry)
+
+    ising_state = ucmc.initialize_state(ising, geometry)
+    xy_state = ucmc.initialize_state(xy, geometry)
+    @test ising_state isa ucmc.state_type(ising)
+    @test xy_state isa ucmc.state_type(xy)
+    @test ucmc.initialize_state(clock, geometry) isa ucmc.state_type(clock)
+
+    @test isnothing(ucmc.validate_model_state(ising, ising_state))
+    @test_throws ArgumentError ucmc.validate_model_state(ising, xy_state)
+    @test_throws ArgumentError ucmc.validate_model_state(xy, ising_state)
+    @test_throws ArgumentError ucmc.validate_model_state(PairingTestModel(), PairingTestState())
+
+    container = ucmc.MeasurementContainer(ising, geometry, 4, 2)
+    parameters = ucmc.SimulationParameters(2.0, 0, 4, 0, 2)
+    @test_throws ArgumentError ucmc.run_simulation(
+        ucmc.MetropolisAlgorithm(), ising, geometry, xy_state, container, parameters
+    )
+    @test_throws ArgumentError ucmc.sweep_Ts(
+        ucmc.MetropolisAlgorithm(), ising, geometry, xy_state, 0, 4, 0, 2, [2.0]
+    )
+
+    @test ucmc.magnetization_value(ising_state) == ising_state.magnetization
+    @test ucmc.magnetization_value(xy_state) ==
+        hypot(xy_state.magnetization_x, xy_state.magnetization_y)
+    @test ucmc.magnetization_value(ucmc.initialize_state(clock, geometry)) isa Real
+    @test_throws ArgumentError ucmc.magnetization_value(PairingTestState())
+end
+
+@testset "Single-site update contract" begin
+    geometry = square_geometry(2)
+    models_and_energy = (
+        (ucmc.IsingModel([1.0, 1.0], [0.5]), spin_energy),
+        (ucmc.XYModel([1.0, 1.0], [0.5]), xy_energy),
+        (ucmc.ClockModel(4, [1.0, 1.0], [0.5]), clock_energy),
+    )
+    mag_totals(s::ucmc.IsingState) = (s.magnetization,)
+    mag_totals(s) = (s.magnetization_x, s.magnetization_y)
+
+    for (model, energy) in models_and_energy, algorithm in
+            (ucmc.MetropolisAlgorithm(), ucmc.GlauberAlgorithm())
+        rng = Xoshiro(7)
+        state = ucmc.initialize_state(model, geometry; rng = rng)
+        for _ in 1:10
+            proposal = ucmc.propose(rng, algorithm, model, geometry, state)
+
+            # one shared proposal type across models and local algorithms
+            @test proposal isa ucmc.SpinUpdate
+
+            ΔE = ucmc.energy_difference(model, geometry, state, proposal)
+            before_e = state.energy
+            before_m = mag_totals(state)
+            @test ucmc.apply_update!(state, proposal, ΔE) === nothing
+
+            # the carried delta matches the actual magnetization change, and
+            # the running totals stay exact
+            carried = proposal.magnetization_change
+            carried = carried isa Tuple ? collect(carried) : [carried]
+            Δm = collect(mag_totals(state)) - collect(before_m)
+            @test all(Δm .≈ carried)
+            @test state.energy == before_e + ΔE
+            values = state isa ucmc.XYState ? state.angles : state.spins
+            @test state.energy ≈ energy(model, geometry, values) atol = 1e-10
+        end
+    end
+end
+
+@testset "Coupling and field accessors" begin
+    geometry = two_orbital_geometry(2)
+    for model in (ucmc.IsingModel([1.0, 2.0], [0.5, -0.25]),
+                  ucmc.XYModel([1.0, 2.0], [0.5, -0.25]),
+                  ucmc.ClockModel(4, [1.0, 2.0], [0.5, -0.25]))
+        @test ucmc.couplings(model) === model.J
+        @test ucmc.fields(model) === model.h
+        for site in 1:geometry.n_sites
+            orbital = lu.site_to_orbital(site, geometry.unit_cell)
+            @test ucmc.field_strength(model, geometry, site) === model.h[orbital]
+        end
+    end
+
+    # cluster algorithms reject antiferromagnetic couplings for every model
+    for model in (ucmc.IsingModel([1.0, -1.0], [0.0, 0.0]),
+                  ucmc.XYModel([1.0, -1.0], [0.0, 0.0]),
+                  ucmc.ClockModel(3, [1.0, -1.0], [0.0, 0.0]))
+        state = ucmc.initialize_state(model, geometry)
+        for algorithm in (ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
+            @test_throws ArgumentError ucmc.step!(algorithm, model, geometry, state, 1.0)
+        end
+    end
+end
+
 @testset "Optional correlation observables" begin
     geometry = square_geometry(2)
     model = ucmc.IsingModel([1.0, 1.0], [0.0])
@@ -506,6 +613,74 @@ end
     result = ucmc.analyze(connected_container, 2.0, geometry.n_sites)
     @test haskey(result.primary, :correlation)
     @test haskey(result.derived, :correlation_connected)
+    @test haskey(connected_container.data, :magnetization_per_orbital)
+end
+
+@testset "Connected correlation is per-orbital" begin
+    # Two decoupled sublattices under opposite fields have inequivalent
+    # sublattice magnetizations, so the per-orbital subtraction differs from
+    # the lattice-averaged one.
+    geometry = two_orbital_geometry(2)
+    N = geometry.n_sites
+    n_orb = lu.norbits(geometry.unit_cell)
+    n_cells = N ÷ n_orb
+    T = 1.0
+    model = ucmc.IsingModel([1.0, 1.0], [0.5, -0.25])
+    disp = ucmc.build_displacement_classes(geometry)
+    L = geometry.lattice.L
+
+    # Exact per-class correlations and per-orbital magnetizations by enumeration.
+    Z = 0.0
+    m_exact = zeros(n_orb)
+    C_exact = zeros(length(disp.displacements))
+    for c in 0:(2^N - 1)
+        spins = 2 .* digits(c; base = 2, pad = N) .- 1
+        w = exp(-spin_energy(model, geometry, spins) / T)
+        Z += w
+        for site in 1:N
+            m_exact[lu.site_to_orbital(site, geometry.unit_cell)] += w * spins[site]
+        end
+        for r in eachindex(disp.displacements)
+            Δl = disp.displacements[r]
+            oi, oj = disp.orbitals[r]
+            acc = 0.0
+            for loc_i in Iterators.product(disp.valid_ranges[r]...)
+                i = ucmc.site_at(geometry, loc_i, oi)
+                loc_j = ntuple(d -> mod(loc_i[d] + Δl[d], L[d]), length(L))
+                acc += spins[i] * spins[ucmc.site_at(geometry, loc_j, oj)]
+            end
+            C_exact[r] += w * acc / disp.counts[r]
+        end
+    end
+    m_exact ./= Z * n_cells
+    C_exact ./= Z
+    connected_exact = [
+        C_exact[r] - m_exact[oi] * m_exact[oj]
+        for (r, (oi, oj)) in enumerate(disp.orbitals)
+    ]
+
+    rng = Xoshiro(11)
+    state = ucmc.initialize_state(model, geometry; rng = rng)
+    container = ucmc.MeasurementContainer(model, geometry, 20_000, 20;
+        measurements = [:connected_correlation])
+    ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state, container,
+        ucmc.SimulationParameters(T, 500, 20_000, 0, 20); rng = rng)
+    result = ucmc.analyze(container, T, N)
+
+    # the per-orbital magnetization observable matches enumeration
+    m_meas, m_err = result.primary[:magnetization_per_orbital]
+    @test size(m_meas) == (1, n_orb)
+    @test all(abs.(m_meas .- reshape(m_exact, 1, n_orb)) .< 4 .* m_err .+ 5e-3)
+
+    # the connected correlation subtracts ⟨S_oi⟩⟨S_oj⟩ per orbital pair
+    conn, conn_err = result.derived.correlation_connected, result.derived.correlation_connected_err
+    @test all(abs.(conn .- connected_exact) .< 4 .* conn_err .+ 5e-3)
+
+    # and the two sublattices really are inequivalent here, so the old
+    # lattice-averaged subtraction would give a resolvably wrong answer
+    wrong = [C_exact[r] - (sum(m_exact) / n_orb)^2 for r in eachindex(disp.displacements)]
+    cross = [r for (r, (oi, oj)) in enumerate(disp.orbitals) if oi != oj]
+    @test maximum(abs.(connected_exact[cross] .- wrong[cross])) > 0.02
 end
 
 @testset "Optional magnetization and Binder observables" begin
@@ -552,16 +727,44 @@ end
 @testset "Sweep save edge cases" begin
     model = ucmc.IsingModel([1.0, 1.0], [0.0])
     algorithm = ucmc.MetropolisAlgorithm()
-    L = [2, 2]
+    geometry = square_geometry(2)
     root = mktempdir()
 
-    empty_dir = ucmc.save_sweep_results([], Float64[], model, algorithm, L, 0, 0, 0, 1; root = root)
+    empty_dir = ucmc.save_sweep_results([], Float64[], model, algorithm, geometry, 0, 0, 0, 1; root = root)
     @test isdir(empty_dir)
     @test isfile(joinpath(empty_dir, "metadata.txt"))
     @test !isfile(joinpath(empty_dir, "measurement_results.csv"))
     @test !isfile(joinpath(empty_dir, "correlation_results.csv"))
 
-    @test_throws ArgumentError ucmc.save_sweep_results([Dict()], [1.0, 2.0], model, algorithm, L, 0, 0, 0, 1; root = root)
+    @test_throws ArgumentError ucmc.save_sweep_results([Dict()], [1.0, 2.0], model, algorithm, geometry, 0, 0, 0, 1; root = root)
+
+    # CSV rows are deterministic: the primary (Dict) entries come out sorted
+    fake = (primary = Dict(:z => (1.0, 0.1), :a => (2.0, 0.2), :m => (3.0, 0.3), :e => (4.0, 0.4)),
+            derived = NamedTuple())
+    names, values, errors = ucmc.measurement_rows(fake)
+    @test names == ["a", "e", "m", "z"]
+    @test values == [2.0, 4.0, 3.0, 1.0]
+    @test errors == [0.2, 0.4, 0.3, 0.1]
+end
+
+@testset "sweep_Ts save keyword" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    state = ucmc.initialize_state(model, geometry)
+    root = mktempdir()
+
+    # save = false: pure computation, nothing written
+    results = ucmc.sweep_Ts(ucmc.MetropolisAlgorithm(), model, geometry, state,
+        1, 4, 0, 2, [2.0]; root = root, save = false)
+    @test length(results) == 1
+    @test haskey(results[1].primary, :energy)
+    @test isempty(readdir(root))
+
+    # default (save = true) writes the sweep directory
+    ucmc.sweep_Ts(ucmc.MetropolisAlgorithm(), model, geometry, state,
+        1, 4, 0, 2, [2.0]; root = root)
+    dir = ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L; root = root)
+    @test isfile(joinpath(dir, "measurement_results.csv"))
 end
 
 @testset "steps_per_sweep" begin
@@ -598,6 +801,7 @@ end
     @test stats[2].count == 1
     @test ucmc.value(stats[1]) >= 1
     @test 0.0 < ucmc.value(stats[2])
+end
 
 @testset "Algorithms reject non-positive temperature" begin
     geometry = square_geometry(2)
@@ -788,8 +992,8 @@ end
         ((3, 6, 1, 3, [2.0]), (; diagnostics = [:cluster_size])),    # wrong algorithm diagnostic
         ((3, 6, 1, 3, [2.0]), (; time_series = [:not_measured])),    # container rejects
     ]
-    for (args, kwargs) in cases
-        err, untouched = sweep_error(args...; kwargs...)
+    for (args, kwargs) in cases, annealing in (true, false)
+        err, untouched = sweep_error(args...; simulated_annealing = annealing, kwargs...)
         @test err isa ArgumentError
         @test untouched
     end
@@ -897,10 +1101,10 @@ end
     container = ucmc.MeasurementContainer(model, geometry, 4, 2)
     ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state, container, parameters)
     results = ucmc.analyze(container, 2.0, geometry.n_sites)
-    single = ucmc.save_results(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L, 2.0,
+    single = ucmc.save_results(model, ucmc.MetropolisAlgorithm(), geometry, 2.0,
         results, parameters; root = root)
     @test "seed = 7" in metadata(single)
-    single = ucmc.save_results(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L, 2.0,
+    single = ucmc.save_results(model, ucmc.MetropolisAlgorithm(), geometry, 2.0,
         results, parameters; root = root, seed = nothing)
     @test "seed = unknown" in metadata(single)
 end
@@ -1215,7 +1419,7 @@ end
     @test rows.observable == sort(rows.observable)
     @test ucmc.autocorrelation_rows((primary = Dict(), derived = NamedTuple())) === nothing
 
-    single = ucmc.save_results(model, ucmc.WolffAlgorithm(), geometry.lattice.L, 3.0,
+    single = ucmc.save_results(model, ucmc.WolffAlgorithm(), geometry, 3.0,
         sweep_results[1], ucmc.SimulationParameters(3.0, 10, 40, 0, 4); root = root)
     @test isfile(joinpath(single, "autocorrelation_results.csv"))
 end
@@ -1331,6 +1535,31 @@ end
             # Sum rule for unit-length spins: mean over k of S_aa(k) is 1.
             @test sum(block(1, 1)) / n_k ≈ 1.0
             @test sum(block(2, 2)) / n_k ≈ 1.0
+        end
+    end
+end
+
+@testset "correlation via inverse DFT" begin
+    for (model, algorithm) in (
+        (ucmc.IsingModel([1.0, 0.5], [0.0, 0.0]), ucmc.MetropolisAlgorithm()),
+        (ucmc.XYModel([1.0, 0.5], [0.0, 0.0]), ucmc.WolffAlgorithm()),
+        (ucmc.ClockModel(4, [1.0, 0.5], [0.0, 0.0]), ucmc.SwendsenWangAlgorithm()),
+    )
+        rng = Xoshiro(9)
+        for geometry in (rectangular_two_orbital_geometry(3, 4),                  # periodic: DFT path
+                         rectangular_two_orbital_geometry(3, 4; periodic = [true, false]))  # open: direct fallback
+            disp = ucmc.build_displacement_classes(geometry)
+            state = ucmc.initialize_state(model, geometry; rng = rng)
+            for _ in 1:3
+                for _ in 1:ucmc.steps_per_sweep(algorithm, geometry)
+                    ucmc.step!(algorithm, model, geometry, state, 1.5; rng = rng)
+                end
+            end
+            container = ucmc.MeasurementContainer(model, geometry, 4, 2;
+                measurements = [:raw_correlation])
+            observable = only(o for o in container.observables if o.name == :correlation)
+            direct = ucmc.correlation_instantaneous(model, state, disp)
+            @test observable.value(state) ≈ direct atol = 1e-10
         end
     end
 end
@@ -1454,7 +1683,7 @@ end
         "real_value,real_error,imag_value,imag_error"
     @test length(lines) == 1 + length(Ts) * 4
 
-    single = ucmc.save_results(model, ucmc.WolffAlgorithm(), geometry.lattice.L, 3.0,
+    single = ucmc.save_results(model, ucmc.WolffAlgorithm(), geometry, 3.0,
         sweep_results[1], ucmc.SimulationParameters(3.0, 4, 8, 0, 2); root = root)
     @test isfile(joinpath(single, "structure_factor_results.csv"))
     @test length(readlines(joinpath(single, "structure_factor_results.csv"))) == 1 + 4
@@ -1635,10 +1864,6 @@ end
     geometry = square_geometry(3)
     N = geometry.n_sites
     model = ucmc.ClockModel(5, [1.0, 1.0], [0.2])
-    @test ucmc.magnetization_components(model) == (:magnetization_x, :magnetization_y)
-    @test ucmc.magnetization_components(ucmc.XYModel([1.0, 1.0], [0.0])) ==
-        (:magnetization_x, :magnetization_y)
-    @test ucmc.magnetization_components(ucmc.IsingModel([1.0, 1.0], [0.0])) == (:magnetization,)
 
     parameters = ucmc.SimulationParameters(1.5, 2, 8, 0, 2)
     for algorithm in (ucmc.MetropolisAlgorithm(), ucmc.GlauberAlgorithm(),
@@ -1650,7 +1875,7 @@ end
             diagnostics = ucmc.available_diagnostics(algorithm))
 
         connected = only(filter(d -> :correlation_connected in d.names, container.derived))
-        @test connected.depends_on == (:correlation, :magnetization_x, :magnetization_y)
+        @test connected.depends_on == (:correlation, :magnetization_per_orbital)
 
         values = Dict(o.name => o.value(state) for o in container.observables)
         @test values[:magnetization] ≈ hypot(state.magnetization_x, state.magnetization_y) / N
@@ -1792,4 +2017,40 @@ end
     @test "clock_order_parameter" in saved
 end
 
+@testset "Optional measurement registry" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+
+    # unknown names throw instead of being silently ignored
+    @test_throws ArgumentError ucmc.MeasurementContainer(model, geometry, 4, 2;
+        measurements = [:not_a_measurement])
+    @test_throws ArgumentError ucmc.optional_observables(model, geometry, Val(:not_a_measurement))
+
+    # aliases canonicalize to the same measurement
+    derived_names(c) = sort(Symbol[n for d in c.derived for n in d.names])
+    plain = ucmc.MeasurementContainer(model, geometry, 4, 2; measurements = [:binder_cumulant])
+    aliased = ucmc.MeasurementContainer(model, geometry, 4, 2; measurements = [:binder])
+    @test sort(collect(keys(plain.data))) == sort(collect(keys(aliased.data)))
+    @test derived_names(plain) == derived_names(aliased)
+
+    abs_alias = ucmc.MeasurementContainer(model, geometry, 4, 2; measurements = [:magnetization_abs])
+    @test haskey(abs_alias.data, :abs_magnetization)
+
+    # requesting an implied observable by name adds it exactly once
+    both = ucmc.MeasurementContainer(model, geometry, 4, 2;
+        measurements = [:abs_magnetization, :abs_magnetization_squared])
+    @test haskey(both.data, :abs_magnetization_squared)
+    names = [o.name for o in both.observables]
+    @test length(names) == length(unique(names))
+
+    # every advertised name builds for each model
+    for m in (model, ucmc.XYModel([1.0, 1.0], [0.0]), ucmc.ClockModel(4, [1.0, 1.0], [0.0]))
+        container = ucmc.MeasurementContainer(m, geometry, 4, 2;
+            measurements = ucmc.available_measurements(m))
+        @test !isempty(keys(container.data))
+    end
+
+    @test ucmc.extra_measurements(ucmc.ClockModel) == (:clock_order_parameter,)
+    @test isempty(ucmc.extra_measurements(ucmc.IsingModel))
+    @test_throws ArgumentError ucmc.binder_denominator(PairingTestModel())
 end

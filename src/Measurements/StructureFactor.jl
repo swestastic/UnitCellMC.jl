@@ -74,13 +74,13 @@ end
     build_momentum_classes(geometry::Geometry{D}) where D
 
 Precompute, once per `geometry`, the momentum grid and lookup tables needed
-by [`structure_factor_instantaneous`](@ref).
+by [`structure_factor_instantaneous`](@ref): the raw grid from
+[`build_momentum_grid`](@ref), plus a [`StructureFactorClass`](@ref) label
+for every (orbital pair, momentum) entry.
 
-The momentum grid has `L[d]` points along each periodic dimension and a
-single point (`k_d = 0`) along each open dimension. Entries are ordered by
-orbital pair `(oi, oj)` (with `oj` varying fastest) and, within each pair,
-by momentum in column-major order (first dimension fastest), the same
-ordering as [`build_displacement_classes`](@ref).
+Entries are ordered by orbital pair `(oi, oj)` (with `oj` varying fastest)
+and, within each pair, by momentum in column-major order (first dimension
+fastest), the same ordering as [`build_displacement_classes`](@ref).
 
 # Arguments
 
@@ -88,45 +88,21 @@ ordering as [`build_displacement_classes`](@ref).
 
 # Returns
 
-A named tuple with fields
+The fields of [`build_momentum_grid`](@ref) (`momentum_indices`, `momenta`,
+`sites`, `phases`, `n_cells`, `n_orbitals`, `n_momenta`), plus
 
 - `classes::Vector{StructureFactorClass}`: Label of each structure-factor
   entry, in output order.
-- `sites::Vector{Array{Int,D}}`: For each orbital, the site index of that
-  orbital in the unit cell at location `l` stored at `sites[o][(l .+ 1)...]`.
-- `phases::NTuple{D,Matrix{ComplexF64}}`: Per-dimension Fourier matrices,
-  `phases[d][n + 1, l + 1] = exp(-2πi n l / L[d])` (a single row of ones
-  along open dimensions).
-- `n_cells::Int`: Number of unit cells, used for normalization.
-- `n_orbitals::Int`: Number of orbitals per unit cell.
-- `n_momenta::Int`: Number of momenta on the grid.
 """
 function build_momentum_classes(geometry::Geometry{D}) where D
-    (; unit_cell, lattice) = geometry
-    (; L, periodic) = lattice
-    n_orb = LatticeUtilities.norbits(unit_cell)
-    dims = ntuple(d -> L[d], D)
-    k_dims = ntuple(d -> periodic[d] ? L[d] : 1, D)
-
-    sites = [Array{Int,D}(undef, dims) for _ in 1:n_orb]
-    for o in 1:n_orb, I in CartesianIndices(dims)
-        sites[o][I] = LatticeUtilities.loc_to_site(collect(Tuple(I) .- 1), o, unit_cell, lattice)
-    end
-
-    phases = ntuple(D) do d
-        [cis(-2π * n * l / L[d]) for n in 0:(k_dims[d] - 1), l in 0:(L[d] - 1)]
-    end
-
-    T = eltype(unit_cell.reciprocal_vecs)
+    grid = build_momentum_grid(geometry)
+    T = eltype(eltype(grid.momenta))
     classes = StructureFactorClass{D,T}[]
-    for oi in 1:n_orb, oj in 1:n_orb, I in CartesianIndices(k_dims)
-        n = Tuple(I) .- 1
-        k = LatticeUtilities.calc_k_point(collect(n), unit_cell, lattice)
-        push!(classes, StructureFactorClass{D,T}(n, Tuple(k), (oi, oj)))
+    for oi in 1:grid.n_orbitals, oj in 1:grid.n_orbitals,
+            (index, k) in zip(grid.momentum_indices, grid.momenta)
+        push!(classes, StructureFactorClass{D,T}(index, k, (oi, oj)))
     end
-
-    return (classes = classes, sites = sites, phases = phases,
-            n_cells = prod(dims), n_orbitals = n_orb, n_momenta = prod(k_dims))
+    return (; classes, grid...)
 end
 
 """

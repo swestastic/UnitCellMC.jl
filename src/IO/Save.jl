@@ -2,6 +2,24 @@ using CSV
 using DataFrames
 
 """
+    algorithm_label(algorithm)
+
+Return the string identifying `algorithm` in results directory names: its
+type name, with a non-default proposal scheme appended for local-update
+algorithms (e.g. `"MetropolisAlgorithm-SequentialProposal"`), so that runs
+comparing site-selection schemes do not overwrite each other. The default
+[`RandomProposal`](@ref) keeps the bare type name.
+"""
+algorithm_label(algorithm) = string(nameof(typeof(algorithm)))
+
+algorithm_label(alg::Union{MetropolisAlgorithm, GlauberAlgorithm}) =
+    algorithm_label(nameof(typeof(alg)), alg.proposal)
+
+algorithm_label(name, ::RandomProposal) = string(name)
+algorithm_label(name, proposal::AbstractProposalScheme) =
+    string(name, "-", nameof(typeof(proposal)))
+
+"""
     results_dirname(model, algorithm, L, T; root = "results")
 
 Construct the output directory path for a single-temperature run, encoding
@@ -11,7 +29,8 @@ the directory name.
 # Arguments
 
 - `model`: The model instance being simulated (only its type name is used).
-- `algorithm`: The algorithm instance being used (only its type name is used).
+- `algorithm`: The algorithm instance being used (see
+  [`algorithm_label`](@ref)).
 - `L`: System size, joined component-wise with `"x"` (e.g. `(4, 4)` → `"4x4"`).
 - `T`: Temperature, rounded to 6 digits for the directory name.
 - `root`: Base directory under which the run directory is created.
@@ -22,7 +41,7 @@ The path `root/ModelName_AlgorithmName_LWxH_tempT`, without creating it.
 """
 function results_dirname(model, algorithm, L, T; root::AbstractString = "results")
     model_name = string(nameof(typeof(model)))
-    alg_name   = string(nameof(typeof(algorithm)))
+    alg_name   = algorithm_label(algorithm)
     L_str      = join(L, "x")
     T_str      = string(round(T, digits = 6))
     return joinpath(root, "$(model_name)_$(alg_name)_L$(L_str)_temp$(T_str)")
@@ -360,7 +379,8 @@ system size `L` into the directory name.
 # Arguments
 
 - `model`: The model instance being simulated (only its type name is used).
-- `algorithm`: The algorithm instance being used (only its type name is used).
+- `algorithm`: The algorithm instance being used (see
+  [`algorithm_label`](@ref)).
 - `L`: System size, joined component-wise with `"x"`.
 - `root`: Base directory under which the sweep directory is created.
 
@@ -370,7 +390,7 @@ The path `root/ModelName_AlgorithmName_LWxH_sweep`, without creating it.
 """
 function sweep_dirname(model, algorithm, L; root::AbstractString = "results")
     model_name = string(nameof(typeof(model)))
-    alg_name   = string(nameof(typeof(algorithm)))
+    alg_name   = algorithm_label(algorithm)
     L_str      = join(L, "x")
     return joinpath(root, "$(model_name)_$(alg_name)_L$(L_str)_sweep")
 end

@@ -49,17 +49,18 @@ n_operator_components(::IsingModel) = 1
 operator_components(::IsingModel, s::Real) = (s,)
 
 """
-    propose(rng, ::MetropolisAlgorithm, model, geometry, state)
+    propose(rng, ::MetropolisAlgorithm, model::IsingModel, geometry, state, site)
 
-Generate a Metropolis trial move for `model`: pick a random site, drawn from
-`rng`, and propose flipping its spin.
+Generate a Metropolis trial move for the Ising model at `site` (chosen by the
+algorithm's [`AbstractProposalScheme`](@ref)): propose flipping its spin.
+`rng` goes unused — the flip is deterministic — but is part of the shared
+single-site update contract (see [`apply_update!`](@ref)).
 
 # Returns
 
 A `SpinUpdate` describing the site and its proposed (flipped) value.
 """
-function propose(rng::AbstractRNG, ::MetropolisAlgorithm, ::IsingModel, geometry, state)
-    site = rand(rng, eachindex(state.spins))
+function propose(::AbstractRNG, ::MetropolisAlgorithm, ::IsingModel, geometry, state, site::Int)
     s = state.spins[site]
     return SpinUpdate(site, -s, -2s)
 end

@@ -18,6 +18,26 @@ A Monte-Carlo step is as follows.
 - Draw a random number $r\in[0,1]$
 - Accept the update with probability $\text{min}(1,e^{-\beta\Delta E})$, where $\beta=\frac{1}{T}$.
 
+### Proposal schemes
+
+The first step — selecting the site — is independent of the acceptance rule
+and is controlled by the algorithm's proposal scheme
+(`MetropolisAlgorithm(RandomProposal())` is the default):
+
+- `RandomProposal()`: every update draws a site uniformly at random.
+- `SequentialProposal()`: updates visit the sites in site-index order, so one
+  sweep attempts every site exactly once. Since `LatticeUtilities.jl` numbers
+  sites in column-major unit-cell order, consecutive updates target
+  neighboring sites — on a square lattice the sweep proceeds column by
+  column (equivalently row by row, up to transposition).
+
+Each single-site update satisfies detailed balance in either scheme, so the
+completed sweep leaves the Boltzmann distribution invariant; the schemes
+differ only in visiting order, and hence in how successive measurements are
+correlated. Comparing the two is a simple way to study how site-selection
+order affects autocorrelation times. The scheme is orthogonal to the
+acceptance rule: `GlauberAlgorithm(SequentialProposal())` works the same way.
+
 ## Glauber
 
 The Glauber algorithm is a single-spin-flip algorithm with the same trial moves

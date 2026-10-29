@@ -1,9 +1,8 @@
 """
-    GlauberAlgorithm
+    GlauberAlgorithm(proposal = RandomProposal())
 
-Marker type selecting the Glauber single-site update algorithm. Used to
-dispatch [`propose`](@ref) and [`step!`](@ref) to the Glauber acceptance
-rule, which accepts a trial move with probability
+The Glauber single-site update algorithm: the same trial moves as
+[`MetropolisAlgorithm`](@ref), but a trial move is accepted with probability
 `1 / (1 + exp(ΔE / T))` instead of the Metropolis `min(1, exp(-ΔE / T))`.
 
 By default every model proposes the same symmetric single-site trial moves as
@@ -11,14 +10,61 @@ for [`MetropolisAlgorithm`](@ref) — a generic fallback [`propose`](@ref)
 method forwards to it — so detailed balance holds with respect to the
 Boltzmann distribution. A model may override the fallback with a
 Glauber-specific proposal.
-"""
-struct GlauberAlgorithm <: AbstractAlgorithm end
 
-# By default a model's Glauber proposal is its Metropolis one (the same
-# symmetric trial move); a model can override this fallback with a
-# Glauber-specific proposal.
-propose(rng::AbstractRNG, ::GlauberAlgorithm, model::AbstractModel, geometry, state::AbstractState) =
-    propose(rng, MetropolisAlgorithm(), model, geometry, state)
+# Fields
+
+- `proposal::AbstractProposalScheme`: Which site each update visits —
+  [`RandomProposal`](@ref) (the default) or [`SequentialProposal`](@ref).
+"""
+struct GlauberAlgorithm{P<:AbstractProposalScheme} <: AbstractAlgorithm
+    proposal::P
+end
+
+GlauberAlgorithm() = GlauberAlgorithm(RandomProposal())
+
+Base.show(io::IO, alg::GlauberAlgorithm) =
+    print(io, "GlauberAlgorithm(", alg.proposal, ")")
+
+"""
+    propose(rng, algorithm::GlauberAlgorithm, model, geometry, state; workspace = nothing)
+
+Generate a Glauber trial move: pick a site with the algorithm's
+[`AbstractProposalScheme`](@ref) (see [`propose_site`](@ref)), then call the
+model's `propose(rng, algorithm, model, geometry, state, site)` method to
+choose the new value there. By default that method falls back to the model's
+Metropolis proposal at the same site; a model can override it with a
+Glauber-specific proposal.
+
+# Arguments
+
+- `workspace`: The scheme's per-run state, built by
+  [`algorithm_workspace`](@ref). Required for stateful schemes (see
+  [`SequentialProposal`](@ref)); the drivers pass it automatically.
+
+# Returns
+
+A [`SpinUpdate`](@ref) describing the site and its proposed new value.
+"""
+function propose(
+    rng::AbstractRNG,
+    alg::GlauberAlgorithm,
+    model::AbstractModel,
+    geometry::Geometry,
+    state::AbstractState;
+    workspace = nothing
+)
+    site = propose_site(rng, alg.proposal, geometry, workspace)
+    return propose(rng, alg, model, geometry, state, site)
+end
+
+# By default a model's Glauber value proposal is its Metropolis one (the same
+# symmetric trial move at the chosen site); a model can override this
+# fallback with a Glauber-specific proposal.
+propose(rng::AbstractRNG, ::GlauberAlgorithm, model::AbstractModel, geometry, state::AbstractState, site::Int) =
+    propose(rng, MetropolisAlgorithm(), model, geometry, state, site)
+
+algorithm_workspace(alg::GlauberAlgorithm, model, geometry, state) =
+    proposal_workspace(alg.proposal, geometry)
 
 """
     step!(alg::GlauberAlgorithm, model, geometry, state, T; rng = Random.default_rng())
@@ -43,10 +89,14 @@ probability `1/2`. Accepted moves are applied in place via
 - `rng`: Random number generator used for the proposal and the acceptance
   test. Defaults to the task-local global RNG, so `Random.seed!` makes runs
   reproducible; pass an explicit `AbstractRNG` for an independent stream.
+- `workspace`: Per-run scratch space from [`algorithm_workspace`](@ref),
+  threaded through [`MC_Sweep!`](@ref) by the drivers. Required when `alg`
+  uses a stateful proposal scheme (see [`SequentialProposal`](@ref)).
 
 # Throws
 
-`ArgumentError` if `T` is not strictly positive.
+`ArgumentError` if `T` is not strictly positive, or if `alg` uses a stateful
+proposal scheme and no `workspace` is given.
 
 # Returns
 
@@ -58,11 +108,12 @@ function step!(
     geometry::Geometry,
     state::AbstractState,
     T::Real;
-    rng::AbstractRNG = Random.default_rng()
+    rng::AbstractRNG = Random.default_rng(),
+    workspace = nothing
 )
     T > 0 || throw(ArgumentError("Temperature must be positive, got $T"))
 
-    proposal = propose(rng, alg, model, geometry, state)
+    proposal = propose(rng, alg, model, geometry, state; workspace = workspace)
     ΔE = energy_difference(model, geometry, state, proposal)
 
     if rand(rng) < glauber_probability(ΔE, T)

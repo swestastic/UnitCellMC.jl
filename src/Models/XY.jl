@@ -34,8 +34,19 @@ operator_product(::XYModel, first_angle::Real, second_angle::Real) =
 n_operator_components(::XYModel) = 2
 operator_components(::XYModel, angle::Real) = (cos(angle), sin(angle))
 
-function propose(rng::AbstractRNG, ::MetropolisAlgorithm, ::XYModel, geometry, state::XYState)
-    site = rand(rng, eachindex(state.angles))
+"""
+    propose(rng, ::MetropolisAlgorithm, model::XYModel, geometry, state, site)
+
+Generate a Metropolis trial move for the XY model at `site` (chosen by the
+algorithm's [`AbstractProposalScheme`](@ref)): propose a new angle drawn
+uniformly from `[0, 2π)` via `rng`.
+
+# Returns
+
+A [`SpinUpdate`](@ref) for the site and new angle, carrying the
+magnetization change.
+"""
+function propose(rng::AbstractRNG, ::MetropolisAlgorithm, ::XYModel, geometry, state::XYState, site::Int)
     old = state.angles[site]
     new = 2π * rand(rng)
     return SpinUpdate(site, new, (cos(new) - cos(old), sin(new) - sin(old)))

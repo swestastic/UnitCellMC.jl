@@ -5,6 +5,7 @@ CollapsedDocStrings = true
 ```
 
 ```@docs
+UnitCellMC.algorithm_label
 UnitCellMC.results_dirname
 UnitCellMC.save_metadata
 UnitCellMC.write_reproducibility_metadata

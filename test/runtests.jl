@@ -530,11 +530,14 @@ end
     mag_totals(s) = (s.magnetization_x, s.magnetization_y)
 
     for (model, energy) in models_and_energy, algorithm in
-            (ucmc.MetropolisAlgorithm(), ucmc.GlauberAlgorithm())
+            (ucmc.MetropolisAlgorithm(), ucmc.GlauberAlgorithm(),
+             ucmc.MetropolisAlgorithm(ucmc.SequentialProposal()),
+             ucmc.GlauberAlgorithm(ucmc.SequentialProposal()))
         rng = Xoshiro(7)
         state = ucmc.initialize_state(model, geometry; rng = rng)
+        workspace = ucmc.algorithm_workspace(algorithm, model, geometry, state)
         for _ in 1:10
-            proposal = ucmc.propose(rng, algorithm, model, geometry, state)
+            proposal = ucmc.propose(rng, algorithm, model, geometry, state; workspace = workspace)
 
             # one shared proposal type across models and local algorithms
             @test proposal isa ucmc.SpinUpdate
@@ -555,6 +558,68 @@ end
             @test state.energy ≈ energy(model, geometry, values) atol = 1e-10
         end
     end
+end
+
+@testset "Proposal schemes" begin
+    geometry = square_geometry(3)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    rng = Xoshiro(3)
+
+    @test ucmc.MetropolisAlgorithm().proposal isa ucmc.RandomProposal
+    @test ucmc.GlauberAlgorithm().proposal isa ucmc.RandomProposal
+    @test ucmc.MetropolisAlgorithm(ucmc.SequentialProposal()).proposal isa
+        ucmc.SequentialProposal
+    @test ucmc.GlauberAlgorithm(ucmc.SequentialProposal()).proposal isa
+        ucmc.SequentialProposal
+
+    # the default scheme is stateless
+    state = ucmc.initialize_state(model, geometry; rng = rng)
+    @test isnothing(ucmc.algorithm_workspace(ucmc.MetropolisAlgorithm(), model, geometry, state))
+
+    sequential_algorithms = (ucmc.MetropolisAlgorithm(ucmc.SequentialProposal()),
+                             ucmc.GlauberAlgorithm(ucmc.SequentialProposal()))
+
+    for algorithm in sequential_algorithms
+        workspace = ucmc.algorithm_workspace(algorithm, model, geometry, state)
+        @test workspace isa ucmc.SequentialProposalWorkspace
+
+        # sites are visited in site-index order, wrapping after a full sweep
+        sites = [ucmc.propose(rng, algorithm, model, geometry, state; workspace = workspace).site
+                 for _ in 1:geometry.n_sites]
+        @test sites == collect(1:geometry.n_sites)
+        @test ucmc.propose(rng, algorithm, model, geometry, state; workspace = workspace).site == 1
+
+        # a stateful scheme without its workspace is an explicit error
+        @test_throws ArgumentError ucmc.propose(rng, algorithm, model, geometry, state)
+        @test_throws ArgumentError ucmc.step!(algorithm, model, geometry, state, 2.0; rng = rng)
+
+        # running totals stay exact through sequential sweeps
+        seq_state = ucmc.initialize_state(model, geometry; rng = rng)
+        seq_workspace = ucmc.algorithm_workspace(algorithm, model, geometry, seq_state)
+        for _ in 1:(3 * geometry.n_sites)
+            ucmc.step!(algorithm, model, geometry, seq_state, 2.0;
+                       rng = rng, workspace = seq_workspace)
+            @test seq_state.energy ≈ spin_energy(model, geometry, seq_state.spins)
+            @test seq_state.magnetization == sum(seq_state.spins)
+        end
+    end
+
+    # the drivers build and thread the workspace automatically
+    for algorithm in sequential_algorithms
+        container = ucmc.MeasurementContainer(model, geometry, 4, 2;
+                                              diagnostics = [:acceptance_ratio])
+        parameters = ucmc.SimulationParameters(2.0, 2, 4, 0, 2)
+        ucmc.run_simulation(algorithm, model, geometry,
+                            ucmc.initialize_state(model, geometry; rng = rng),
+                            container, parameters; rng = rng)
+        @test all(isfinite, container.data[:energy])
+        @test all(isfinite, container.data[:acceptance_ratio])
+    end
+
+    # sweeps with different schemes write to different results directories
+    @test ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L) !=
+        ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(ucmc.SequentialProposal()),
+                           geometry.lattice.L)
 end
 
 @testset "Coupling and field accessors" begin

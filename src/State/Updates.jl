@@ -37,9 +37,13 @@ along with the running total energy and magnetization.
 This is the final step of the single-site update contract shared by every
 local-update algorithm and model:
 
-1. `propose(rng, algorithm, model, geometry, state)` returns a
-   [`SpinUpdate`](@ref) carrying everything needed to apply the move —
-   including the magnetization change, which only the model can compute;
+1. `propose(rng, algorithm, model, geometry, state; workspace)` picks a site
+   via the algorithm's [`AbstractProposalScheme`](@ref) (see
+   [`propose_site`](@ref)) and calls the model's
+   `propose(rng, algorithm, model, geometry, state, site)` method, which
+   returns a [`SpinUpdate`](@ref) carrying everything needed to apply the
+   move — including the magnetization change, which only the model can
+   compute;
 2. `energy_difference(model, geometry, state, proposal)` returns the energy
    change `ΔE`;
 3. the algorithm decides acceptance and calls

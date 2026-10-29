@@ -169,9 +169,9 @@ local_operator(state::HeisenbergState, site) = state.spins[site]
 magnetization_value(state::HeisenbergState) =
     sqrt(state.magnetization_x^2 + state.magnetization_y^2 + state.magnetization_z^2)
 
-# the single-site update contract
-function propose(rng::AbstractRNG, ::MetropolisAlgorithm, model::HeisenbergModel, geometry, state)
-    site = rand(rng, eachindex(state.spins))
+# the single-site update contract — the algorithm's proposal scheme picks the
+# site (random, sequential, ...), the model proposes the new value there
+function propose(rng::AbstractRNG, ::MetropolisAlgorithm, model::HeisenbergModel, geometry, state, site::Int)
     new = random_unit_vector(rng)
     return SpinUpdate(site, new, new .- state.spins[site])
 end

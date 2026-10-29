@@ -17,6 +17,12 @@ UnitCellMC.SwendsenWangUpdateResult
 UnitCellMC.AbstractUpdateResult
 UnitCellMC.step!
 UnitCellMC.steps_per_sweep
+UnitCellMC.AbstractProposalScheme
+UnitCellMC.RandomProposal
+UnitCellMC.SequentialProposal
+UnitCellMC.SequentialProposalWorkspace
+UnitCellMC.propose_site
+UnitCellMC.proposal_workspace
 UnitCellMC.ClusterWorkspace
 UnitCellMC.algorithm_workspace
 UnitCellMC.ghost_site

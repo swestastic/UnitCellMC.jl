@@ -32,7 +32,9 @@ one cluster update for cluster algorithms. After each update,
 - `rng`: Random number generator passed to every [`step!`](@ref).
 - `workspace`: Per-run scratch space passed to [`step!`](@ref) (see
   [`algorithm_workspace`](@ref)); `nothing` lets `step!` allocate its own.
-  Only cluster algorithms use it.
+  Cluster algorithms reuse a [`ClusterWorkspace`](@ref); local-update
+  algorithms with a stateful proposal scheme (see [`SequentialProposal`](@ref))
+  carry their site cursor in it.
 
 # Returns
 

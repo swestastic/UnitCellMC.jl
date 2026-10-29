@@ -1,11 +1,57 @@
 """
-    MetropolisAlgorithm
+    MetropolisAlgorithm(proposal = RandomProposal())
 
-Marker type selecting the Metropolis-Hastings update algorithm. Used to
-dispatch [`propose`](@ref) and [`step!`](@ref) to the standard
-single-flip Metropolis acceptance rule.
+The Metropolis-Hastings single-site update algorithm: a trial move is
+generated with [`propose`](@ref) and accepted unconditionally when it lowers
+the energy, or with probability `exp(-ΔE / T)` otherwise (see [`step!`](@ref)).
+
+# Fields
+
+- `proposal::AbstractProposalScheme`: Which site each update visits —
+  [`RandomProposal`](@ref) (the default) or [`SequentialProposal`](@ref).
+  The model's [`propose`](@ref) method decides the new value at that site.
 """
-struct MetropolisAlgorithm <: AbstractAlgorithm end
+struct MetropolisAlgorithm{P<:AbstractProposalScheme} <: AbstractAlgorithm
+    proposal::P
+end
+
+MetropolisAlgorithm() = MetropolisAlgorithm(RandomProposal())
+
+Base.show(io::IO, alg::MetropolisAlgorithm) =
+    print(io, "MetropolisAlgorithm(", alg.proposal, ")")
+
+"""
+    propose(rng, algorithm, model, geometry, state; workspace = nothing)
+
+Generate a Metropolis trial move: pick a site with the algorithm's
+[`AbstractProposalScheme`](@ref) (see [`propose_site`](@ref)), then call the
+model's `propose(rng, algorithm, model, geometry, state, site)` method to
+choose the new value there.
+
+# Arguments
+
+- `workspace`: The scheme's per-run state, built by
+  [`algorithm_workspace`](@ref). Required for stateful schemes (see
+  [`SequentialProposal`](@ref)); the drivers pass it automatically.
+
+# Returns
+
+A [`SpinUpdate`](@ref) describing the site and its proposed new value.
+"""
+function propose(
+    rng::AbstractRNG,
+    alg::MetropolisAlgorithm,
+    model::AbstractModel,
+    geometry::Geometry,
+    state::AbstractState;
+    workspace = nothing
+)
+    site = propose_site(rng, alg.proposal, geometry, workspace)
+    return propose(rng, alg, model, geometry, state, site)
+end
+
+algorithm_workspace(alg::MetropolisAlgorithm, model, geometry, state) =
+    proposal_workspace(alg.proposal, geometry)
 
 """
     step!(alg, model, geometry, state, T; rng = Random.default_rng())
@@ -28,10 +74,14 @@ applied in place via [`apply_update!`](@ref).
 - `rng`: Random number generator used for the proposal and the acceptance
   test. Defaults to the task-local global RNG, so `Random.seed!` makes runs
   reproducible; pass an explicit `AbstractRNG` for an independent stream.
+- `workspace`: Per-run scratch space from [`algorithm_workspace`](@ref),
+  threaded through [`MC_Sweep!`](@ref) by the drivers. Required when `alg`
+  uses a stateful proposal scheme (see [`SequentialProposal`](@ref)).
 
 # Throws
 
-`ArgumentError` if `T` is not strictly positive.
+`ArgumentError` if `T` is not strictly positive, or if `alg` uses a stateful
+proposal scheme and no `workspace` is given.
 
 # Returns
 
@@ -44,11 +94,12 @@ function step!(
     geometry::Geometry,
     state::AbstractState,
     T::Real;
-    rng::AbstractRNG = Random.default_rng()
+    rng::AbstractRNG = Random.default_rng(),
+    workspace = nothing
 )
     T > 0 || throw(ArgumentError("Temperature must be positive, got $T"))
 
-    proposal = propose(rng, alg, model, geometry, state)
+    proposal = propose(rng, alg, model, geometry, state; workspace = workspace)
     ΔE = energy_difference(model, geometry, state, proposal)
 
     if ΔE <= 0.0 || log(rand(rng)) < - ΔE / T
@@ -58,4 +109,3 @@ function step!(
 
     return MetropolisUpdateResult(false)
 end
-

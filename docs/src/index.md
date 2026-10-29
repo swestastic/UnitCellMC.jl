@@ -15,7 +15,8 @@ allowing the same simulation framework to be used with different
 lattice geometries.
 
 For a guided walkthrough, see the [Getting Started](@ref) page or one
-of the tutorials; standalone scripts live in the
+of the tutorials; to add your own model, algorithm, or measurement, see
+[Extending UnitCellMC](@ref); standalone scripts live in the
 [`examples/`](https://github.com/swestastic/UnitCellMC.jl/tree/main/examples) directory.
 
 ## Acknowledgements

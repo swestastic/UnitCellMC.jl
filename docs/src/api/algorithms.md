@@ -23,4 +23,5 @@ UnitCellMC.ghost_site
 UnitCellMC.draw_cluster_flips!
 UnitCellMC.UpdateStatistic
 UnitCellMC.available_diagnostics
+UnitCellMC.diagnostic_values
 ```

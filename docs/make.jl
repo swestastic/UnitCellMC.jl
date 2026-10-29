@@ -15,6 +15,8 @@ makedocs(
             "Square Lattice Ising Model" => "tutorials/ising_2d.md",
         ],
 
+        "Extending UnitCellMC" => "extending.md",
+
         # "Concepts" => [
         #     "Geometry" => "concepts/geometry.md",
         #     "Models" => "concepts/models.md",

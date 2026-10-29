@@ -27,11 +27,10 @@ quantity `:binder_cumulant`, computed from the jackknife samples of
 cumulant formula, with a zero-second-moment guard to avoid division by zero.
 """
 function binder_cumulant_entry(model, geometry)
-    n_sites = geometry.n_sites
     denominator = binder_denominator(model)
-    obs = Observable[
-        Observable(:magnetization_fourth, state -> (magnetization_value(state) / n_sites)^4),
-    ]
+    # The raw :magnetization_fourth observable comes from its own registry
+    # entry, so it is defined in exactly one place.
+    obs, _ = optional_observables(model, geometry, Val(:magnetization_fourth))
 
     compute = function (jk, T, N)
         m2 = jk[:magnetization_squared]

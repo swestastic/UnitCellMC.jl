@@ -7,11 +7,11 @@ include("Clock.jl")
 
 Validate the compatibility between a model's coupling/field data and the
 lattice geometry. The generic method enforces the package-wide layout
-conventions for models that carry them: a bond-coupling vector (`model.J`,
-or `model.couplings`) must have one entry per bond template in
-`geometry.bonds`, every entry of `geometry.bond_id_to_template` must refer
-to a valid coupling, and a field vector `model.h` must have one entry per
-unit-cell orbital. Models with `J` and `h` fields ([`IsingModel`](@ref),
+conventions for models that carry them: a bond-coupling vector `model.J` must
+have one entry per bond template in `geometry.bonds`, and a field vector
+`model.h` must have one entry per unit-cell orbital. (The template ids in
+`geometry.bond_id_to_template` are valid by construction, so only lengths
+need checking.) Models with `J` and `h` fields ([`IsingModel`](@ref),
 [`XYModel`](@ref), [`ClockModel`](@ref)) need no method of their own.
 
 Models that store couplings or fields differently override
@@ -27,18 +27,10 @@ own checks.
 `nothing`.
 """
 function validate_model_geometry(model::AbstractModel, geometry::Geometry)
-    coupling_names = (:J, :couplings)
-    coupling_field = findfirst(name -> hasproperty(model, name), coupling_names)
-    if coupling_field !== nothing
-        couplings = getproperty(model, coupling_names[coupling_field])
-        length(couplings) == length(geometry.bonds) || throw(ArgumentError(
-            "length(model.$(coupling_names[coupling_field])) = $(length(couplings)) does not match length(geometry.bonds) = $(length(geometry.bonds))"
+    if hasproperty(model, :J)
+        length(model.J) == length(geometry.bonds) || throw(ArgumentError(
+            "length(model.J) = $(length(model.J)) does not match length(geometry.bonds) = $(length(geometry.bonds))"
         ))
-        for (bond_id, template_id) in enumerate(geometry.bond_id_to_template)
-            1 <= template_id <= length(couplings) || throw(ArgumentError(
-                "bond_id_to_template[$bond_id] = $template_id is out of bounds for model.$(coupling_names[coupling_field]) of length $(length(couplings))"
-            ))
-        end
     end
 
     if hasproperty(model, :h)

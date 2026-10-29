@@ -84,7 +84,9 @@ quantities, some paired with a `*_err` sibling) are scanned. Only scalar
 (`Real`) entries are included; vector- or struct-valued entries (e.g.
 `:correlation`, `correlation_classes`) are skipped, since those are handled
 separately by [`correlation_rows`](@ref). A derived value with no matching
-`*_err` property gets `missing` for its error.
+`*_err` property gets `missing` for its error. Primary entries are emitted in
+sorted name order (`primary` is a `Dict`, whose iteration order varies
+between sessions), so the CSV output is deterministic.
 
 # Returns
 
@@ -98,7 +100,8 @@ function measurement_rows(results)
     values = Float64[]
     errors = Union{Float64,Missing}[]
 
-    for (name, (avg, err)) in pairs(results.primary)
+    for name in sort!(collect(keys(results.primary)))
+        avg, err = results.primary[name]
         avg isa Real || continue   # vector-valued (e.g. :correlation) handled by correlation_rows
         push!(names, string(name))
         push!(values, avg)
@@ -411,6 +414,47 @@ function save_sweep_metadata(
 end
 
 """
+    _write_sweep_csv(dir, filename, rows_fn, Ts, sweep_results)
+
+Build and write one per-temperature output file of a temperature sweep:
+`rows_fn(results)` produces each temperature's `DataFrame` (or `nothing` when
+that temperature has no such data), a leading `temperature` column is added,
+and the concatenated frame is written to `dir/filename`. If no temperature
+produced rows, the file is not written — and a stale file from an earlier run
+is removed, so the directory never mixes data from different `measurements`
+sets.
+
+# Returns
+
+`nothing`.
+"""
+function _write_sweep_csv(dir, filename, rows_fn, Ts, sweep_results)
+    dfs = map(zip(Ts, sweep_results)) do (T, results)
+        results === nothing && return nothing
+        df = rows_fn(results)
+        df === nothing && return nothing
+        insertcols!(df, 1, :temperature => T)
+        return df
+    end
+    filter!(!isnothing, dfs)
+    path = joinpath(dir, filename)
+    if isempty(dfs)
+        isfile(path) && rm(path)
+    else
+        CSV.write(path, reduce(vcat, dfs))
+    end
+    return nothing
+end
+
+# Adapts `measurement_rows` (a tuple of vectors) to the `_write_sweep_csv`
+# `rows_fn` shape (a `DataFrame` or `nothing`).
+function _measurement_frame(results)
+    names, values, errors = measurement_rows(results)
+    isempty(names) && return nothing
+    return DataFrame(observable = names, value = values, error = errors)
+end
+
+"""
     save_sweep_results(sweep_results, Ts, model, algorithm, geometry,
                         n_thermalization, n_measurements, n_unmeasured, n_bins;
                         root = "results", seed = global_seed())
@@ -472,64 +516,10 @@ function save_sweep_results(
     save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
         seed = seed)
 
-    measurement_dfs = map(zip(Ts, sweep_results)) do (T, results)
-        results === nothing && return nothing
-        names, values, errors = measurement_rows(results)
-        isempty(names) && return nothing
-        DataFrame(temperature = T, observable = names, value = values, error = errors)
-    end
-    filter!(!isnothing, measurement_dfs)
-    measurement_path = joinpath(dir, "measurement_results.csv")
-    if isempty(measurement_dfs)
-        isfile(measurement_path) && rm(measurement_path)
-    else
-        CSV.write(measurement_path, reduce(vcat, measurement_dfs))
-    end
-
-    correlation_dfs = map(zip(Ts, sweep_results)) do (T, results)
-        results === nothing && return nothing
-        df = correlation_rows(results)
-        df === nothing && return nothing
-        insertcols!(df, 1, :temperature => T)
-        df
-    end
-    filter!(!isnothing, correlation_dfs)
-    correlation_path = joinpath(dir, "correlation_results.csv")
-    if isempty(correlation_dfs)
-        isfile(correlation_path) && rm(correlation_path)
-    else
-        CSV.write(correlation_path, reduce(vcat, correlation_dfs))
-    end
-
-    structure_factor_dfs = map(zip(Ts, sweep_results)) do (T, results)
-        results === nothing && return nothing
-        df = structure_factor_rows(results)
-        df === nothing && return nothing
-        insertcols!(df, 1, :temperature => T)
-        df
-    end
-    filter!(!isnothing, structure_factor_dfs)
-    structure_factor_path = joinpath(dir, "structure_factor_results.csv")
-    if isempty(structure_factor_dfs)
-        isfile(structure_factor_path) && rm(structure_factor_path)
-    else
-        CSV.write(structure_factor_path, reduce(vcat, structure_factor_dfs))
-    end
-
-    autocorrelation_dfs = map(zip(Ts, sweep_results)) do (T, results)
-        results === nothing && return nothing
-        df = autocorrelation_rows(results)
-        df === nothing && return nothing
-        insertcols!(df, 1, :temperature => T)
-        df
-    end
-    filter!(!isnothing, autocorrelation_dfs)
-    autocorrelation_path = joinpath(dir, "autocorrelation_results.csv")
-    if isempty(autocorrelation_dfs)
-        isfile(autocorrelation_path) && rm(autocorrelation_path)
-    else
-        CSV.write(autocorrelation_path, reduce(vcat, autocorrelation_dfs))
-    end
+    _write_sweep_csv(dir, "measurement_results.csv", _measurement_frame, Ts, sweep_results)
+    _write_sweep_csv(dir, "correlation_results.csv", correlation_rows, Ts, sweep_results)
+    _write_sweep_csv(dir, "structure_factor_results.csv", structure_factor_rows, Ts, sweep_results)
+    _write_sweep_csv(dir, "autocorrelation_results.csv", autocorrelation_rows, Ts, sweep_results)
 
     return dir
 end

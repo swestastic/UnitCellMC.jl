@@ -23,10 +23,6 @@ end
 
 steps_per_sweep(::SwendsenWangAlgorithm, ::Geometry) = 1
 
-function apply_clusters!(::AbstractRNG, ::AbstractModel, ::Any, ::AbstractState, ::ClusterWorkspace)
-    throw(MethodError(apply_clusters!, ()))
-end
-
 function _sw_find!(parents::Vector{Int}, site::Int)
     root = site
     while parents[root] != root

@@ -5,7 +5,9 @@ end
 
 """
     MC_Sweep!(algorithm, model, geometry, state, container, T, stats;
-        rng = Random.default_rng()) on `state` at temperature `T`, accumulating
+        rng = Random.default_rng())
+
+Perform one Monte Carlo sweep on `state` at temperature `T`, accumulating
 per-update algorithm diagnostics into `stats`.
 
 The number of [`step!`](@ref) calls per sweep is determined by
@@ -56,8 +58,10 @@ end
 
 """
     run_simulation(algorithm, model, geometry, state, container, parameters;
-        rng = Random.default_rng()) Monte Carlo simulation and return `container` filled
-with the binned measurements described by `parameters`.
+        rng = Random.default_rng())
+
+Run a Monte Carlo simulation and return `container` filled with the binned
+measurements described by `parameters`.
 
 The sequence of sweeps is:
 

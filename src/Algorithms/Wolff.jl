@@ -20,6 +20,7 @@ end
 steps_per_sweep(::WolffAlgorithm, ::Geometry) = 1
 
 cluster_seed(rng::AbstractRNG, ::AbstractModel, geometry, ::AbstractState) = rand(rng, 1:geometry.n_sites)
+
 """
     validate_cluster_model(model, geometry, state, T)
 
@@ -53,26 +54,8 @@ cluster_ghost_count(::AbstractModel, ::Any, ::AbstractState, ::Any) = 0
 cluster_ghost_probability(::AbstractModel, ::Any, ::AbstractState, ::Int, ::Int, ::Real, ::Any) = 0.0
 cluster_ghost_attached!(::Any, ::Int) = nothing
 
-function cluster_bond_probability(
-    ::AbstractModel,
-    ::Any,
-    ::AbstractState,
-    ::Int,
-    ::Int,
-    ::Int,
-    ::Real
-)
-    throw(MethodError(cluster_bond_probability, ()))
-end
-
-cluster_bond_probability(model, geometry, state, site, neighbor, bond_template, T, ::Nothing) =
-    cluster_bond_probability(model, geometry, state, site, neighbor, bond_template, T)
 cluster_bond_probability(model, geometry, state, site, neighbor, bond_template, T, ::Any) =
     cluster_bond_probability(model, geometry, state, site, neighbor, bond_template, T)
-
-function apply_cluster!(::AbstractModel, ::Any, ::AbstractState, ::Vector{Int})
-    throw(MethodError(apply_cluster!, ()))
-end
 
 # Models without a cluster context ignore both it and the reusable mask.
 apply_cluster!(model, geometry, state, cluster, ::Nothing, ::BitVector) =

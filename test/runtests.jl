@@ -737,6 +737,14 @@ end
     @test !isfile(joinpath(empty_dir, "correlation_results.csv"))
 
     @test_throws ArgumentError ucmc.save_sweep_results([Dict()], [1.0, 2.0], model, algorithm, geometry, 0, 0, 0, 1; root = root)
+
+    # CSV rows are deterministic: the primary (Dict) entries come out sorted
+    fake = (primary = Dict(:z => (1.0, 0.1), :a => (2.0, 0.2), :m => (3.0, 0.3), :e => (4.0, 0.4)),
+            derived = NamedTuple())
+    names, values, errors = ucmc.measurement_rows(fake)
+    @test names == ["a", "e", "m", "z"]
+    @test values == [2.0, 4.0, 3.0, 1.0]
+    @test errors == [0.2, 0.4, 0.3, 0.1]
 end
 
 @testset "sweep_Ts save keyword" begin

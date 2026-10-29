@@ -36,8 +36,8 @@ by the class's site count for a proper average.
 - `model`: The model providing [`operator_product`](@ref).
 - `state`: The current configuration, read via [`local_operator`](@ref).
 - `disp`: Displacement class data as returned by
-  [`build_displacement_classes`](@ref), giving `unit_cell`, `lattice`,
-  `displacements`, `orbitals`, `valid_ranges`, and `counts`.
+  [`build_displacement_classes`](@ref), giving `geometry`, `displacements`,
+  `orbitals`, `valid_ranges`, and `counts`.
 
 # Returns
 
@@ -45,8 +45,8 @@ A `Vector{Float64}` of length `length(disp.displacements)`, one correlation
 value per displacement class, in the same order as `disp`.
 """
 function correlation_instantaneous(model, state, disp)
-    (; unit_cell, lattice) = disp
-    (; L, periodic) = lattice
+    (; geometry) = disp
+    (; L, periodic) = geometry.lattice
     n_disp = length(disp.displacements)
     C = zeros(n_disp)
 
@@ -55,9 +55,9 @@ function correlation_instantaneous(model, state, disp)
         oi, oj = disp.orbitals[r]
         acc = 0.0
         for loc_i in Iterators.product(disp.valid_ranges[r]...)
-            i = LatticeUtilities.loc_to_site(collect(loc_i), oi, unit_cell, lattice)
+            i = site_at(geometry, loc_i, oi)
             loc_j = ntuple(d -> periodic[d] ? mod(loc_i[d] + Δl[d], L[d]) : loc_i[d] + Δl[d], length(L))
-            j = LatticeUtilities.loc_to_site(collect(loc_j), oj, unit_cell, lattice)
+            j = site_at(geometry, loc_j, oj)
             acc += operator_product(model, local_operator(state, i), local_operator(state, j))
         end
         C[r] = acc / disp.counts[r]

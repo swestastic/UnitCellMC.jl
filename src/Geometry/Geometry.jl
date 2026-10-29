@@ -111,6 +111,21 @@ function Geometry(
 end
 
 """
+    site_at(geometry, loc, orbital)
+
+Return the site index of orbital `orbital` in the unit cell at location `loc`
+(an `NTuple` of cell coordinates). A thin wrapper over
+`LatticeUtilities.loc_to_site` so that code outside the Geometry layer does
+not need that function's calling convention.
+
+# Returns
+
+The site index (an `Int`).
+"""
+site_at(geometry::Geometry, loc, orbital) =
+    LatticeUtilities.loc_to_site(collect(loc), orbital, geometry.unit_cell, geometry.lattice)
+
+"""
     _cluster_labels(geometry, clusters::Vector{Vector{Int}})
 
 Translate an explicit partition of sites into per-site cluster labels: a
@@ -129,3 +144,4 @@ function _cluster_labels(geometry, clusters::Vector{Vector{Int}})
 end
 
 include("Displacements.jl")
+include("Momenta.jl")

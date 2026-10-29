@@ -26,6 +26,8 @@ state_type(::XYModel) = XYState
 
 magnetization_value(state::XYState) = hypot(state.magnetization_x, state.magnetization_y)
 
+binder_denominator(::XYModel) = 2.0
+
 operator_product(::XYModel, first_angle::Real, second_angle::Real) =
     cos(first_angle - second_angle)
 

@@ -150,3 +150,15 @@ function correlation_entry(model, geometry)
 
     return observable, derived
 end
+
+# `:raw_correlation` measures only the correlation function;
+# `:connected_correlation` additionally derives the connected form.
+function optional_observables(model, geometry, ::Val{:raw_correlation})
+    observable, _ = correlation_entry(model, geometry)
+    return [observable], DerivedObservable[]
+end
+
+function optional_observables(model, geometry, ::Val{:connected_correlation})
+    observable, derived = correlation_entry(model, geometry)
+    return [observable], [derived]
+end

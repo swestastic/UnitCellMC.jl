@@ -643,6 +643,7 @@ end
     @test stats[2].count == 1
     @test ucmc.value(stats[1]) >= 1
     @test 0.0 < ucmc.value(stats[2])
+end
 
 @testset "Algorithms reject non-positive temperature" begin
     geometry = square_geometry(2)
@@ -1837,4 +1838,40 @@ end
     @test "clock_order_parameter" in saved
 end
 
+@testset "Optional measurement registry" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+
+    # unknown names throw instead of being silently ignored
+    @test_throws ArgumentError ucmc.MeasurementContainer(model, geometry, 4, 2;
+        measurements = [:not_a_measurement])
+    @test_throws ArgumentError ucmc.optional_observables(model, geometry, Val(:not_a_measurement))
+
+    # aliases canonicalize to the same measurement
+    derived_names(c) = sort(Symbol[n for d in c.derived for n in d.names])
+    plain = ucmc.MeasurementContainer(model, geometry, 4, 2; measurements = [:binder_cumulant])
+    aliased = ucmc.MeasurementContainer(model, geometry, 4, 2; measurements = [:binder])
+    @test sort(collect(keys(plain.data))) == sort(collect(keys(aliased.data)))
+    @test derived_names(plain) == derived_names(aliased)
+
+    abs_alias = ucmc.MeasurementContainer(model, geometry, 4, 2; measurements = [:magnetization_abs])
+    @test haskey(abs_alias.data, :abs_magnetization)
+
+    # requesting an implied observable by name adds it exactly once
+    both = ucmc.MeasurementContainer(model, geometry, 4, 2;
+        measurements = [:abs_magnetization, :abs_magnetization_squared])
+    @test haskey(both.data, :abs_magnetization_squared)
+    names = [o.name for o in both.observables]
+    @test length(names) == length(unique(names))
+
+    # every advertised name builds for each model
+    for m in (model, ucmc.XYModel([1.0, 1.0], [0.0]), ucmc.ClockModel(4, [1.0, 1.0], [0.0]))
+        container = ucmc.MeasurementContainer(m, geometry, 4, 2;
+            measurements = ucmc.available_measurements(m))
+        @test !isempty(keys(container.data))
+    end
+
+    @test ucmc.extra_measurements(ucmc.ClockModel) == (:clock_order_parameter,)
+    @test isempty(ucmc.extra_measurements(ucmc.IsingModel))
+    @test_throws ArgumentError ucmc.binder_denominator(PairingTestModel())
 end

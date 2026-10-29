@@ -35,6 +35,8 @@ state_type(::IsingModel) = IsingState
 
 magnetization_value(state::IsingState) = state.magnetization
 
+binder_denominator(::IsingModel) = 3.0
+
 """
     operator_product(model, a, b)
 

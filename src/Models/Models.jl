@@ -84,3 +84,22 @@ function field_strength(model::AbstractModel, geometry::Geometry, site::Int)
     orbital = LatticeUtilities.site_to_orbital(site, geometry.unit_cell)
     return model.h[orbital]
 end
+
+"""
+    binder_denominator(model)
+
+Return the denominator of the fourth-order Binder cumulant,
+`1 - ⟨m⁴⟩ / (binder_denominator * ⟨m²⟩²)`, for `model`'s order parameter:
+`3` for a one-component (Ising) order parameter, `2` for a two-component
+(XY, or clock with `q >= 3`) one — the high-temperature Gaussian cumulant
+ratio. Required by the `:binder_cumulant` optional measurement.
+
+# Throws
+
+`ArgumentError` for models without their own method; define
+`binder_denominator(::MyModel)` to enable `:binder_cumulant`.
+"""
+binder_denominator(model::AbstractModel) = throw(ArgumentError(
+    "binder_denominator is not implemented for $(nameof(typeof(model))); " *
+    "the :binder_cumulant measurement requires it"
+))

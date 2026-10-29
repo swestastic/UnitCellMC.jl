@@ -81,6 +81,35 @@ state_type(::ClockModel) = ClockState
 
 magnetization_value(state::ClockState) = hypot(state.magnetization_x, state.magnetization_y)
 
+
+# For q = 2 the magnetization only has an x component (Ising universality);
+# for q >= 3 the clock states are isotropic to second order, so the
+# high-temperature magnetization is a two-component Gaussian, as for XY.
+binder_denominator(model::ClockModel) = model.q == 2 ? 3.0 : 2.0
+
+"""
+    clock_angle_order(model::ClockModel, state::ClockState)
+
+Return the instantaneous angular order parameter `cos(q φ_M)` of `state`,
+where `φ_M = atan(M_y, M_x)` is the direction of the total magnetization.
+
+The magnetization is resummed from `state.spins` (`O(N)`) rather than read
+from the running totals. On small lattices `M = 0` is a common
+configuration, and there the running totals hold only rounding residue whose
+direction is meaningless and grows with run length. A fresh sum is accurate
+to about `N * eps()`, so `|M| <= √eps()` is treated as zero, for which the
+direction is undefined and `0.0` is returned.
+"""
+function clock_angle_order(model::ClockModel, state::ClockState)
+    mx = my = 0.0
+    for n in state.spins
+        mx += clock_cos(model, n)
+        my += clock_sin(model, n)
+    end
+    hypot(mx, my) <= sqrt(eps(Float64)) && return 0.0
+    return cos(model.q * atan(my, mx))
+end
+
 operator_product(model::ClockModel, first_index::Integer, second_index::Integer) =
     clock_cos(model, first_index - second_index)
 

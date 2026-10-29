@@ -13,6 +13,8 @@ UnitCellMC.ClockUpdate
 UnitCellMC.ClockClusterContext
 UnitCellMC.bond_strength
 UnitCellMC.validate_model_geometry
+UnitCellMC.binder_denominator
+UnitCellMC.clock_angle_order
 UnitCellMC.state_type
 UnitCellMC.validate_model_state
 UnitCellMC.magnetization_value

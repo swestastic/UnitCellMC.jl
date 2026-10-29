@@ -127,11 +127,13 @@ observable's initial `data` and `bin_sums` entries are built from its
 
 `ArgumentError` if `n_measurements` and `n_bins` fail
 [`validate_binning`](@ref) (`n_measurements` not positive, `n_bins` less
-than 2, or `n_measurements` not a multiple of `n_bins`), if any name in
-`diagnostics` duplicates a raw observable name, if a requested derived
-quantity depends on an observable that isn't being measured (via
-[`validate_dependencies`](@ref)), or if `time_series` is not a recognized
-option or names an observable that isn't being measured.
+than 2, or `n_measurements` not a multiple of `n_bins`), if `measurements`
+contains a name not available for `model` (see
+[`available_measurements`](@ref)), if any name in `diagnostics` duplicates a
+raw observable name, if a requested derived quantity depends on an
+observable that isn't being measured (via [`validate_dependencies`](@ref)),
+or if `time_series` is not a recognized option or names an observable that
+isn't being measured.
 
 # Returns
 
@@ -150,26 +152,9 @@ function MeasurementContainer(
 )
     validate_binning(n_measurements, n_bins)
 
-    implicit_measurements = Symbol[]
-    requested_measurements = collect(measurements)
-    if :connected_correlation in measurements && :raw_correlation ∉ measurements
-      push!(implicit_measurements, :raw_correlation)
-      push!(requested_measurements, :raw_correlation)
-    end
-    if (:abs_magnetization in measurements || :magnetization_abs in measurements) &&
-       :abs_magnetization_squared ∉ measurements
-      push!(implicit_measurements, :abs_magnetization_squared)
-    end
-    if (:binder_cumulant in measurements || :binder in measurements) &&
-       :magnetization_fourth ∉ measurements
-      push!(implicit_measurements, :magnetization_fourth)
-    end
-    isempty(implicit_measurements) || println(
-      "Additional measurements $(implicit_measurements) are included by the " *
-      "requested measurements $(measurements)."
-    )
-
-    opt_obs, opt_der = optional_observables(model, geometry, requested_measurements)
+    # Alias canonicalization, availability validation, and the
+    # implicit-dependency notice all live in `optional_observables`.
+    opt_obs, opt_der = optional_observables(model, geometry, measurements)
 
     obs = unique(observable -> observable.name, vcat(observables(model, geometry), opt_obs))
     der = unique(derived -> derived.names, vcat(derived_observables(model, geometry), opt_der))

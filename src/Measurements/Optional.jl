@@ -1,10 +1,3 @@
-binder_denominator(::IsingModel) = 3.0
-binder_denominator(::XYModel) = 2.0
-# For q = 2 the magnetization only has an x component (Ising universality);
-# for q >= 3 the clock states are isotropic to second order, so the
-# high-temperature magnetization is a two-component Gaussian, as for XY.
-binder_denominator(model::ClockModel) = model.q == 2 ? 3.0 : 2.0
-
 """
     abs_magnetization_entry(model, geometry)
 
@@ -64,29 +57,6 @@ function binder_cumulant_entry(model, geometry)
         ),
     ]
     return obs, der
-end
-
-"""
-    clock_angle_order(model::ClockModel, state::ClockState)
-
-Return the instantaneous angular order parameter `cos(q φ_M)` of `state`,
-where `φ_M = atan(M_y, M_x)` is the direction of the total magnetization.
-
-The magnetization is resummed from `state.spins` (`O(N)`) rather than read
-from the running totals. On small lattices `M = 0` is a common
-configuration, and there the running totals hold only rounding residue whose
-direction is meaningless and grows with run length. A fresh sum is accurate
-to about `N * eps()`, so `|M| <= √eps()` is treated as zero, for which the
-direction is undefined and `0.0` is returned.
-"""
-function clock_angle_order(model::ClockModel, state::ClockState)
-    mx = my = 0.0
-    for n in state.spins
-        mx += clock_cos(model, n)
-        my += clock_sin(model, n)
-    end
-    hypot(mx, my) <= sqrt(eps(Float64)) && return 0.0
-    return cos(model.q * atan(my, mx))
 end
 
 """
@@ -194,12 +164,86 @@ function structure_factor_entry(model, geometry)
     return obs, der
 end
 
+# Accepted aliases, normalized by `canonical_measurement_name` before dispatch.
+const _MEASUREMENT_ALIASES = Dict{Symbol,Symbol}(
+    :magnetization_abs => :abs_magnetization,
+    :binder => :binder_cumulant,
+)
+canonical_measurement_name(name::Symbol) = get(_MEASUREMENT_ALIASES, name, name)
+
+# Measurement names implicitly included by each optional measurement. The
+# per-name `optional_observables` methods already build the implied
+# observables; this drives only the construction-time notice.
+measurement_implies(::Val{:connected_correlation}) = (:raw_correlation,)
+measurement_implies(::Val{:abs_magnetization}) = (:abs_magnetization_squared,)
+measurement_implies(::Val{:binder_cumulant}) = (:magnetization_fourth,)
+measurement_implies(::Val) = ()
+
+"""
+    optional_observables(model, geometry, ::Val{name})
+
+Build the `(obs, der)` pair for the single optional measurement `name` (see
+[`optional_observables`](@ref)`(model, geometry, measurements)`). Each
+measurement has its own method — `Val(:raw_correlation)` and
+`Val(:connected_correlation)` in `Correlations.jl`, and
+`Val(:abs_magnetization)`, `Val(:abs_magnetization_squared)`,
+`Val(:binder_cumulant)`, `Val(:magnetization_fourth)`,
+`Val(:clock_order_parameter)`, and `Val(:structure_factor)` here — defined
+next to its builder, so adding a measurement never requires editing shared
+code. This fallback lists the names
+accepted by `model`.
+
+# Throws
+
+`ArgumentError` for an unknown name.
+"""
+optional_observables(model, geometry, ::Val{name}) where {name} = throw(ArgumentError(
+    "Unknown optional measurement :$name for $(nameof(typeof(model))); " *
+    "available: $(available_measurements(model))"
+))
+
+optional_observables(model, geometry, ::Val{:abs_magnetization}) =
+    abs_magnetization_entry(model, geometry)
+
+optional_observables(model, geometry, ::Val{:abs_magnetization_squared}) = (
+    Observable[Observable(
+        :abs_magnetization_squared,
+        state -> (abs(magnetization_value(state)) / geometry.n_sites)^2,
+    )],
+    DerivedObservable[],
+)
+
+optional_observables(model, geometry, ::Val{:binder_cumulant}) =
+    binder_cumulant_entry(model, geometry)
+
+optional_observables(model, geometry, ::Val{:magnetization_fourth}) = (
+    Observable[Observable(
+        :magnetization_fourth,
+        state -> (magnetization_value(state) / geometry.n_sites)^4,
+    )],
+    DerivedObservable[],
+)
+
+optional_observables(model, geometry, ::Val{:clock_order_parameter}) =
+    clock_order_parameter_entry(model, geometry)
+
+optional_observables(model, geometry, ::Val{:structure_factor}) =
+    structure_factor_entry(model, geometry)
+
 """
     optional_observables(model, geometry, measurements)
 
-Resolve the optional observable/derived-quantity entries requested by name
-in `measurements` into concrete [`Observable`](@ref)/[`DerivedObservable`](@ref)
-instances for `model` and `geometry`.
+Resolve the optional observables/derived quantities requested by name in
+`measurements` for `model` and `geometry` into concrete
+[`Observable`](@ref)/[`DerivedObservable`](@ref) instances.
+
+Each name is canonicalized (aliases such as `:binder` for
+`:binder_cumulant`), validated against [`available_measurements`](@ref)`(model)`,
+and built by its own `optional_observables(model, geometry, Val(name))`
+method, so new measurements and new models extend the registry by adding
+methods rather than editing this function. Measurements that implicitly
+include others (e.g. `:connected_correlation` includes the raw correlation)
+announce the additions at construction.
 
 Model-specific observables stay in the `measurements` list. Algorithm-specific
 summary statistics remain in the `diagnostics` list (see
@@ -220,86 +264,87 @@ An `(obs, der)` tuple:
 
 Both are empty if `measurements` requests none of the currently supported
 optional observables.
+
+# Throws
+
+`ArgumentError` if a name is not available for `model`.
 """
 function optional_observables(model, geometry, measurements)
+    requested = Symbol.(collect(measurements))
+    unknown = setdiff(requested, available_measurements(model))
+    isempty(unknown) || throw(ArgumentError(
+        "Optional measurements $unknown are not available for " *
+        "$(nameof(typeof(model))); available: $(available_measurements(model))"
+    ))
+
+    canonical = unique(canonical_measurement_name.(requested))
+    implicit = setdiff(
+        unique!(reduce(
+            vcat, (collect(measurement_implies(Val(n))) for n in canonical);
+            init = Symbol[],
+        )),
+        requested,
+    )
+    isempty(implicit) || println(
+        "Additional measurements $(implicit) are included by the " *
+        "requested measurements $(measurements)."
+    )
+
     obs = Observable[]
     der = DerivedObservable[]
-
-    raw_correlation_requested =
-        :raw_correlation in measurements || :connected_correlation in measurements
-    if raw_correlation_requested
-        o, d = correlation_entry(model, geometry)
-        push!(obs, o)
-        :connected_correlation in measurements && push!(der, d)
-    end
-    abs_magnetization_requested =
-        :abs_magnetization in measurements || :magnetization_abs in measurements
-    if abs_magnetization_requested
-        o, d = abs_magnetization_entry(model, geometry)
+    for name in canonical
+        o, d = optional_observables(model, geometry, Val(name))
         append!(obs, o)
         append!(der, d)
     end
-    binder_requested = :binder_cumulant in measurements || :binder in measurements
-    if binder_requested
-        o, d = binder_cumulant_entry(model, geometry)
-        append!(obs, o)
-        append!(der, d)
-    end
-    if :clock_order_parameter in measurements
-        o, d = clock_order_parameter_entry(model, geometry)
-        append!(obs, o)
-        append!(der, d)
-    end
-    if :magnetization_fourth in measurements && !binder_requested
-        o = [Observable(:magnetization_fourth, state -> (magnetization_value(state) / geometry.n_sites)^4)]
-        append!(obs, o)
-    end
-    if :structure_factor in measurements
-        o, d = structure_factor_entry(model, geometry)
-        append!(obs, o)
-        append!(der, d)
-    end
-
     return obs, der
 end
+
+# Canonical names of the optional measurements available to every model.
+const _COMMON_MEASUREMENTS = (
+    :raw_correlation,
+    :connected_correlation,
+    :abs_magnetization,
+    :abs_magnetization_squared,
+    :binder_cumulant,
+    :magnetization_fourth,
+    :structure_factor,
+)
+
+"""
+    extra_measurements(model)
+
+Return a tuple of additional optional measurement names specific to a model,
+beyond the common set available to every model (see
+[`available_measurements`](@ref)). The default is empty; for example
+`extra_measurements(::Type{<:ClockModel}) = (:clock_order_parameter,)`.
+
+A model extending this must also provide the corresponding
+`optional_observables(model, geometry, Val(name))` method, or requesting the
+name fails at container construction.
+"""
+extra_measurements(::Type{<:AbstractModel}) = ()
+extra_measurements(::Type{<:ClockModel}) = (:clock_order_parameter,)
 
 """
     available_measurements(model::AbstractModel)
 
 Return a `Vector{Symbol}` listing the optional measurement names accepted by
-`model` when constructing a [`MeasurementContainer`](@ref).
+`model` when constructing a [`MeasurementContainer`](@ref): the common
+measurements every model supports, any model-specific extras (see
+[`extra_measurements`](@ref)), and the accepted aliases (`:magnetization_abs`
+for `:abs_magnetization`, `:binder` for `:binder_cumulant`).
 
-These names are resolved by [`optional_observables`](@ref). Use them in the
-`measurements` keyword argument; they supplement the always-on observables
-returned by [`observables`](@ref) and [`derived_observables`](@ref).
-
-# Returns
-
-`[:raw_correlation, :connected_correlation, :abs_magnetization,
-:magnetization_abs, :binder_cumulant, :binder, :magnetization_fourth,
-:structure_factor]` for every model. A [`ClockModel`](@ref) additionally
-accepts `:clock_order_parameter` (see [`clock_order_parameter_entry`](@ref)).
-
-# Notes
-
-Several of these names trigger implicit dependencies (e.g. requesting
-`:connected_correlation` also adds `:raw_correlation`). See
-[`optional_observables`](@ref) and the [`MeasurementContainer`](@ref) constructor
-for details.
+Requests are validated against this list in [`optional_observables`](@ref).
+Several names implicitly include others (e.g. `:connected_correlation` also
+measures the raw correlation; `:binder_cumulant` also measures
+`:magnetization_fourth`); the additions are announced at construction.
 """
-available_measurements(::Type{<:AbstractModel}) = [
-    :raw_correlation,
-    :connected_correlation,
-    :abs_magnetization,
-    :magnetization_abs,
-    :binder_cumulant,
-    :binder,
-    :magnetization_fourth,
-    :structure_factor,
+available_measurements(::Type{M}) where {M<:AbstractModel} = Symbol[
+    _COMMON_MEASUREMENTS...,
+    extra_measurements(M)...,
+    sort!(collect(keys(_MEASUREMENT_ALIASES)))...,
 ]
-
-available_measurements(::Type{<:ClockModel}) =
-    [available_measurements(AbstractModel); :clock_order_parameter]
 
 # Instances forward to the type method
 available_measurements(::M) where {M<:AbstractModel} = available_measurements(M)

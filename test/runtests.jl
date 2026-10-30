@@ -50,18 +50,20 @@ function spin_energy(model, geometry, spins)
     return energy
 end
 
-function xy_energy(model, geometry, angles)
+function xy_energy(model, geometry, cosines, sines)
     energy = zero(promote_type(eltype(model.J), eltype(model.h)))
     for i in 1:geometry.n_sites
         info = geometry.neighbor_table[i]
         for (bond_id, j) in zip(info.bonds, info.neighbors)
             J = ucmc.bond_strength(model, geometry, bond_id)
-            energy += -0.5 * J * cos(angles[i] - angles[j])
+            energy += -0.5 * J * (cosines[i] * cosines[j] + sines[i] * sines[j])
         end
-        energy += -ucmc.field_strength(model, geometry, i) * cos(angles[i])
+        energy += -ucmc.field_strength(model, geometry, i) * cosines[i]
     end
     return energy
 end
+xy_energy(model, geometry, state::ucmc.XYState) =
+    xy_energy(model, geometry, state.cosines, state.sines)
 
 function clock_energy(model, geometry, spins)
     q = model.q
@@ -160,16 +162,19 @@ end
     model = ucmc.XYModel([1.0, 2.0], [0.5, -0.25])
     state = ucmc.initialize_state(model, geometry)
 
-    @test length(state.angles) == geometry.n_sites
-    @test state.energy ≈ xy_energy(model, geometry, state.angles)
-    @test state.magnetization_x ≈ sum(cos, state.angles)
-    @test state.magnetization_y ≈ sum(sin, state.angles)
+    @test length(state.cosines) == geometry.n_sites
+    @test length(state.sines) == geometry.n_sites
+    @test state.cosines .^ 2 .+ state.sines .^ 2 ≈ ones(geometry.n_sites)
+    @test state.energy ≈ xy_energy(model, geometry, state)
+    @test state.magnetization_x ≈ sum(state.cosines)
+    @test state.magnetization_y ≈ sum(state.sines)
 
     for _ in 1:50
         ucmc.step!(ucmc.MetropolisAlgorithm(), model, geometry, state, 2.0)
-        @test state.energy ≈ xy_energy(model, geometry, state.angles)
-        @test state.magnetization_x ≈ sum(cos, state.angles)
-        @test state.magnetization_y ≈ sum(sin, state.angles)
+        @test state.energy ≈ xy_energy(model, geometry, state)
+        @test state.magnetization_x ≈ sum(state.cosines)
+        @test state.magnetization_y ≈ sum(state.sines)
+        @test state.cosines .^ 2 .+ state.sines .^ 2 ≈ ones(geometry.n_sites)
     end
 
     @test_throws ArgumentError ucmc.initialize_state(
@@ -185,7 +190,7 @@ end
     for algorithm in (ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
         for _ in 1:10
             ucmc.step!(algorithm, model, geometry, state, 2.0)
-            @test state.energy ≈ xy_energy(model, geometry, state.angles)
+            @test state.energy ≈ xy_energy(model, geometry, state)
         end
     end
 
@@ -195,9 +200,9 @@ end
         field_state = ucmc.initialize_state(field_model, field_geometry)
         for _ in 1:20
             ucmc.step!(algorithm, field_model, field_geometry, field_state, 2.0)
-            @test field_state.energy ≈ xy_energy(field_model, field_geometry, field_state.angles)
-            @test field_state.magnetization_x ≈ sum(cos, field_state.angles)
-            @test field_state.magnetization_y ≈ sum(sin, field_state.angles)
+            @test field_state.energy ≈ xy_energy(field_model, field_geometry, field_state)
+            @test field_state.magnetization_x ≈ sum(field_state.cosines)
+            @test field_state.magnetization_y ≈ sum(field_state.sines)
         end
     end
 
@@ -221,16 +226,17 @@ end
 @testset "XY cluster reflection" begin
     geometry = square_geometry(2)
     model = ucmc.XYModel([1.0, 1.0], [0.0])
-    angles = [0.0, π / 2, 0.0, π / 2]
+    cosines = [1.0, 0.0, 1.0, 0.0]
+    sines = [0.0, 1.0, 0.0, 1.0]
     state = ucmc.XYState(
-        angles, xy_energy(model, geometry, angles), sum(cos, angles), sum(sin, angles)
+        cosines, sines, xy_energy(model, geometry, cosines, sines), sum(cosines), sum(sines)
     )
     ucmc.apply_cluster!(model, geometry, state, [1], 0.0)
 
-    @test state.angles[1] ≈ π
-    @test cos(state.angles[1]) == -1.0
-    @test state.magnetization_x ≈ sum(cos, state.angles) atol = 1e-12
-    @test state.magnetization_y ≈ sum(sin, state.angles) atol = 1e-12
+    @test state.cosines[1] == -1.0
+    @test state.sines[1] == 0.0
+    @test state.magnetization_x ≈ sum(state.cosines) atol = 1e-12
+    @test state.magnetization_y ≈ sum(state.sines) atol = 1e-12
 end
 
 @testset "Metropolis updates keep invariants" begin
@@ -293,9 +299,9 @@ end
     state = ucmc.initialize_state(model, geometry; rng = rng)
     for _ in 1:100
         ucmc.step!(algorithm, model, geometry, state, 2.0; rng = rng)
-        @test state.energy ≈ xy_energy(model, geometry, state.angles)
-        @test state.magnetization_x ≈ sum(cos, state.angles)
-        @test state.magnetization_y ≈ sum(sin, state.angles)
+        @test state.energy ≈ xy_energy(model, geometry, state)
+        @test state.magnetization_x ≈ sum(state.cosines)
+        @test state.magnetization_y ≈ sum(state.sines)
     end
 
     # Glauber uses the same trial moves as Metropolis for every model
@@ -358,7 +364,7 @@ end
     θs = (2π / n_grid) .* (0:(n_grid - 1))
     Z = E = Mx = 0.0
     for a in θs, b in θs
-        e = xy_energy(xy, chain, [a, b])
+        e = xy_energy(xy, chain, cos.([a, b]), sin.([a, b]))
         w = exp(-e / T)
         Z += w
         E += w * e
@@ -570,8 +576,11 @@ end
             Δm = collect(mag_totals(state)) - collect(before_m)
             @test all(Δm .≈ carried)
             @test state.energy == before_e + ΔE
-            values = state isa ucmc.XYState ? state.angles : state.spins
-            @test state.energy ≈ energy(model, geometry, values) atol = 1e-10
+            if state isa ucmc.XYState
+                @test state.energy ≈ energy(model, geometry, state) atol = 1e-10
+            else
+                @test state.energy ≈ energy(model, geometry, state.spins) atol = 1e-10
+            end
         end
     end
 end
@@ -1705,9 +1714,11 @@ struct NoComponentsModel <: ucmc.AbstractModel{Float64} end
     rng = Xoshiro(11)
     for _ in 1:20
         θ, φ = 2π * rand(rng), 2π * rand(rng)
-        a, b = ucmc.operator_components(xy, θ), ucmc.operator_components(xy, φ)
+        v, w = (cos(θ), sin(θ)), (cos(φ), sin(φ))
+        a, b = ucmc.operator_components(xy, v), ucmc.operator_components(xy, w)
         @test length(a) == ucmc.n_operator_components(xy)
-        @test sum(a .* b) ≈ ucmc.operator_product(xy, θ, φ)
+        @test sum(a .* b) ≈ ucmc.operator_product(xy, v, w)
+        @test sum(a .* b) ≈ cos(θ - φ)
     end
     for q in (2, 3, 4, 6)
         clock = ucmc.ClockModel(q, [1.0], [0.0])

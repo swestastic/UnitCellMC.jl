@@ -11,6 +11,7 @@ UnitCellMC.XYModel
 UnitCellMC.ClockModel
 UnitCellMC.clock_cos
 UnitCellMC.ClockClusterContext
+UnitCellMC.XYClusterContext
 UnitCellMC.couplings
 UnitCellMC.fields
 UnitCellMC.bond_strength

@@ -67,10 +67,11 @@ end
 Build a random initial [`XYState`](@ref) for `model` on `geometry`, with
 energy and both Cartesian magnetization components computed from scratch.
 
-Each site is assigned an angle uniform in `[0, 2π)`. Total energy is
-`-0.5 * J * cos(angles[i] - angles[j])` summed over every bond incident to
-every site (the `0.5` avoids double-counting) plus the field contribution
-`-h * cos(angles[i])` per site.
+Each site is assigned a uniformly random unit vector (angle uniform in
+`[0, 2π)`). Total energy is `-0.5 * J * (c_i c_j + s_i s_j)` summed over
+every bond incident to every site (the `0.5` avoids double-counting) plus
+the field contribution `-h * c_i` per site, with `(c, s)` the stored spin
+components.
 
 # Arguments
 
@@ -86,7 +87,7 @@ every site (the `0.5` avoids double-counting) plus the field contribution
 # Returns
 
 A randomly initialized [`XYState`](@ref) with `energy`, `magnetization_x`,
-and `magnetization_y` consistent with its `angles`.
+and `magnetization_y` consistent with its spin components.
 """
 function initialize_state(
     model::XYModel,
@@ -96,24 +97,27 @@ function initialize_state(
     validate_model_geometry(model, geometry)
 
     angles = 2π .* rand(rng, geometry.n_sites)
+    cosines = cos.(angles)
+    sines = sin.(angles)
     T = promote_type(Float64, eltype(couplings(model)), eltype(fields(model)))
     energy = zero(T)
     magnetization_x = zero(T)
     magnetization_y = zero(T)
 
     for site in 1:geometry.n_sites
-        angle = angles[site]
-        magnetization_x += cos(angle)
-        magnetization_y += sin(angle)
+        c = cosines[site]
+        s = sines[site]
+        magnetization_x += c
+        magnetization_y += s
         info = geometry.neighbor_table[site]
         for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
             energy += -0.5 * bond_strength(model, geometry, bond_id) *
-                cos(angle - angles[neighbor])
+                (c * cosines[neighbor] + s * sines[neighbor])
         end
-        energy += -field_strength(model, geometry, site) * cos(angle)
+        energy += -field_strength(model, geometry, site) * c
     end
 
-    return XYState(angles, energy, magnetization_x, magnetization_y)
+    return XYState(cosines, sines, energy, magnetization_x, magnetization_y)
 end
 
 """

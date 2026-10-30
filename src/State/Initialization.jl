@@ -176,3 +176,90 @@ function initialize_state(
 
     return ClockState(spins, energy, magnetization_x, magnetization_y)
 end
+
+"""
+    random_unit_vector(rng)
+
+Draw a uniformly distributed unit vector in ``\\mathbb{R}^3`` (a random point
+on the unit sphere): with `z` uniform on `[-1, 1]` and `φ` uniform on
+`[0, 2π)`, the vector `(√(1 - z²) cos φ, √(1 - z²) sin φ, z)` is uniform on
+the sphere. Shared by [`initialize_state`](@ref) and the Metropolis
+[`propose`](@ref) of the [`HeisenbergModel`](@ref), so both consume the same
+two draws per vector from `rng`.
+
+# Returns
+
+A `(x, y, z)` tuple with `x² + y² + z² == 1` to rounding.
+"""
+function random_unit_vector(rng::AbstractRNG)
+    z = 1 - 2 * rand(rng)
+    s, c = sincos(2π * rand(rng))
+    r = sqrt(1 - z^2)
+    return (r * c, r * s, z)
+end
+
+"""
+    initialize_state(model::HeisenbergModel, geometry::Geometry; rng = Random.default_rng())
+
+Build a random initial [`HeisenbergState`](@ref) for `model` on `geometry`,
+with energy and all three Cartesian magnetization components computed from
+scratch.
+
+Each site is assigned a uniformly random unit vector (see
+[`random_unit_vector`](@ref)). Total energy is `-0.5 * J * (v_i · v_j)`
+summed over every bond incident to every site (the `0.5` avoids
+double-counting) plus the field contribution `-h * x_i` per site, with the
+field pointing along the `x` direction.
+
+# Arguments
+
+- `model`: The [`HeisenbergModel`](@ref) supplying bond strengths `J` and
+  field `h`.
+- `geometry`: The lattice geometry, giving `n_sites` and the neighbor table.
+- `rng`: Random number generator for the initial spin vectors.
+
+# Throws
+
+`ArgumentError` from [`validate_model_geometry`](@ref) if `model` and
+`geometry` are incompatible.
+
+# Returns
+
+A randomly initialized [`HeisenbergState`](@ref) with `energy`,
+`magnetization_x`, `magnetization_y`, and `magnetization_z` consistent with
+its spin components.
+"""
+function initialize_state(
+    model::HeisenbergModel,
+    geometry::Geometry;
+    rng::AbstractRNG = Random.default_rng()
+)
+    validate_model_geometry(model, geometry)
+
+    vectors = [random_unit_vector(rng) for _ in 1:geometry.n_sites]
+    xs = [v[1] for v in vectors]
+    ys = [v[2] for v in vectors]
+    zs = [v[3] for v in vectors]
+    T = promote_type(Float64, eltype(couplings(model)), eltype(fields(model)))
+    energy = zero(T)
+    magnetization_x = zero(T)
+    magnetization_y = zero(T)
+    magnetization_z = zero(T)
+
+    for site in 1:geometry.n_sites
+        x = xs[site]
+        y = ys[site]
+        z = zs[site]
+        magnetization_x += x
+        magnetization_y += y
+        magnetization_z += z
+        info = geometry.neighbor_table[site]
+        for (bond_id, neighbor) in zip(info.bonds, info.neighbors)
+            energy += -0.5 * bond_strength(model, geometry, bond_id) *
+                (x * xs[neighbor] + y * ys[neighbor] + z * zs[neighbor])
+        end
+        energy += -field_strength(model, geometry, site) * x
+    end
+
+    return HeisenbergState(xs, ys, zs, energy, magnetization_x, magnetization_y, magnetization_z)
+end

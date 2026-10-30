@@ -15,7 +15,7 @@ include("Simulation/Simulation.jl")
 include("IO/IO.jl")
 
 export Geometry, initialize_state
-export IsingModel, XYModel, ClockModel
+export IsingModel, XYModel, ClockModel, HeisenbergModel
 export MetropolisAlgorithm, GlauberAlgorithm, WolffAlgorithm, SwendsenWangAlgorithm
 export RandomProposal, SequentialProposal, CheckerboardProposal, ColoredProposal
 export SimulationParameters, MeasurementContainer

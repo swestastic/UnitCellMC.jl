@@ -91,7 +91,11 @@ When you add files, include them in the matching directory's umbrella file
 
 A model is five pieces: a state type, an initializer, a model struct, the
 update methods, and the measurement hooks. Worked example skeleton: a
-Heisenberg model.
+Heisenberg model. (The Heisenberg model is now implemented — see
+`src/Models/Heisenberg.jl`, which stores the per-site components in three
+arrays and couples the field to `x`; the skeleton below is the minimal
+contract.)
+
 
 ### 1. The state type — `src/State/HeisenbergState.jl`
 
@@ -186,7 +190,7 @@ function energy_difference(model::HeisenbergModel, geometry, state, proposal)
         ΔE -= J[template] * sum(proposal.new_value .* state.spins[neighbor]
                                 .- state.spins[site] .* state.spins[neighbor])
     end
-    ΔE -= field_strength(model, geometry, site) * proposal.magnetization_change[3]  # field along z
+    ΔE -= field_strength(model, geometry, site) * proposal.magnetization_change[1]  # field along x
     return ΔE
 end
 ```

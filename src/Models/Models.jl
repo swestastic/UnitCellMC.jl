@@ -1,6 +1,7 @@
 include("Ising.jl")
 include("XY.jl")
 include("Clock.jl")
+include("Heisenberg.jl")
 
 """
     validate_model_geometry(model, geometry)

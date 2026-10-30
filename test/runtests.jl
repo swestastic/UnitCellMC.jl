@@ -65,6 +65,21 @@ end
 xy_energy(model, geometry, state::ucmc.XYState) =
     xy_energy(model, geometry, state.cosines, state.sines)
 
+function heisenberg_energy(model, geometry, xs, ys, zs)
+    energy = zero(promote_type(eltype(model.J), eltype(model.h)))
+    for i in 1:geometry.n_sites
+        info = geometry.neighbor_table[i]
+        for (bond_id, j) in zip(info.bonds, info.neighbors)
+            J = ucmc.bond_strength(model, geometry, bond_id)
+            energy += -0.5 * J * (xs[i] * xs[j] + ys[i] * ys[j] + zs[i] * zs[j])
+        end
+        energy += -ucmc.field_strength(model, geometry, i) * xs[i]
+    end
+    return energy
+end
+heisenberg_energy(model, geometry, state::ucmc.HeisenbergState) =
+    heisenberg_energy(model, geometry, state.xs, state.ys, state.zs)
+
 function clock_energy(model, geometry, spins)
     q = model.q
     energy = zero(promote_type(Float64, eltype(model.J), eltype(model.h)))
@@ -237,6 +252,126 @@ end
     @test state.sines[1] == 0.0
     @test state.magnetization_x ≈ sum(state.cosines) atol = 1e-12
     @test state.magnetization_y ≈ sum(state.sines) atol = 1e-12
+end
+
+@testset "Heisenberg state and updates" begin
+    geometry = two_orbital_geometry(2)
+    model = ucmc.HeisenbergModel([1.0, 2.0], [0.5, -0.25])
+    state = ucmc.initialize_state(model, geometry)
+
+    @test length(state.xs) == length(state.ys) == length(state.zs) == geometry.n_sites
+    @test state.xs .^ 2 .+ state.ys .^ 2 .+ state.zs .^ 2 ≈ ones(geometry.n_sites)
+    @test state.energy ≈ heisenberg_energy(model, geometry, state)
+    @test state.magnetization_x ≈ sum(state.xs)
+    @test state.magnetization_y ≈ sum(state.ys)
+    @test state.magnetization_z ≈ sum(state.zs)
+
+    for _ in 1:50
+        ucmc.step!(ucmc.MetropolisAlgorithm(), model, geometry, state, 2.0)
+        @test state.energy ≈ heisenberg_energy(model, geometry, state)
+        @test state.magnetization_x ≈ sum(state.xs)
+        @test state.magnetization_y ≈ sum(state.ys)
+        @test state.magnetization_z ≈ sum(state.zs)
+        @test state.xs .^ 2 .+ state.ys .^ 2 .+ state.zs .^ 2 ≈ ones(geometry.n_sites)
+    end
+
+    @test_throws ArgumentError ucmc.initialize_state(
+        ucmc.HeisenbergModel([1.0, 2.0], [0.5]), geometry
+    )
+end
+
+@testset "Heisenberg cluster updates" begin
+    geometry = square_geometry(2)
+    model = ucmc.HeisenbergModel([1.0, 1.0], [0.0])
+
+    for algorithm in (ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
+        state = ucmc.initialize_state(model, geometry)
+        for _ in 1:10
+            ucmc.step!(algorithm, model, geometry, state, 2.0)
+            @test state.energy ≈ heisenberg_energy(model, geometry, state)
+        end
+    end
+
+    field_geometry = two_orbital_geometry(2)
+    field_model = ucmc.HeisenbergModel([1.0, 2.0], [0.5, -0.25])
+    for algorithm in (ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
+        field_state = ucmc.initialize_state(field_model, field_geometry)
+        for _ in 1:20
+            ucmc.step!(algorithm, field_model, field_geometry, field_state, 2.0)
+            @test field_state.energy ≈ heisenberg_energy(field_model, field_geometry, field_state)
+            @test field_state.magnetization_x ≈ sum(field_state.xs)
+            @test field_state.magnetization_y ≈ sum(field_state.ys)
+            @test field_state.magnetization_z ≈ sum(field_state.zs)
+            @test field_state.xs .^ 2 .+ field_state.ys .^ 2 .+ field_state.zs .^ 2 ≈
+                ones(field_geometry.n_sites)
+        end
+    end
+end
+
+@testset "Heisenberg cluster reflection" begin
+    geometry = square_geometry(2)
+    model = ucmc.HeisenbergModel([1.0, 1.0], [0.0])
+    xs = [1.0, 0.0, 0.0, -1.0]
+    ys = [0.0, 1.0, 0.0, 0.0]
+    zs = [0.0, 0.0, 1.0, 0.0]
+    state = ucmc.HeisenbergState(
+        xs, ys, zs, heisenberg_energy(model, geometry, xs, ys, zs), sum(xs), sum(ys), sum(zs)
+    )
+
+    # reflecting x̂ about r̂ = x̂ flips it; a non-unit axis is normalized on entry
+    ucmc.apply_cluster!(model, geometry, state, [1], (2.0, 0.0, 0.0))
+    @test state.xs[1] == -1.0
+    @test state.ys[1] == 0.0
+    @test state.zs[1] == 0.0
+    @test state.energy ≈ heisenberg_energy(model, geometry, state) atol = 1e-12
+    @test state.magnetization_x ≈ sum(state.xs) atol = 1e-12
+    @test state.magnetization_y ≈ sum(state.ys) atol = 1e-12
+    @test state.magnetization_z ≈ sum(state.zs) atol = 1e-12
+
+    # a spin perpendicular to the axis has p = 0 and is unchanged exactly
+    ucmc.apply_cluster!(model, geometry, state, [3], (1.0, 0.0, 0.0))
+    @test (state.xs[3], state.ys[3], state.zs[3]) == (0.0, 0.0, 1.0)
+
+    # about r̂ = (x̂ + ŷ)/√2 the reflection maps -x̂ to +ŷ
+    ucmc.apply_cluster!(model, geometry, state, [1], (1.0, 1.0, 0.0))
+    @test state.xs[1] ≈ 0.0 atol = 1e-12
+    @test state.ys[1] ≈ 1.0 atol = 1e-12
+    @test state.zs[1] ≈ 0.0 atol = 1e-12
+    @test state.energy ≈ heisenberg_energy(model, geometry, state) atol = 1e-12
+
+    @test_throws ArgumentError ucmc.apply_cluster!(model, geometry, state, [1], (0.0, 0.0, 0.0))
+end
+
+@testset "Heisenberg matches the exact Langevin response" begin
+    # J = 0: independent spins in a field along x, so the per-site response is
+    # the Langevin function ⟨m_x⟩ = coth(h / T) - T / h, and ⟨m_y⟩ = ⟨m_z⟩ = 0.
+    # The Wolff run exercises the ghost-only dynamics (no bonds to activate).
+    geometry = ucmc.Geometry(
+        lu.UnitCell(lattice_vecs = [[1.0, 0.0], [0.0, 1.0]], basis_vecs = [[0.0, 0.0]]),
+        lu.Lattice(L = [4, 4], periodic = [true, true]),
+        lu.Bond{2}[],
+    )
+    T = 1.0
+    h = 0.5
+    model = ucmc.HeisenbergModel(Float64[], [h])
+    exact_mx = coth(h / T) - T / h
+
+    for (algorithm, n_measurements) in (
+        (ucmc.MetropolisAlgorithm(), 50_000), (ucmc.WolffAlgorithm(), 200_000)
+    )
+        rng = Xoshiro(19)
+        state = ucmc.initialize_state(model, geometry; rng = rng)
+        container = ucmc.MeasurementContainer(model, geometry, n_measurements, 25)
+        parameters = ucmc.SimulationParameters(T, 500, n_measurements, 0, 25)
+        ucmc.run_simulation(algorithm, model, geometry, state, container, parameters; rng = rng)
+        result = ucmc.analyze(container, T, geometry.n_sites)
+        mx, mx_err = result.primary[:magnetization_x]
+        my, my_err = result.primary[:magnetization_y]
+        mz, mz_err = result.primary[:magnetization_z]
+        @test abs(mx - exact_mx) < 4 * mx_err
+        @test abs(my) < 4 * my_err
+        @test abs(mz) < 4 * mz_err
+    end
 end
 
 @testset "Metropolis updates keep invariants" begin
@@ -500,10 +635,12 @@ struct PairingTestState <: ucmc.AbstractState end
     ising = ucmc.IsingModel([1.0, 1.0], [0.0])
     xy = ucmc.XYModel([1.0, 1.0], [0.0])
     clock = ucmc.ClockModel(4, [1.0, 1.0], [0.0])
+    heisenberg = ucmc.HeisenbergModel([1.0, 1.0], [0.0])
 
     @test ucmc.state_type(ising) == ucmc.IsingState
     @test ucmc.state_type(xy) == ucmc.XYState
     @test ucmc.state_type(clock) == ucmc.ClockState
+    @test ucmc.state_type(heisenberg) == ucmc.HeisenbergState
     @test_throws ArgumentError ucmc.state_type(PairingTestModel())
 
     # Models without their own methods fail loudly instead of falling back
@@ -512,13 +649,16 @@ struct PairingTestState <: ucmc.AbstractState end
 
     ising_state = ucmc.initialize_state(ising, geometry)
     xy_state = ucmc.initialize_state(xy, geometry)
+    heisenberg_state = ucmc.initialize_state(heisenberg, geometry)
     @test ising_state isa ucmc.state_type(ising)
     @test xy_state isa ucmc.state_type(xy)
     @test ucmc.initialize_state(clock, geometry) isa ucmc.state_type(clock)
+    @test heisenberg_state isa ucmc.state_type(heisenberg)
 
     @test isnothing(ucmc.validate_model_state(ising, ising_state))
     @test_throws ArgumentError ucmc.validate_model_state(ising, xy_state)
     @test_throws ArgumentError ucmc.validate_model_state(xy, ising_state)
+    @test_throws ArgumentError ucmc.validate_model_state(heisenberg, xy_state)
     @test_throws ArgumentError ucmc.validate_model_state(PairingTestModel(), PairingTestState())
 
     container = ucmc.MeasurementContainer(ising, geometry, 4, 2)
@@ -533,6 +673,9 @@ struct PairingTestState <: ucmc.AbstractState end
     @test ucmc.magnetization_value(ising_state) == ising_state.magnetization
     @test ucmc.magnetization_value(xy_state) ==
         hypot(xy_state.magnetization_x, xy_state.magnetization_y)
+    @test ucmc.magnetization_value(heisenberg_state) ==
+        hypot(heisenberg_state.magnetization_x, heisenberg_state.magnetization_y,
+              heisenberg_state.magnetization_z)
     @test ucmc.magnetization_value(ucmc.initialize_state(clock, geometry)) isa Real
     @test_throws ArgumentError ucmc.magnetization_value(PairingTestState())
 end
@@ -543,8 +686,11 @@ end
         (ucmc.IsingModel([1.0, 1.0], [0.5]), spin_energy),
         (ucmc.XYModel([1.0, 1.0], [0.5]), xy_energy),
         (ucmc.ClockModel(4, [1.0, 1.0], [0.5]), clock_energy),
+        (ucmc.HeisenbergModel([1.0, 1.0], [0.5]), heisenberg_energy),
     )
     mag_totals(s::ucmc.IsingState) = (s.magnetization,)
+    mag_totals(s::ucmc.HeisenbergState) =
+        (s.magnetization_x, s.magnetization_y, s.magnetization_z)
     mag_totals(s) = (s.magnetization_x, s.magnetization_y)
 
     for (model, energy) in models_and_energy, algorithm in
@@ -576,7 +722,7 @@ end
             Δm = collect(mag_totals(state)) - collect(before_m)
             @test all(Δm .≈ carried)
             @test state.energy == before_e + ΔE
-            if state isa ucmc.XYState
+            if state isa Union{ucmc.XYState, ucmc.HeisenbergState}
                 @test state.energy ≈ energy(model, geometry, state) atol = 1e-10
             else
                 @test state.energy ≈ energy(model, geometry, state.spins) atol = 1e-10
@@ -825,7 +971,8 @@ end
     geometry = two_orbital_geometry(2)
     for model in (ucmc.IsingModel([1.0, 2.0], [0.5, -0.25]),
                   ucmc.XYModel([1.0, 2.0], [0.5, -0.25]),
-                  ucmc.ClockModel(4, [1.0, 2.0], [0.5, -0.25]))
+                  ucmc.ClockModel(4, [1.0, 2.0], [0.5, -0.25]),
+                  ucmc.HeisenbergModel([1.0, 2.0], [0.5, -0.25]))
         @test ucmc.couplings(model) === model.J
         @test ucmc.fields(model) === model.h
         for site in 1:geometry.n_sites
@@ -837,7 +984,8 @@ end
     # cluster algorithms reject antiferromagnetic couplings for every model
     for model in (ucmc.IsingModel([1.0, -1.0], [0.0, 0.0]),
                   ucmc.XYModel([1.0, -1.0], [0.0, 0.0]),
-                  ucmc.ClockModel(3, [1.0, -1.0], [0.0, 0.0]))
+                  ucmc.ClockModel(3, [1.0, -1.0], [0.0, 0.0]),
+                  ucmc.HeisenbergModel([1.0, -1.0], [0.0, 0.0]))
         state = ucmc.initialize_state(model, geometry)
         for algorithm in (ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
             @test_throws ArgumentError ucmc.step!(algorithm, model, geometry, state, 1.0)
@@ -1268,10 +1416,11 @@ end
     model = ucmc.IsingModel([1.0, 1.0], [0.0])
     xy_model = ucmc.XYModel([1.0, 1.0], [0.0])
     clock_model = ucmc.ClockModel(5, [1.0, 1.0], [0.3])
+    heisenberg_model = ucmc.HeisenbergModel([1.0, 1.0], [0.0])
     parameters = ucmc.SimulationParameters(2.0, 5, 20, 1, 4)
 
     # explicit rng: identical streams give identical states and bins
-    for m in (model, xy_model, clock_model),
+    for m in (model, xy_model, clock_model, heisenberg_model),
         algorithm in (ucmc.MetropolisAlgorithm(), ucmc.GlauberAlgorithm(), ucmc.WolffAlgorithm(),
                       ucmc.SwendsenWangAlgorithm())
         containers = map(1:2) do _
@@ -1720,6 +1869,16 @@ struct NoComponentsModel <: ucmc.AbstractModel{Float64} end
         @test sum(a .* b) ≈ ucmc.operator_product(xy, v, w)
         @test sum(a .* b) ≈ cos(θ - φ)
     end
+    heisenberg = ucmc.HeisenbergModel([1.0], [0.0])
+    for _ in 1:20
+        v = ucmc.random_unit_vector(rng)
+        w = ucmc.random_unit_vector(rng)
+        a, b = ucmc.operator_components(heisenberg, v), ucmc.operator_components(heisenberg, w)
+        @test length(a) == ucmc.n_operator_components(heisenberg)
+        @test sum(a .* b) ≈ ucmc.operator_product(heisenberg, v, w)
+        @test sum(a .* b) ≈ sum(v .* w)
+        @test sum(a .* a) ≈ 1.0
+    end
     for q in (2, 3, 4, 6)
         clock = ucmc.ClockModel(q, [1.0], [0.0])
         @test ucmc.n_operator_components(clock) == 2
@@ -1776,6 +1935,7 @@ end
         (ucmc.IsingModel([1.0, 0.5], [0.0, 0.0]), ucmc.MetropolisAlgorithm()),
         (ucmc.XYModel([1.0, 0.5], [0.0, 0.0]), ucmc.WolffAlgorithm()),
         (ucmc.ClockModel(6, [1.0, 0.5], [0.0, 0.0]), ucmc.SwendsenWangAlgorithm()),
+        (ucmc.HeisenbergModel([1.0, 0.5], [0.0, 0.0]), ucmc.WolffAlgorithm()),
     )
         state = ucmc.initialize_state(model, geometry; rng = rng)
         for _ in 1:5
@@ -1810,6 +1970,7 @@ end
         (ucmc.IsingModel([1.0, 0.5], [0.0, 0.0]), ucmc.MetropolisAlgorithm()),
         (ucmc.XYModel([1.0, 0.5], [0.0, 0.0]), ucmc.WolffAlgorithm()),
         (ucmc.ClockModel(4, [1.0, 0.5], [0.0, 0.0]), ucmc.SwendsenWangAlgorithm()),
+        (ucmc.HeisenbergModel([1.0, 0.5], [0.0, 0.0]), ucmc.SwendsenWangAlgorithm()),
     )
         rng = Xoshiro(9)
         for geometry in (rectangular_two_orbital_geometry(3, 4),                  # periodic: DFT path
@@ -1864,6 +2025,7 @@ end
     @test :structure_factor in ucmc.available_measurements(ucmc.IsingModel)
     @test :structure_factor in ucmc.available_measurements(ucmc.XYModel([1.0], [0.0]))
     @test :structure_factor in ucmc.available_measurements(ucmc.ClockModel(3, [1.0], [0.0]))
+    @test :structure_factor in ucmc.available_measurements(ucmc.HeisenbergModel([1.0], [0.0]))
 
     geometry = rectangular_two_orbital_geometry(3, 2)
     n_classes = 2^2 * 6
@@ -2212,10 +2374,12 @@ end
     @test :clock_order_parameter in ucmc.available_measurements(ucmc.ClockModel(6, [1.0], [0.0]))
     @test :clock_order_parameter ∉ ucmc.available_measurements(ucmc.IsingModel)
     @test :clock_order_parameter ∉ ucmc.available_measurements(ucmc.XYModel)
+    @test :clock_order_parameter ∉ ucmc.available_measurements(ucmc.HeisenbergModel)
 
     geometry = square_geometry(2)
     N = geometry.n_sites
-    for model in (ucmc.IsingModel([1.0, 1.0], [0.0]), ucmc.XYModel([1.0, 1.0], [0.0]))
+    for model in (ucmc.IsingModel([1.0, 1.0], [0.0]), ucmc.XYModel([1.0, 1.0], [0.0]),
+                  ucmc.HeisenbergModel([1.0, 1.0], [0.0]))
         @test_throws ArgumentError ucmc.MeasurementContainer(model, geometry, 4, 2;
             measurements = [:clock_order_parameter])
     end

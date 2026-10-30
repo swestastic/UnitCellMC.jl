@@ -9,9 +9,11 @@ UnitCellMC.AbstractModel
 UnitCellMC.IsingModel
 UnitCellMC.XYModel
 UnitCellMC.ClockModel
+UnitCellMC.HeisenbergModel
 UnitCellMC.clock_cos
 UnitCellMC.ClockClusterContext
 UnitCellMC.XYClusterContext
+UnitCellMC.HeisenbergClusterContext
 UnitCellMC.couplings
 UnitCellMC.fields
 UnitCellMC.bond_strength
@@ -33,6 +35,7 @@ UnitCellMC.cluster_bond_probability
 UnitCellMC.apply_cluster!
 UnitCellMC.apply_clusters!
 UnitCellMC._reflect_xy_clusters!
+UnitCellMC._reflect_heisenberg_clusters!
 UnitCellMC._flip_ising_clusters!
 UnitCellMC._reflect_clock_sites!
 UnitCellMC._reflect_clock_clusters!

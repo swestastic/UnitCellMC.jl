@@ -123,7 +123,7 @@ not need that function's calling convention.
 The site index (an `Int`).
 """
 site_at(geometry::Geometry, loc, orbital) =
-    LatticeUtilities.loc_to_site(collect(loc), orbital, geometry.unit_cell, geometry.lattice)
+    LatticeUtilities.loc_to_site(loc, orbital, geometry.unit_cell, geometry.lattice)
 
 """
     _cluster_labels(geometry, clusters::Vector{Vector{Int}})

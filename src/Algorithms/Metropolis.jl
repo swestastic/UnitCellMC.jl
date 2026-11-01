@@ -31,8 +31,9 @@ choose the new value there.
 
 # Arguments
 
-- `workspace`: The scheme's per-run state, built by
-  [`algorithm_workspace`](@ref). Required for stateful schemes (see
+- `workspace`: The per-run [`LocalUpdateWorkspace`](@ref) built by
+  [`algorithm_workspace`](@ref), which bundles the proposal scheme's
+  site-selection state. Required for stateful schemes (see
   [`SequentialProposal`](@ref)); the drivers pass it automatically.
 
 # Returns
@@ -47,12 +48,12 @@ function propose(
     state::AbstractState;
     workspace = nothing
 )
-    site = propose_site(rng, alg.proposal, geometry, workspace)
+    site = propose_site(rng, alg.proposal, geometry, _proposal_workspace(workspace))
     return propose(rng, alg, model, geometry, state, site)
 end
 
 algorithm_workspace(alg::MetropolisAlgorithm, model, geometry, state) =
-    proposal_workspace(alg.proposal, geometry)
+    LocalUpdateWorkspace(alg.proposal, model, geometry)
 
 """
     step!(alg, model, geometry, state, T; rng = Random.default_rng())
@@ -64,6 +65,13 @@ A trial move is generated with [`propose`](@ref), its energy change is
 computed with [`energy_difference`](@ref), and it is accepted unconditionally
 if `ΔE <= 0`, or with probability `exp(-ΔE / T)` otherwise. Accepted moves are
 applied in place via [`apply_update!`](@ref).
+
+When `workspace` carries an [`AcceptanceCache`](@ref) — the case for models
+with a discrete `ΔE` spectrum, see [`tabulate_acceptance`](@ref) — the
+Boltzmann factor is memoized per temperature and the test reads `rand(rng) <
+exp(-ΔE / T)` with the memoized factor. That is mathematically identical to
+the uncached `log(rand(rng)) < -ΔE / T` comparison, but borderline
+accept/reject decisions can differ in the last floating-point bit.
 
 # Arguments
 
@@ -103,7 +111,19 @@ function step!(
     proposal = propose(rng, alg, model, geometry, state; workspace = workspace)
     ΔE = energy_difference(model, geometry, state, proposal)
 
-    if ΔE <= 0.0 || log(rand(rng)) < - ΔE / T
+    if ΔE <= 0.0
+        apply_update!(state, proposal, ΔE)
+        return MetropolisUpdateResult(true)
+    end
+
+    cache = _acceptance_cache(workspace)
+    accepted = if cache === nothing
+        log(rand(rng)) < - ΔE / T
+    else
+        rand(rng) < cached_boltzmann_factor(cache, ΔE, Float64(T))
+    end
+
+    if accepted
         apply_update!(state, proposal, ΔE)
         return MetropolisUpdateResult(true)
     end

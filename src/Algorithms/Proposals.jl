@@ -335,9 +335,10 @@ Return the per-run site-selection state for `scheme`: `nothing` for
 stateless schemes ([`RandomProposal`](@ref)), a
 [`SequentialProposalWorkspace`](@ref) for [`SequentialProposal`](@ref), a
 [`ColoredProposalWorkspace`](@ref) for [`CheckerboardProposal`](@ref) and
-[`ColoredProposal`](@ref). [`algorithm_workspace`](@ref) forwards to this for
-local-update algorithms, and [`run_simulation`](@ref) threads the result
-through [`MC_Sweep!`](@ref) into [`step!`](@ref). Extend it for custom
+[`ColoredProposal`](@ref). [`algorithm_workspace`](@ref) bundles the result
+with the model's [`AcceptanceCache`](@ref) in a [`LocalUpdateWorkspace`](@ref)
+for local-update algorithms, and [`run_simulation`](@ref) threads it through
+[`MC_Sweep!`](@ref) into [`step!`](@ref). Extend it for custom
 schemes with per-run state.
 
 # Throws

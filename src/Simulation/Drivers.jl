@@ -1,8 +1,3 @@
-@inline function record_all!(stats::Tuple, values, ::Val{D}) where {D}
-    ntuple(i -> record!(stats[i], getfield(values, D[i])), Val(length(D)))
-    return nothing
-end
-
 """
     MC_Sweep!(algorithm, model, geometry, state, container, T, stats;
         rng = Random.default_rng())
@@ -16,7 +11,11 @@ one cluster update for cluster algorithms. After each update,
 `diagnostic_values` is evaluated and the values matching
 `container.diagnostics` are recorded into the corresponding
 [`UpdateStatistic`](@ref)s in `stats`, which must be one per diagnostic (see
-[`run_simulation`](@ref)).
+[`run_simulation`](@ref)). The per-update loop is delegated to
+[`sweep_steps!`](@ref), whose default method calls [`step!`](@ref);
+model/algorithm pairs with a fused fast path (single-orbital
+[`IsingModel`](@ref) under [`MetropolisAlgorithm`](@ref) with
+[`RandomProposal`](@ref)) override it.
 
 # Arguments
 
@@ -33,8 +32,9 @@ one cluster update for cluster algorithms. After each update,
 - `workspace`: Per-run scratch space passed to [`step!`](@ref) (see
   [`algorithm_workspace`](@ref)); `nothing` lets `step!` allocate its own.
   Cluster algorithms reuse a [`ClusterWorkspace`](@ref); local-update
-  algorithms with a stateful proposal scheme (see [`SequentialProposal`](@ref))
-  carry their site cursor in it.
+  algorithms carry a [`LocalUpdateWorkspace`](@ref) bundling the proposal
+  scheme's site cursor (see [`SequentialProposal`](@ref)) with the
+  [`AcceptanceCache`](@ref) of discrete-spectrum models.
 
 # Returns
 
@@ -45,17 +45,9 @@ function MC_Sweep!(
     T, stats::Tuple; rng::AbstractRNG = Random.default_rng(), workspace = nothing
 ) where {D}
     foreach(reset!, stats)
-    for _ in 1:steps_per_sweep(algorithm, geometry)
-        # Pass the workspace only when there is one to pass, so custom
-        # algorithms need not accept the keyword.
-        result = if workspace === nothing
-            step!(algorithm, model, geometry, state, T; rng = rng)
-        else
-            step!(algorithm, model, geometry, state, T; rng = rng, workspace = workspace)
-        end
-        record_all!(stats, diagnostic_values(algorithm, result), Val(D))
-    end
-    return stats
+    return sweep_steps!(
+        algorithm, model, geometry, state, T, stats, Val(D); rng = rng, workspace = workspace
+    )
 end
 
 """

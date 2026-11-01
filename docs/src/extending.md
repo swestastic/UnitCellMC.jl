@@ -218,6 +218,11 @@ Optional hooks enable optional features:
 - [`operator_product`](@ref UnitCellMC.operator_product) — the two-body product, needed by the direct
   correlation path (open boundaries).
 - [`binder_denominator`](@ref UnitCellMC.binder_denominator) — enables `:binder_cumulant`.
+- [`tabulate_acceptance`](@ref UnitCellMC.tabulate_acceptance) — return `true` when the single-site
+  `energy_difference` takes values from a small discrete set, so local-update
+  algorithms memoize Boltzmann factors per temperature in an
+  [`AcceptanceCache`](@ref UnitCellMC.AcceptanceCache) (exact, since the `ΔE`
+  values repeat bit for bit). `false` by default.
 - `extra_measurements(::Type{<:HeisenbergModel})` — advertise model-specific
   optional measurements (see "Adding a measurement" below).
 
@@ -298,6 +303,11 @@ Rules of the road:
 - The diagnostic keys returned by [`diagnostic_values`](@ref UnitCellMC.diagnostic_values) must be exactly
   [`available_diagnostics`](@ref UnitCellMC.available_diagnostics)`(MyAlgorithm)`; the container validates
   this up front ([`validate_run`](@ref UnitCellMC.validate_run)).
+- The per-sweep loop is [`sweep_steps!`](@ref UnitCellMC.sweep_steps!), whose default method calls `step!`
+  per update. A model/algorithm pair may override it with a fused fast path
+  (see `Models/Ising.jl`), but the override must visit sites and draw from
+  `rng` exactly as the generic loop, keep the state's running totals exact,
+  and record identical diagnostics.
 
 Registration checklist:
 

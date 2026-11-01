@@ -38,8 +38,9 @@ Glauber-specific proposal.
 
 # Arguments
 
-- `workspace`: The scheme's per-run state, built by
-  [`algorithm_workspace`](@ref). Required for stateful schemes (see
+- `workspace`: The per-run [`LocalUpdateWorkspace`](@ref) built by
+  [`algorithm_workspace`](@ref), which bundles the proposal scheme's
+  site-selection state. Required for stateful schemes (see
   [`SequentialProposal`](@ref)); the drivers pass it automatically.
 
 # Returns
@@ -54,7 +55,7 @@ function propose(
     state::AbstractState;
     workspace = nothing
 )
-    site = propose_site(rng, alg.proposal, geometry, workspace)
+    site = propose_site(rng, alg.proposal, geometry, _proposal_workspace(workspace))
     return propose(rng, alg, model, geometry, state, site)
 end
 
@@ -65,7 +66,7 @@ propose(rng::AbstractRNG, ::GlauberAlgorithm, model::AbstractModel, geometry, st
     propose(rng, MetropolisAlgorithm(), model, geometry, state, site)
 
 algorithm_workspace(alg::GlauberAlgorithm, model, geometry, state) =
-    proposal_workspace(alg.proposal, geometry)
+    LocalUpdateWorkspace(alg.proposal, model, geometry)
 
 """
     step!(alg::GlauberAlgorithm, model, geometry, state, T; rng = Random.default_rng())
@@ -79,6 +80,13 @@ probability `1 / (1 + exp(ΔE / T))`. Unlike Metropolis, moves with `ΔE <= 0`
 are not accepted unconditionally; a move with `ΔE = 0` is accepted with
 probability `1/2`. Accepted moves are applied in place via
 [`apply_update!`](@ref).
+
+When `workspace` carries an [`AcceptanceCache`](@ref) — the case for models
+with a discrete `ΔE` spectrum, see [`tabulate_acceptance`](@ref) — the
+Boltzmann factor `u = exp(-ΔE / T)` is memoized per temperature and the
+probability evaluated as `u / (1 + u)` for `ΔE > 0` and `1 / (1 + 1 / u)`
+otherwise, which matches [`glauber_probability`](@ref) up to the last
+floating-point bit.
 
 # Arguments
 
@@ -117,7 +125,15 @@ function step!(
     proposal = propose(rng, alg, model, geometry, state; workspace = workspace)
     ΔE = energy_difference(model, geometry, state, proposal)
 
-    if rand(rng) < glauber_probability(ΔE, T)
+    cache = _acceptance_cache(workspace)
+    p = if cache === nothing
+        glauber_probability(ΔE, T)
+    else
+        u = cached_boltzmann_factor(cache, ΔE, Float64(T))
+        ΔE > 0 ? u / (1 + u) : 1 / (1 + 1 / u)
+    end
+
+    if rand(rng) < p
         apply_update!(state, proposal, ΔE)
         return GlauberUpdateResult(true)
     end

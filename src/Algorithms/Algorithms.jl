@@ -55,9 +55,11 @@ Extend this function to change the sweep size for a custom algorithm.
 steps_per_sweep(::AbstractAlgorithm, geometry::Geometry) = geometry.n_sites
 
 include("Proposals.jl")
+include("AcceptanceCache.jl")
 include("Metropolis.jl")
 include("Glauber.jl")
 include("ClusterWorkspace.jl")
 include("Wolff.jl")
 include("SwendsenWang.jl")
 include("Diagnostics.jl")
+include("Sweeps.jl")

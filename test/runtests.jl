@@ -1937,11 +1937,68 @@ end
     @test isempty(sweep[1].autocorrelation)
     dir = ucmc.sweep_dirname(model, ucmc.WolffAlgorithm(), geometry.lattice.L; root = root)
     @test isfile(joinpath(dir, "measurement_results.csv"))
+    @test isfile(joinpath(dir, "correlation_results.csv"))  # raw correlation data must reach disk
     @test !isfile(joinpath(dir, "autocorrelation_results.csv"))
     sweep = ucmc.sweep_Ts(ucmc.WolffAlgorithm(), model, geometry, ucmc.initialize_state(model, geometry),
         2, 8, 0, 2, [2.0]; n_runs = 2, measurements = [:raw_correlation], root = root)
     @test haskey(sweep[1].autocorrelation, :energy)
     @test !haskey(sweep[1].autocorrelation, :correlation)
+end
+
+@testset "raw_correlation results are saved" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    rng = Xoshiro(5)
+    state = ucmc.initialize_state(model, geometry; rng = rng)
+    parameters = ucmc.SimulationParameters(2.0, 5, 20, 1, 4)
+
+    container = ucmc.MeasurementContainer(model, geometry, 20, 4;
+                                          measurements = [:raw_correlation])
+    ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state,
+                        container, parameters; rng = rng)
+    results = ucmc.analyze(container, 2.0, geometry.n_sites)
+
+    # the raw correlation carries its displacement-class labels through
+    # analyze, so correlation_rows can label its columns (bug: the data used
+    # to be silently dropped on the save path)
+    @test haskey(results.primary, :correlation)
+    @test hasproperty(results.derived, :correlation_classes)
+    @test !hasproperty(results.derived, :correlation_connected)
+
+    classes = results.derived.correlation_classes
+    df = ucmc.correlation_rows(results)
+    @test df !== nothing
+    @test propertynames(df) == [:disp_1, :disp_2, :orbital_i, :orbital_j,
+                                :raw_value, :raw_error]
+    @test size(df, 1) == length(classes)
+    @test df.raw_value == first(results.primary[:correlation])
+    @test df.orbital_i == [c.orbitals[1] for c in classes]
+    @test df.disp_2 == [c.displacement[2] for c in classes]
+
+    # and it is written to disk on the single-run save path
+    root = mktempdir()
+    dir = ucmc.save_results(model, ucmc.MetropolisAlgorithm(), geometry, 2.0,
+                            results, parameters; root = root)
+    @test isfile(joinpath(dir, "correlation_results.csv"))
+
+    # no classes, no frame
+    @test ucmc.correlation_rows((primary = Dict(), derived = NamedTuple())) === nothing
+
+    # the connected measurement still adds its two columns
+    container = ucmc.MeasurementContainer(model, geometry, 20, 4;
+                                          measurements = [:connected_correlation])
+    ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry,
+                        ucmc.initialize_state(model, geometry; rng = rng),
+                        container, parameters; rng = rng)
+    df = ucmc.correlation_rows(ucmc.analyze(container, 2.0, geometry.n_sites))
+    @test propertynames(df) == [:disp_1, :disp_2, :orbital_i, :orbital_j,
+                                :raw_value, :raw_error,
+                                :connected_value, :connected_error]
+
+    # requesting both raw and connected emits the labels exactly once
+    container = ucmc.MeasurementContainer(model, geometry, 20, 4;
+        measurements = [:raw_correlation, :connected_correlation])
+    @test count(d -> :correlation_classes in d.names, container.derived) == 1
 end
 
 @testset "autotune_binning" begin

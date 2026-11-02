@@ -158,11 +158,15 @@ result also includes the [`CorrelationClass`](@ref) list labeling each entry.
 
 # Returns
 
-An `(observable, derived)` tuple:
+An `(observable, labels, connected)` tuple:
 - `observable`: An `Observable` for `:correlation`, sampling a
   `Vector{Float64}` (one value per displacement class) each measurement.
-- `derived`: A `DerivedObservable` computing `:correlation_connected`,
-  `:correlation_connected_err`, and `:correlation_classes` from `:correlation`
+- `labels`: A `DerivedObservable` passing the [`CorrelationClass`](@ref) list
+  through to the analysis results as `:correlation_classes`, so that even a
+  raw-correlation-only run labels its saved columns (see
+  [`correlation_rows`](@ref)).
+- `connected`: A `DerivedObservable` computing `:correlation_connected` and
+  `:correlation_connected_err` from `:correlation`
     and `:magnetization_per_orbital` (its declared `depends_on`).
 """
 function correlation_entry(model, geometry)
@@ -202,8 +206,18 @@ function correlation_entry(model, geometry)
         template = () -> Vector{Float64}[],
     )
 
-    derived = DerivedObservable(
-        (:correlation_connected, :correlation_connected_err, :correlation_classes),
+    # The class labels are their own passthrough derived observable (the
+    # `structure_factor_entry` pattern): they cost no measurement, and the
+    # raw-correlation-only path attaches them so its results are labeled when
+    # written to disk.
+    labels = DerivedObservable(
+        (:correlation_classes,),
+        (jk, T, N) -> (correlation_classes = classes,);
+        depends_on = (:correlation,),
+    )
+
+    connected = DerivedObservable(
+        (:correlation_connected, :correlation_connected_err),
         (jk, T, N) -> begin
             mpo = jk[:magnetization_per_orbital]
             n_comp = size(first(mpo), 1)
@@ -211,7 +225,7 @@ function correlation_entry(model, geometry)
             # function so its O(1/n_bins) bias is corrected along with the rest.
             # The series order is [oi components..., oj components...] (in a
             # `for`-chain the last iterator is the innermost loop).
-            connected = [
+            conn = [
                 jackknife_stats(
                     (c, comps...) -> c - sum(comps[α] * comps[n_comp + α] for α in 1:n_comp),
                     [s[r] for s in jk[:correlation]],
@@ -220,26 +234,27 @@ function correlation_entry(model, geometry)
                 for (r, (oi, oj)) in enumerate(disp.orbitals)
             ]
             (
-                correlation_connected     = first.(connected),
-                correlation_connected_err = last.(connected),
-                correlation_classes       = classes,
+                correlation_connected     = first.(conn),
+                correlation_connected_err = last.(conn),
             )
         end;
         depends_on = (:correlation, :magnetization_per_orbital),
     )
 
-    return observable, derived
+    return observable, labels, connected
 end
 
-# `:raw_correlation` measures only the correlation function;
-# `:connected_correlation` additionally derives the connected form.
+# `:raw_correlation` measures only the correlation function (with the class
+# labels attached, so the results can still be written with their
+# displacement/orbital labels); `:connected_correlation` additionally derives
+# the connected form.
 function optional_observables(model, geometry, ::Val{:raw_correlation})
-    observable, _ = correlation_entry(model, geometry)
-    return [observable], DerivedObservable[]
+    observable, labels, _ = correlation_entry(model, geometry)
+    return [observable], [labels]
 end
 
 function optional_observables(model, geometry, ::Val{:connected_correlation})
-    observable, derived = correlation_entry(model, geometry)
+    observable, labels, connected = correlation_entry(model, geometry)
     orbital_obs, _ = magnetization_per_orbital_entry(model, geometry)
-    return [observable; orbital_obs], [derived]
+    return [observable; orbital_obs], [labels, connected]
 end

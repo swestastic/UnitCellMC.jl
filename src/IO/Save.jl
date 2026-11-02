@@ -157,21 +157,24 @@ Build a `DataFrame` of per-displacement-class correlation data from
 
 Each row corresponds to one displacement class (see
 [`build_displacement_classes`](@ref)) and records its displacement
-components, orbital pair, raw correlation value/error, and connected
-correlation value/error.
+components, orbital pair, and raw correlation value/error. When `results`
+also has the connected correlation (from the `:connected_correlation`
+measurement), its value/error are included as two further columns.
 
 # Arguments
 
 - `results`: A results object with `results.derived.correlation_classes`
-  (a vector of class descriptors with `displacement` and `orbitals` fields),
-  `results.primary[:correlation]` (raw correlation `(values, errors)`), and
-  `results.derived.correlation_connected` / `correlation_connected_err`.
+  (a vector of class descriptors with `displacement` and `orbitals` fields)
+  and `results.primary[:correlation]` (raw correlation `(values, errors)`),
+  plus optionally `results.derived.correlation_connected` /
+  `correlation_connected_err`.
 
 # Returns
 
 A `DataFrame` with columns `disp_1, ..., disp_D, orbital_i, orbital_j,
-raw_value, raw_error, connected_value, connected_error`, or `nothing` if
-`results` has no correlation data.
+raw_value, raw_error` — plus `connected_value, connected_error` when the
+connected correlation was measured — or `nothing` if `results` has no
+correlation data.
 """
 function correlation_rows(results)
     hasproperty(results.derived, :correlation_classes) || return nothing
@@ -179,8 +182,6 @@ function correlation_rows(results)
     classes = results.derived.correlation_classes
     isempty(classes) && return nothing
     raw_avg, raw_err = results.primary[:correlation]
-    conn_avg = results.derived.correlation_connected
-    conn_err = results.derived.correlation_connected_err
 
     D = length(first(classes).displacement)
 
@@ -188,12 +189,14 @@ function correlation_rows(results)
     for k in 1:D
         df[!, Symbol("disp_$k")] = [c.displacement[k] for c in classes]
     end
-    df.orbital_i       = [c.orbitals[1] for c in classes]
-    df.orbital_j       = [c.orbitals[2] for c in classes]
-    df.raw_value       = raw_avg
-    df.raw_error       = raw_err
-    df.connected_value = conn_avg
-    df.connected_error = conn_err
+    df.orbital_i = [c.orbitals[1] for c in classes]
+    df.orbital_j = [c.orbitals[2] for c in classes]
+    df.raw_value = raw_avg
+    df.raw_error = raw_err
+    if hasproperty(results.derived, :correlation_connected)
+        df.connected_value = results.derived.correlation_connected
+        df.connected_error = results.derived.correlation_connected_err
+    end
 
     return df
 end

@@ -19,7 +19,7 @@ export IsingModel, XYModel, ClockModel, HeisenbergModel
 export MetropolisAlgorithm, GlauberAlgorithm, WolffAlgorithm, SwendsenWangAlgorithm
 export RandomProposal, SequentialProposal, CheckerboardProposal, ColoredProposal
 export SimulationParameters, MeasurementContainer
-export MC_Sweep!, run_simulation, sweep_Ts, analyze, autotune_binning
+export MC_Sweep!, run_simulation, sweep_Ts, merge_containers, analyze, autotune_binning
 export set_global_seed!, global_seed
 export save_results, save_sweep_results
 export available_measurements, available_diagnostics

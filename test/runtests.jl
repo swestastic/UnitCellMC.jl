@@ -1549,6 +1549,35 @@ end
     mismatched = ucmc.MeasurementContainer(model, geometry, 8, 4; diagnostics = [:cluster_size])
     @test_throws ArgumentError ucmc.merge_containers([first(containers), mismatched])
     @test_throws ArgumentError ucmc.merge_containers(ucmc.MeasurementContainer[])
+
+    # mismatched bin sizes are rejected: pooling unequal-size bins would
+    # silently weight unequal-quality averages equally (both containers hold
+    # the same observables, so the bin-size check is what fires)
+    other_bin_size = ucmc.MeasurementContainer(model, geometry, 12, 4;  # bin_size 3, not 2
+                                               diagnostics = [:acceptance_ratio])
+    err = try
+        ucmc.merge_containers([first(containers), other_bin_size])
+        nothing
+    catch err
+        err
+    end
+    @test err isa ArgumentError
+    @test occursin("bin size", err.msg)
+
+    # same bin size with different bin counts merges fine: equal-size bins
+    # stay equal-weight in the pooled jackknife (this is how an
+    # already-merged container pools with a fresh run)
+    parameters_long = ucmc.SimulationParameters(2.0, 2, 10, 1, 5)
+    longer = ucmc.MeasurementContainer(model, geometry, 10, 5;  # bin_size 2, 5 bins
+                                       diagnostics = [:acceptance_ratio])
+    ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry,
+                        ucmc.initialize_state(model, geometry), longer, parameters_long)
+    pooled = ucmc.merge_containers([first(containers), longer])
+    @test length(pooled.data.energy) == 4 + 5
+    @test pooled.bin_size == 2
+
+    # merge_containers is exported (it is documented in the API reference)
+    @test :merge_containers in names(ucmc)
 end
 
 @testset "sweep_Ts ensemble averaging" begin

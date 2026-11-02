@@ -403,11 +403,13 @@ end
 
 """
     save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
-        seed = global_seed())
+        seed = global_seed(), n_runs = nothing, simulated_annealing = nothing,
+        measurements = nothing, time_series = nothing)
 
 Write a `metadata.txt` file in `dir` recording the model, algorithm, system
-size, the full list of temperatures `Ts`, the sweep's simulation
-parameters, and the RNG `seed` and Julia version needed to recreate it.
+size, the full list of temperatures `Ts`, the sweep's simulation parameters
+and run configuration, and the RNG `seed` and Julia version needed to
+recreate it.
 
 # Arguments
 
@@ -420,10 +422,22 @@ parameters, and the RNG `seed` and Julia version needed to recreate it.
   simulation parameters, recorded as-is.
 - `seed`: RNG seed of the sweep; defaults to the seed set with
   [`set_global_seed!`](@ref). Written as `unknown` when `nothing`.
+- `n_runs`: Number of independent runs per temperature; written as `unknown`
+  when `nothing`.
+- `simulated_annealing`: Whether runs carried their state between
+  temperatures; written as `unknown` when `nothing`.
+- `measurements`: The optional measurements enabled in each container;
+  written as `unknown` when `nothing`.
+- `time_series`: The time-series recording option; written as `unknown` when
+  `nothing`.
 """
 function save_sweep_metadata(
     dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
-    seed = global_seed()
+    seed = global_seed(),
+    n_runs = nothing,
+    simulated_annealing = nothing,
+    measurements = nothing,
+    time_series = nothing,
 )
     open(joinpath(dir, "metadata.txt"), "w") do io
         println(io, "model = ", model)
@@ -434,6 +448,10 @@ function save_sweep_metadata(
         println(io, "n_measurements = ", n_measurements)
         println(io, "n_unmeasured = ", n_unmeasured)
         println(io, "n_bins = ", n_bins)
+        println(io, "n_runs = ", something(n_runs, "unknown"))
+        println(io, "simulated_annealing = ", something(simulated_annealing, "unknown"))
+        println(io, "measurements = ", something(measurements, "unknown"))
+        println(io, "time_series = ", something(time_series, "unknown"))
         write_reproducibility_metadata(io, seed)
     end
     return nothing
@@ -510,6 +528,9 @@ written at all. Autocorrelation times are in units of measurements, i.e.
   simulation parameters, recorded in the metadata.
 - `root`: Base directory under which the sweep directory is created.
 - `seed`: RNG seed recorded in the metadata (see [`save_sweep_metadata`](@ref)).
+- `n_runs`, `simulated_annealing`, `measurements`, `time_series`: The sweep's
+  run configuration, recorded in the metadata (`unknown` for each if omitted).
+  [`sweep_Ts`](@ref) passes them automatically.
 
 # Throws
 
@@ -523,14 +544,19 @@ function save_sweep_results(
     sweep_results, Ts, model, algorithm, geometry,
     n_thermalization, n_measurements, n_unmeasured, n_bins;
     root::AbstractString = "results",
-    seed = global_seed()
+    seed = global_seed(),
+    n_runs = nothing,
+    simulated_annealing = nothing,
+    measurements = nothing,
+    time_series = nothing,
 )
     L = geometry.lattice.L
     if isempty(sweep_results) && isempty(Ts)
         dir = sweep_dirname(model, algorithm, L; root = root)
         mkpath(dir)
         save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
-            seed = seed)
+            seed = seed, n_runs = n_runs, simulated_annealing = simulated_annealing,
+            measurements = measurements, time_series = time_series)
         return dir
     end
 
@@ -540,7 +566,8 @@ function save_sweep_results(
     dir = sweep_dirname(model, algorithm, L; root = root)
     mkpath(dir)
     save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
-        seed = seed)
+        seed = seed, n_runs = n_runs, simulated_annealing = simulated_annealing,
+        measurements = measurements, time_series = time_series)
 
     _write_sweep_csv(dir, "measurement_results.csv", _measurement_frame, Ts, sweep_results)
     _write_sweep_csv(dir, "correlation_results.csv", correlation_rows, Ts, sweep_results)

@@ -1745,6 +1745,29 @@ end
     @test "seed = 42" in lines
     @test "julia_version = $VERSION" in lines
 
+    # ... and the run configuration needed to recreate the sweep
+    @test "n_runs = 2" in lines
+    @test "simulated_annealing = true" in lines
+    @test "measurements = Symbol[]" in lines
+    @test "time_series = none" in lines
+
+    root2 = mktempdir()
+    sweep(root2; simulated_annealing = false, measurements = [:raw_correlation])
+    lines2 = metadata(sweep_dir(root2))
+    @test "n_runs = 2" in lines2
+    @test "simulated_annealing = false" in lines2
+    @test "measurements = [:raw_correlation]" in lines2
+
+    # direct save_sweep_results callers that omit the configuration get "unknown"
+    root3 = mktempdir()
+    dir3 = ucmc.save_sweep_results([], [], model, ucmc.MetropolisAlgorithm(), geometry,
+                                   2, 4, 0, 2; root = root3)
+    lines3 = metadata(dir3)
+    @test "n_runs = unknown" in lines3
+    @test "simulated_annealing = unknown" in lines3
+    @test "measurements = unknown" in lines3
+    @test "time_series = unknown" in lines3
+
     # the recorded seed recreates the saved results
     first_csv = read(joinpath(sweep_dir(root), "measurement_results.csv"), String)
     ucmc.set_global_seed!(42)

@@ -301,8 +301,9 @@ count. To reproduce a sweep, call
 [`set_global_seed!`](@ref) at the start of the script and keep the inputs,
 including the initial `state`, the same. The seed is written to the sweep's
 `metadata.txt` (as `unknown` if the global RNG was seeded some other way,
-e.g. with `Random.seed!`), so every results folder records how to recreate
-it. An explicit generator such as `rng = Random.Xoshiro(seed)` works too;
+e.g. with `Random.seed!`), alongside `n_runs`, `simulated_annealing`,
+`measurements`, and `time_series`, so every results folder records how to
+recreate it. An explicit generator such as `rng = Random.Xoshiro(seed)` works too;
 pass `seed` alongside it to have it recorded.
 
 A new [`SimulationParameters`](@ref) is created for every temperature
@@ -464,7 +465,9 @@ function sweep_Ts(
     save && save_sweep_results(
         sweep_results, Ts, model, algorithm, geometry,
         n_thermalization, n_measurements, n_unmeasured, n_bins;
-        root = root, seed = seed
+        root = root, seed = seed,
+        n_runs = n_runs, simulated_annealing = simulated_annealing,
+        measurements = measurements, time_series = time_series
     )
 
     return sweep_results

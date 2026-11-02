@@ -1576,6 +1576,26 @@ end
     @test length(pooled.data.energy) == 4 + 5
     @test pooled.bin_size == 2
 
+    # a single-container merge copies instead of aliasing: a later measure!
+    # on either container must not mutate the other
+    solo = ucmc.MeasurementContainer(model, geometry, 8, 4;
+                                     diagnostics = [:acceptance_ratio], time_series = :all)
+    solo_state = ucmc.initialize_state(model, geometry)
+    ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, solo_state, solo, parameters)
+    merged_solo = ucmc.merge_containers([solo])
+    @test merged_solo.data.energy == solo.data.energy
+    @test merged_solo.data.energy !== solo.data.energy
+    @test merged_solo.time_series.energy !== solo.time_series.energy
+
+    n_bins_before = length(merged_solo.data.energy)
+    n_series_before = length(merged_solo.time_series.energy)
+    # two more measurements (bin_size = 2) flush one new bin into `solo`
+    ucmc.measure!(solo, solo_state; diagnostics = (acceptance_ratio = 0.5,))
+    ucmc.measure!(solo, solo_state; diagnostics = (acceptance_ratio = 0.5,))
+    @test length(solo.data.energy) == n_bins_before + 1
+    @test length(merged_solo.data.energy) == n_bins_before
+    @test length(merged_solo.time_series.energy) == n_series_before
+
     # merge_containers is exported (it is documented in the API reference)
     @test :merge_containers in names(ucmc)
 end

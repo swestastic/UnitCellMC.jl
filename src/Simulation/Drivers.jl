@@ -205,7 +205,9 @@ length stored in `chain_lengths` so autocorrelations never straddle runs.
 # Returns
 
 A new `MeasurementContainer` with `length(containers) * n_bins` completed
-bins, ready for [`analyze`](@ref).
+bins, ready for [`analyze`](@ref). Its vectors are freshly allocated (a
+single-container merge copies rather than aliases its input), so measuring
+further into an input container never mutates the merged one, or vice versa.
 """
 function merge_containers(containers::Vector{<:MeasurementContainer})
     isempty(containers) && throw(ArgumentError("Cannot merge zero containers"))
@@ -223,12 +225,18 @@ function merge_containers(containers::Vector{<:MeasurementContainer})
             "$(container.bin_size), expected $expected_bin_size"))
     end
 
+    # `reduce(vcat, (x,))` returns `x` itself, so a single-container merge
+    # would alias the input's vectors and a later `measure!` on either would
+    # mutate both; copy them instead.
+    single = length(containers) == 1
     data = NamedTuple(
-        name => reduce(vcat, (container.data[name] for container in containers))
+        name => single ? copy(first_container.data[name]) :
+            reduce(vcat, (container.data[name] for container in containers))
         for name in expected_names
     )
     time_series = NamedTuple(
-        name => reduce(vcat, (container.time_series[name] for container in containers))
+        name => single ? copy(first_container.time_series[name]) :
+            reduce(vcat, (container.time_series[name] for container in containers))
         for name in series_names
     )
     # Keep track of where each run's series starts so that autocorrelations

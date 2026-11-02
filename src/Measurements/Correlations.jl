@@ -69,7 +69,7 @@ function correlation_instantaneous(model, state, disp)
 end
 
 """
-    correlation_instantaneous_dft(model, state, grid, index_map)
+    correlation_instantaneous_dft(model, state, grid, index_map, inv_phases)
 
 Compute one instantaneous sample of the correlation function on a fully
 periodic lattice via the Wiener–Khinchin theorem: the correlation function is
@@ -93,22 +93,42 @@ conditions (no translation invariance there).
 - `index_map`: Map from displacement-class index (ordered as
   [`build_displacement_classes`](@ref)) to the flat (orbital-pair, Δ) layout
   of the inverse transform; built once in [`correlation_entry`](@ref).
+- `inv_phases`: The inverse-DFT matrices from [`inverse_phases`](@ref).
+  Geometry-constant, so repeated sampling should precompute them once (as
+  [`correlation_entry`](@ref) does); the four-argument form recomputes them
+  every call.
 
 # Returns
 
 A `Vector{Float64}` with one correlation value per displacement class, in the
 same order as [`correlation_instantaneous`](@ref).
 """
-function correlation_instantaneous_dft(model, state, grid, index_map)
+function correlation_instantaneous_dft(model, state, grid, index_map, inv_phases)
     S = structure_factor_instantaneous(model, state, grid)
     dims = size(first(grid.sites))
     n_pairs = grid.n_orbitals^2
     C = reshape(S, dims..., n_pairs)
-    for d in 1:length(grid.phases)
-        C = fourier_transform_dim(C, grid.phases[d]' ./ dims[d], d)
+    for d in 1:length(inv_phases)
+        C = fourier_transform_dim(C, inv_phases[d], d)
     end
     return real.(vec(C)[index_map])
 end
+
+correlation_instantaneous_dft(model, state, grid, index_map) =
+    correlation_instantaneous_dft(model, state, grid, index_map, inverse_phases(grid))
+
+"""
+    inverse_phases(grid)
+
+Return the per-dimension inverse-DFT matrices for a momentum `grid` from
+[`build_momentum_grid`](@ref): `inv_phases[d] = grid.phases[d]' ./ L[d]`, the
+conjugate transpose of the forward Fourier matrix with the `1 / L[d]`
+inverse-transform normalization. Geometry-constant — precompute once per
+geometry and pass to [`correlation_instantaneous_dft`](@ref) rather than
+rebuilding per measurement (see [`correlation_entry`](@ref)).
+"""
+inverse_phases(grid) =
+    ntuple(d -> grid.phases[d]' ./ size(first(grid.sites), d), length(grid.phases))
 
 """
     correlation_entry(model, geometry)
@@ -161,6 +181,7 @@ function correlation_entry(model, geometry)
     # invariant.
     if all(geometry.lattice.periodic)
         grid = build_momentum_grid(geometry)
+        inv_phases = inverse_phases(grid)
         lin = LinearIndices(Tuple(geometry.lattice.L))
         n_orb = grid.n_orbitals
         index_map = Vector{Int}(undef, n_disp)
@@ -169,7 +190,7 @@ function correlation_entry(model, geometry)
             index_map[r] = ((oi - 1) * n_orb + (oj - 1)) * grid.n_cells +
                 lin[(disp.displacements[r] .+ 1)...]
         end
-        sample = state -> correlation_instantaneous_dft(model, state, grid, index_map)
+        sample = state -> correlation_instantaneous_dft(model, state, grid, index_map, inv_phases)
     else
         sample = state -> correlation_instantaneous(model, state, disp)
     end

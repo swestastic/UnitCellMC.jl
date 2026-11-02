@@ -28,6 +28,7 @@ UnitCellMC.validate_dependencies
 UnitCellMC.CorrelationClass
 UnitCellMC.correlation_instantaneous
 UnitCellMC.correlation_instantaneous_dft
+UnitCellMC.inverse_phases
 UnitCellMC.correlation_entry
 UnitCellMC.magnetization_per_orbital_entry
 ```

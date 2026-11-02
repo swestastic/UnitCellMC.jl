@@ -277,6 +277,31 @@ _color_blocked_order(colors, classes) =
     [site for class in classes for site in eachindex(colors) if colors[site] == class]
 
 """
+    visiting_order(scheme, geometry)
+
+Return the deterministic, geometry-only site-visiting order of a colored
+proposal scheme — the same `order` vector every
+[`ColoredProposalWorkspace`](@ref) would carry for `geometry` — or `nothing`
+for schemes without one ([`RandomProposal`](@ref),
+[`SequentialProposal`](@ref)).
+
+The order depends only on the scheme and the geometry, so drivers simulating
+the same geometry many times ([`sweep_Ts`](@ref)) build it once and share it
+across runs via [`proposal_workspace`](@ref)`(scheme, geometry, order)`;
+only the cursor is per-run state.
+
+# Throws
+
+`ArgumentError` from [`checkerboard_colors`](@ref) or [`color_lattice`](@ref)
+if the geometry cannot be colored as the scheme requires.
+"""
+visiting_order(::AbstractProposalScheme, geometry) = nothing
+visiting_order(::CheckerboardProposal, geometry::Geometry) =
+    _color_blocked_order(checkerboard_colors(geometry), 0:1)
+visiting_order(scheme::ColoredProposal, geometry::Geometry) =
+    _color_blocked_order(color_lattice(geometry, scheme.ncolors), 1:scheme.ncolors)
+
+"""
     propose_site(rng, scheme, geometry, workspace)
 
 Return the site the next local [`step!`](@ref) update visits under `scheme`.
@@ -329,7 +354,7 @@ function _proposal_workspace_missing(scheme::AbstractProposalScheme)
 end
 
 """
-    proposal_workspace(scheme, geometry)
+    proposal_workspace(scheme, geometry, order = nothing)
 
 Return the per-run site-selection state for `scheme`: `nothing` for
 stateless schemes ([`RandomProposal`](@ref)), a
@@ -341,17 +366,40 @@ for local-update algorithms, and [`run_simulation`](@ref) threads it through
 [`MC_Sweep!`](@ref) into [`step!`](@ref). Extend it for custom
 schemes with per-run state.
 
+For the colored schemes, `order` reuses a precomputed
+[`visiting_order`](@ref) instead of re-coloring `geometry`; it must be
+exactly `visiting_order(scheme, geometry)` (the coloring is deterministic) —
+[`sweep_Ts`](@ref) shares one coloring across its runs this way. `nothing`
+(the default, and the only value stateless schemes accept) recomputes it.
+
 # Throws
 
 `ArgumentError` from [`CheckerboardProposal`](@ref) if `geometry` is not
 bipartite (see [`checkerboard_colors`](@ref)), or from
 [`ColoredProposal`](@ref) if [`color_lattice`](@ref) cannot color it with the
-requested number of colors.
+requested number of colors; also if `order` is not a permutation of
+`1:geometry.n_sites`.
 """
 proposal_workspace(::RandomProposal, geometry) = nothing
 proposal_workspace(::SequentialProposal, geometry) = SequentialProposalWorkspace(1)
-proposal_workspace(::CheckerboardProposal, geometry::Geometry) =
-    ColoredProposalWorkspace(_color_blocked_order(checkerboard_colors(geometry), 0:1), 1)
-proposal_workspace(scheme::ColoredProposal, geometry::Geometry) = ColoredProposalWorkspace(
-    _color_blocked_order(color_lattice(geometry, scheme.ncolors), 1:scheme.ncolors), 1
+proposal_workspace(scheme::CheckerboardProposal, geometry::Geometry) =
+    ColoredProposalWorkspace(visiting_order(scheme, geometry), 1)
+proposal_workspace(scheme::ColoredProposal, geometry::Geometry) =
+    ColoredProposalWorkspace(visiting_order(scheme, geometry), 1)
+
+# Three-argument form with a precomputed visiting order. `nothing` recomputes
+# via the two-argument form (the only choice stateless schemes accept, since
+# their `visiting_order` is `nothing`); custom schemes with their own
+# two-argument method keep working through it.
+proposal_workspace(scheme::AbstractProposalScheme, geometry, ::Nothing) =
+    proposal_workspace(scheme, geometry)
+
+function proposal_workspace(
+    ::Union{CheckerboardProposal, ColoredProposal}, geometry::Geometry, order::Vector{Int}
 )
+    (length(order) == geometry.n_sites && isperm(order)) || throw(ArgumentError(
+        "order must be a permutation of 1:$(geometry.n_sites) — build it with " *
+        "`visiting_order(scheme, geometry)`; got a length-$(length(order)) vector"
+    ))
+    return ColoredProposalWorkspace(order, 1)
+end

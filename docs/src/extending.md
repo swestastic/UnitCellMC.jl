@@ -299,7 +299,11 @@ Rules of the road:
 - If a step needs lattice-sized scratch arrays, implement
   [`algorithm_workspace`](@ref UnitCellMC.algorithm_workspace)`(::MyAlgorithm, model, geometry, state)` to
   return a reusable workspace (see [`ClusterWorkspace`](@ref UnitCellMC.ClusterWorkspace)); `step!` must
-  also accept `workspace = nothing` and allocate then.
+  also accept `workspace = nothing` and allocate then. If part of that
+  workspace is deterministic and geometry-only (like a lattice coloring),
+  expose it through [`shared_workspace`](@ref UnitCellMC.shared_workspace) so
+  [`sweep_Ts`](@ref UnitCellMC.sweep_Ts) builds it once per sweep instead of
+  once per (temperature, run).
 - The diagnostic keys returned by [`diagnostic_values`](@ref UnitCellMC.diagnostic_values) must be exactly
   [`available_diagnostics`](@ref UnitCellMC.available_diagnostics)`(MyAlgorithm)`; the container validates
   this up front ([`validate_run`](@ref UnitCellMC.validate_run)).

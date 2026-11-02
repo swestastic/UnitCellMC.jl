@@ -52,8 +52,14 @@ function propose(
     return propose(rng, alg, model, geometry, state, site)
 end
 
+shared_workspace(alg::MetropolisAlgorithm, model, geometry) =
+    visiting_order(alg.proposal, geometry)
+
 algorithm_workspace(alg::MetropolisAlgorithm, model, geometry, state) =
-    LocalUpdateWorkspace(alg.proposal, model, geometry)
+    algorithm_workspace(alg, model, geometry, state, shared_workspace(alg, model, geometry))
+
+algorithm_workspace(alg::MetropolisAlgorithm, model, geometry, state, order) =
+    LocalUpdateWorkspace(alg.proposal, model, geometry, order)
 
 """
     step!(alg, model, geometry, state, T; rng = Random.default_rng())

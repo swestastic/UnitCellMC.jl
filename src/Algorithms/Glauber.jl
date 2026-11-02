@@ -65,8 +65,14 @@ end
 propose(rng::AbstractRNG, ::GlauberAlgorithm, model::AbstractModel, geometry, state::AbstractState, site::Int) =
     propose(rng, MetropolisAlgorithm(), model, geometry, state, site)
 
+shared_workspace(alg::GlauberAlgorithm, model, geometry) =
+    visiting_order(alg.proposal, geometry)
+
 algorithm_workspace(alg::GlauberAlgorithm, model, geometry, state) =
-    LocalUpdateWorkspace(alg.proposal, model, geometry)
+    algorithm_workspace(alg, model, geometry, state, shared_workspace(alg, model, geometry))
+
+algorithm_workspace(alg::GlauberAlgorithm, model, geometry, state, order) =
+    LocalUpdateWorkspace(alg.proposal, model, geometry, order)
 
 """
     step!(alg::GlauberAlgorithm, model, geometry, state, T; rng = Random.default_rng())

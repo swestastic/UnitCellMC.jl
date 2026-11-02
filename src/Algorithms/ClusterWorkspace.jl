@@ -50,7 +50,22 @@ ClusterWorkspace() = ClusterWorkspace(
 )
 
 """
-    algorithm_workspace(algorithm, model, geometry, state)
+    shared_workspace(algorithm, model, geometry)
+
+Return the deterministic, geometry-only part of `algorithm`'s per-run
+workspace that is safe to build once and share across concurrent runs — for
+local-update algorithms with a colored proposal scheme, the scheme's
+[`visiting_order`](@ref); `nothing` otherwise (the default).
+[`sweep_Ts`](@ref) builds it once per sweep and hands it back to
+[`algorithm_workspace`](@ref)`(algorithm, model, geometry, state, shared)`,
+so expensive deterministic constructions (DSATUR lattice coloring) run once
+per sweep instead of once per (temperature, run). Everything mutable — the
+site cursor, the [`AcceptanceCache`](@ref) — stays per-run.
+"""
+shared_workspace(::AbstractAlgorithm, model, geometry) = nothing
+
+"""
+    algorithm_workspace(algorithm, model, geometry, state, shared = ...)
 
 Return the per-run scratch space that [`step!`](@ref) reuses for `algorithm`:
 a [`ClusterWorkspace`](@ref) for cluster algorithms, a
@@ -59,8 +74,17 @@ a [`ClusterWorkspace`](@ref) for cluster algorithms, a
 otherwise. [`run_simulation`](@ref) allocates it once and passes it through
 [`MC_Sweep!`](@ref). Extend this for custom algorithms with per-step
 allocations.
+
+The optional `shared` argument carries
+[`shared_workspace`](@ref)`(algorithm, model, geometry)` — deterministic
+per-geometry data reused across runs; by default it is recomputed.
 """
 algorithm_workspace(::AbstractAlgorithm, model, geometry, state) = nothing
+
+# Five-argument fallback: custom algorithms with a four-argument method keep
+# working; the shared data is ignored by default.
+algorithm_workspace(alg::AbstractAlgorithm, model, geometry, state, shared) =
+    algorithm_workspace(alg, model, geometry, state)
 
 """
     ghost_site(geometry, ghost)

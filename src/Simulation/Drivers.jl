@@ -83,6 +83,11 @@ cluster update for `WolffAlgorithm` and `SwendsenWangAlgorithm`.
 - `rng`: Random number generator for every update. Defaults to the
   task-local global RNG, so calling `Random.seed!(seed)` beforehand makes the
   run reproducible; pass e.g. `Random.Xoshiro(seed)` for an explicit stream.
+- `shared`: Deterministic, geometry-only workspace data shared across runs —
+  must be [`shared_workspace`](@ref)`(algorithm, model, geometry)` (the
+  default recomputes it). [`sweep_Ts`](@ref) builds it once and passes it to
+  every run, so the lattice coloring of a colored proposal scheme is not
+  recomputed per (temperature, run).
 
 # Throws
 
@@ -103,13 +108,14 @@ function run_simulation(
     state::AbstractState,
     container::MeasurementContainer{D},
     parameters::SimulationParameters;
-    rng::AbstractRNG = Random.default_rng()
+    rng::AbstractRNG = Random.default_rng(),
+    shared = shared_workspace(algorithm, model, geometry)
 ) where {D}
     validate_run(algorithm, container, parameters)
     validate_model_state(model, state)
     T = parameters.T
     stats = ntuple(i -> UpdateStatistic(D[i]), Val(length(D)))
-    workspace = algorithm_workspace(algorithm, model, geometry, state)
+    workspace = algorithm_workspace(algorithm, model, geometry, state, shared)
 
     for _ in 1:parameters.n_thermalization
         MC_Sweep!(algorithm, model, geometry, state, container, T, stats;
@@ -363,6 +369,12 @@ function sweep_Ts(
     # `state` seeds run 1 when annealing; catch a model/state mismatch here, on
     # the calling task, rather than inside a thread. It is unused otherwise.
     simulated_annealing && validate_model_state(model, state)
+    # Deterministic per-geometry workspace data (the lattice coloring of a
+    # colored proposal scheme) is built once — here on the calling task — and
+    # shared by every run at every temperature, instead of being recomputed
+    # per (temperature, run). This also surfaces its `ArgumentError` for an
+    # uncolorable geometry directly rather than from inside a thread.
+    shared = shared_workspace(algorithm, model, geometry)
     # Validate every temperature and the binning up front, on the calling task,
     # so invalid inputs throw here instead of from inside the threaded loop.
     parameters_by_T = [
@@ -396,7 +408,7 @@ function sweep_Ts(
             Threads.@threads for r in 1:n_runs
                 run_simulation(
                     algorithm, model, geometry, states[r], run_containers[r], parameters;
-                    rng = run_rngs[r]
+                    rng = run_rngs[r], shared = shared
                 )
             end
 
@@ -423,7 +435,7 @@ function sweep_Ts(
             job_state = initialize_state(model, geometry; rng = job_rngs[job])
             run_simulation(
                 algorithm, model, geometry, job_state, job_containers[job],
-                parameters_by_T[i]; rng = job_rngs[job]
+                parameters_by_T[i]; rng = job_rngs[job], shared = shared
             )
         end
 

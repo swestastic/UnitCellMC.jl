@@ -1107,6 +1107,73 @@ end
         ucmc.sweep_dirname(tri_model, ucmc.MetropolisAlgorithm(ucmc.CheckerboardProposal()), L)
 end
 
+@testset "Shared visiting order" begin
+    geometry = square_geometry(4)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+
+    # stateless schemes and non-local algorithms have no shareable data
+    @test isnothing(ucmc.visiting_order(ucmc.RandomProposal(), geometry))
+    @test isnothing(ucmc.visiting_order(ucmc.SequentialProposal(), geometry))
+    @test isnothing(ucmc.shared_workspace(ucmc.MetropolisAlgorithm(), model, geometry))
+    @test isnothing(ucmc.shared_workspace(ucmc.WolffAlgorithm(), model, geometry))
+
+    for scheme in (ucmc.CheckerboardProposal(), ucmc.ColoredProposal(2))
+        order = ucmc.visiting_order(scheme, geometry)
+        @test length(order) == geometry.n_sites
+        @test isperm(order)
+
+        # a workspace built from the shared order carries that very vector,
+        # and matches what a fresh coloring would produce
+        workspace = ucmc.proposal_workspace(scheme, geometry, order)
+        @test workspace isa ucmc.ColoredProposalWorkspace
+        @test workspace.order === order
+        @test ucmc.proposal_workspace(scheme, geometry).order == order
+
+        # a bogus order is rejected: a non-permutation would silently skip or
+        # revisit sites
+        @test_throws ArgumentError ucmc.proposal_workspace(
+            scheme, geometry, collect(1:(geometry.n_sites - 1)))
+        @test_throws ArgumentError ucmc.proposal_workspace(
+            scheme, geometry, fill(1, geometry.n_sites))
+
+        # runs sharing one coloring match runs that re-color per simulation
+        algorithm = ucmc.MetropolisAlgorithm(scheme)
+        parameters = ucmc.SimulationParameters(2.0, 5, 20, 1, 4)
+        shared = ucmc.shared_workspace(algorithm, model, geometry)
+        @test shared == order
+        datas = map((shared, nothing)) do sh
+            rng = Xoshiro(2024)
+            run_state = ucmc.initialize_state(model, geometry; rng = rng)
+            container = ucmc.MeasurementContainer(model, geometry, 20, 4;
+                                                  diagnostics = [:acceptance_ratio])
+            ucmc.run_simulation(algorithm, model, geometry, run_state, container,
+                                parameters; rng = rng, shared = sh)
+            container.data
+        end
+        @test isequal(datas[1], datas[2])
+    end
+
+    # the coloring error of an uncolorable geometry is raised by
+    # visiting_order — and by sweep_Ts directly, on the calling task
+    triangular = triangular_geometry(3)
+    tri_model = ucmc.IsingModel([1.0, 1.0, 1.0], [0.0])
+    tri_state = ucmc.initialize_state(tri_model, triangular)
+    @test_throws ArgumentError ucmc.visiting_order(ucmc.CheckerboardProposal(), triangular)
+    @test_throws ArgumentError ucmc.sweep_Ts(
+        ucmc.MetropolisAlgorithm(ucmc.CheckerboardProposal()), tri_model, triangular,
+        tri_state, 2, 4, 0, 2, [2.0]; save = false)
+
+    # a sweep with a colored proposal shares one coloring across its runs and
+    # temperatures and stays reproducible
+    algorithm = ucmc.MetropolisAlgorithm(ucmc.CheckerboardProposal())
+    primaries(results) = [r.primary for r in results]
+    seeded_sweep() = (Random.seed!(77); ucmc.sweep_Ts(
+        algorithm, model, geometry,
+        ucmc.initialize_state(model, geometry; rng = Xoshiro(5)),
+        2, 10, 1, 2, [3.0, 2.0]; n_runs = 2, save = false, time_series = :none))
+    @test isequal(primaries(seeded_sweep()), primaries(seeded_sweep()))
+end
+
 @testset "Coupling and field accessors" begin
     geometry = two_orbital_geometry(2)
     for model in (ucmc.IsingModel([1.0, 2.0], [0.5, -0.25]),

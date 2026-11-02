@@ -28,6 +28,7 @@ UnitCellMC.checkerboard_colors
 UnitCellMC.color_lattice
 UnitCellMC.propose_site
 UnitCellMC.proposal_workspace
+UnitCellMC.visiting_order
 UnitCellMC.LocalUpdateWorkspace
 UnitCellMC.AcceptanceCache
 UnitCellMC.ACCEPTANCE_CACHE_CAPACITY
@@ -37,6 +38,7 @@ UnitCellMC.reset!
 UnitCellMC.sweep_steps!
 UnitCellMC.ClusterWorkspace
 UnitCellMC.algorithm_workspace
+UnitCellMC.shared_workspace
 UnitCellMC.ghost_site
 UnitCellMC.draw_cluster_flips!
 UnitCellMC.UpdateStatistic

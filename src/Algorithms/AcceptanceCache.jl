@@ -127,8 +127,14 @@ end
 
 LocalUpdateWorkspace(
     scheme::AbstractProposalScheme, model::AbstractModel, geometry::Geometry
+) = LocalUpdateWorkspace(scheme, model, geometry, visiting_order(scheme, geometry))
+
+# `order` reuses a precomputed `visiting_order(scheme, geometry)`; see
+# `proposal_workspace`.
+LocalUpdateWorkspace(
+    scheme::AbstractProposalScheme, model::AbstractModel, geometry::Geometry, order
 ) = LocalUpdateWorkspace(
-    proposal_workspace(scheme, geometry),
+    proposal_workspace(scheme, geometry, order),
     tabulate_acceptance(model) ? AcceptanceCache() : nothing,
 )
 

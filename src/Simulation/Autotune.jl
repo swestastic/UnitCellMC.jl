@@ -85,6 +85,14 @@ function autotune_binning(
         throw(ArgumentError("observables must name at least one observable"))
     n_thermalization >= 0 ||
         throw(ArgumentError("n_thermalization must be >= 0, got $n_thermalization"))
+    # Validate the keyword arguments forwarded to `autocorrelation` and
+    # `recommended_binning` before the pilot runs, not after it.
+    window > 0 || throw(ArgumentError("window must be positive, got $window"))
+    max_lag === nothing || max_lag >= 1 ||
+        throw(ArgumentError("max_lag must be at least 1, got $max_lag"))
+    bin_factor > 0 || throw(ArgumentError("bin_factor must be positive, got $bin_factor"))
+    n_unmeasured === nothing || n_unmeasured >= 0 ||
+        throw(ArgumentError("n_unmeasured must be >= 0, got $n_unmeasured"))
 
     n_pilot_bins = findfirst(d -> n_pilot % d == 0, 2:n_pilot) + 1   # smallest divisor ≥ 2
     per_temperature = Dict{Symbol, AutocorrelationResult}[]

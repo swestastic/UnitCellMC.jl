@@ -55,10 +55,12 @@ end
 shared_workspace(alg::MetropolisAlgorithm, model, geometry) =
     visiting_order(alg.proposal, geometry)
 
-algorithm_workspace(alg::MetropolisAlgorithm, model, geometry, state) =
-    algorithm_workspace(alg, model, geometry, state, shared_workspace(alg, model, geometry))
-
-algorithm_workspace(alg::MetropolisAlgorithm, model, geometry, state, order) =
+# A single method with a defaulted fifth argument: the four-argument call
+# computes the shared data, the five-argument call receives it. (A separate
+# four-argument method *delegating* to the five-argument form would recurse
+# through the generic fallback forever — write the defaulted form instead.)
+algorithm_workspace(alg::MetropolisAlgorithm, model, geometry, state,
+                    order = shared_workspace(alg, model, geometry)) =
     LocalUpdateWorkspace(alg.proposal, model, geometry, order)
 
 """

@@ -68,10 +68,8 @@ propose(rng::AbstractRNG, ::GlauberAlgorithm, model::AbstractModel, geometry, st
 shared_workspace(alg::GlauberAlgorithm, model, geometry) =
     visiting_order(alg.proposal, geometry)
 
-algorithm_workspace(alg::GlauberAlgorithm, model, geometry, state) =
-    algorithm_workspace(alg, model, geometry, state, shared_workspace(alg, model, geometry))
-
-algorithm_workspace(alg::GlauberAlgorithm, model, geometry, state, order) =
+algorithm_workspace(alg::GlauberAlgorithm, model, geometry, state,
+                    order = shared_workspace(alg, model, geometry)) =
     LocalUpdateWorkspace(alg.proposal, model, geometry, order)
 
 """

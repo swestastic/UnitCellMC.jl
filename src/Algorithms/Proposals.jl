@@ -371,6 +371,10 @@ For the colored schemes, `order` reuses a precomputed
 exactly `visiting_order(scheme, geometry)` (the coloring is deterministic) —
 [`sweep_Ts`](@ref) shares one coloring across its runs this way. `nothing`
 (the default, and the only value stateless schemes accept) recomputes it.
+An `order` a scheme has no specific three-argument method for is discarded
+and the workspace rebuilt, so a custom scheme that exposes
+[`visiting_order`](@ref) keeps working without one — define the
+three-argument method to actually receive the shared order.
 
 # Throws
 
@@ -392,6 +396,13 @@ proposal_workspace(scheme::ColoredProposal, geometry::Geometry) =
 # their `visiting_order` is `nothing`); custom schemes with their own
 # two-argument method keep working through it.
 proposal_workspace(scheme::AbstractProposalScheme, geometry, ::Nothing) =
+    proposal_workspace(scheme, geometry)
+
+# Any other order value a scheme does not handle specifically is discarded —
+# the two-argument form rebuilds the equivalent workspace. Custom schemes that
+# want to share their `visiting_order` across runs (see `shared_workspace`)
+# define their own three-argument method instead.
+proposal_workspace(scheme::AbstractProposalScheme, geometry, order) =
     proposal_workspace(scheme, geometry)
 
 function proposal_workspace(

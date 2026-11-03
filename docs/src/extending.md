@@ -301,9 +301,17 @@ Rules of the road:
   return a reusable workspace (see [`ClusterWorkspace`](@ref UnitCellMC.ClusterWorkspace)); `step!` must
   also accept `workspace = nothing` and allocate then. If part of that
   workspace is deterministic and geometry-only (like a lattice coloring),
-  expose it through [`shared_workspace`](@ref UnitCellMC.shared_workspace) so
-  [`sweep_Ts`](@ref UnitCellMC.sweep_Ts) builds it once per sweep instead of
-  once per (temperature, run).
+  expose it through [`shared_workspace`](@ref UnitCellMC.shared_workspace) and receive it with a
+  defaulted fifth argument —
+  `algorithm_workspace(alg::MyAlgorithm, model, geometry, state, shared = shared_workspace(alg, model, geometry))` —
+  so [`sweep_Ts`](@ref UnitCellMC.sweep_Ts) builds it once per sweep instead of
+  once per (temperature, run). (A four-argument method that delegates to the
+  five-argument form without a five-argument method of its own recurses
+  through the fallback forever — write the defaulted single method. Custom
+  proposal schemes that expose [`visiting_order`](@ref UnitCellMC.visiting_order) likewise
+  receive the shared order by defining
+  `proposal_workspace(scheme, geometry, order)`; without it the order is
+  discarded and rebuilt per run.)
 - The diagnostic keys returned by [`diagnostic_values`](@ref UnitCellMC.diagnostic_values) must be exactly
   [`available_diagnostics`](@ref UnitCellMC.available_diagnostics)`(MyAlgorithm)`; the container validates
   this up front ([`validate_run`](@ref UnitCellMC.validate_run)).

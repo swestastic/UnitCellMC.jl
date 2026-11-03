@@ -1211,6 +1211,55 @@ end
     @test isequal(primaries(seeded_sweep()), primaries(seeded_sweep()))
 end
 
+# Custom-algorithm/scheme fixtures for the workspace extension contracts:
+# one with only the four-argument algorithm_workspace (the pre-sharing
+# pattern), one with the documented defaulted-fifth-argument form, and a
+# proposal scheme that exposes a visiting_order but no three-argument
+# proposal_workspace.
+struct FallbackWorkspaceAlg <: ucmc.AbstractAlgorithm end
+struct FallbackWorkspace end
+ucmc.algorithm_workspace(::FallbackWorkspaceAlg, model, geometry, state) = FallbackWorkspace()
+
+struct DefaultedWorkspaceAlg <: ucmc.AbstractAlgorithm end
+ucmc.shared_workspace(::DefaultedWorkspaceAlg, model, geometry) = 42
+ucmc.algorithm_workspace(alg::DefaultedWorkspaceAlg, model, geometry, state,
+                         shared = ucmc.shared_workspace(alg, model, geometry)) = shared
+
+struct OrderExposingScheme <: ucmc.AbstractProposalScheme end
+ucmc.proposal_workspace(::OrderExposingScheme, geometry) = :toy_workspace
+ucmc.visiting_order(::OrderExposingScheme, geometry) = collect(1:geometry.n_sites)
+
+@testset "Workspace extension contracts" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    state = ucmc.initialize_state(model, geometry)
+
+    # a custom algorithm with only a four-argument method keeps working
+    # through the five-argument fallback: the shared data is discarded, the
+    # workspace is not dropped, and nothing recurses
+    @test ucmc.algorithm_workspace(FallbackWorkspaceAlg(), model, geometry, state) isa
+        FallbackWorkspace
+    @test ucmc.algorithm_workspace(FallbackWorkspaceAlg(), model, geometry, state, nothing) isa
+        FallbackWorkspace
+
+    # the documented defaulted-fifth-argument form receives the shared data
+    @test ucmc.algorithm_workspace(DefaultedWorkspaceAlg(), model, geometry, state) == 42
+    @test ucmc.algorithm_workspace(DefaultedWorkspaceAlg(), model, geometry, state, 7) == 7
+
+    # a custom proposal scheme exposing visiting_order but no three-argument
+    # proposal_workspace still builds a workspace (the order is discarded and
+    # rebuilt per run); this used to be a MethodError
+    alg = ucmc.MetropolisAlgorithm(OrderExposingScheme())
+    @test ucmc.shared_workspace(alg, model, geometry) == collect(1:geometry.n_sites)
+    workspace = ucmc.algorithm_workspace(alg, model, geometry, state)
+    @test workspace isa ucmc.LocalUpdateWorkspace
+    @test workspace.proposal == :toy_workspace
+    @test workspace.acceptance isa ucmc.AcceptanceCache
+    # and with the shared order passed explicitly
+    @test ucmc.algorithm_workspace(alg, model, geometry, state,
+                                   collect(1:geometry.n_sites)).proposal == :toy_workspace
+end
+
 @testset "Coupling and field accessors" begin
     geometry = two_orbital_geometry(2)
     for model in (ucmc.IsingModel([1.0, 2.0], [0.5, -0.25]),

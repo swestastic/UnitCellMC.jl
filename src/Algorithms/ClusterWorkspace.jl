@@ -77,12 +77,26 @@ allocations.
 
 The optional `shared` argument carries
 [`shared_workspace`](@ref)`(algorithm, model, geometry)` — deterministic
-per-geometry data reused across runs; by default it is recomputed.
+per-geometry data reused across runs; by default it is recomputed. The
+five-argument fallback delegates to the four-argument form, so a custom
+algorithm with an existing four-argument method keeps working (but does not
+benefit from the sharing). To receive `shared`, define a single method with a
+defaulted fifth argument:
+
+```julia
+algorithm_workspace(alg::MyAlgorithm, model, geometry, state,
+                    shared = shared_workspace(alg, model, geometry)) = ...
+```
+
+Do not instead write a four-argument method that *delegates* to the
+five-argument form without a five-argument method of your own — that recurses
+through the fallback forever.
 """
 algorithm_workspace(::AbstractAlgorithm, model, geometry, state) = nothing
 
 # Five-argument fallback: custom algorithms with a four-argument method keep
-# working; the shared data is ignored by default.
+# working; the shared data is discarded unless the algorithm opts in with its
+# own defaulted-fifth-argument method (see the docstring above).
 algorithm_workspace(alg::AbstractAlgorithm, model, geometry, state, shared) =
     algorithm_workspace(alg, model, geometry, state)
 

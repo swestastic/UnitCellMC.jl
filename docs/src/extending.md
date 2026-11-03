@@ -343,6 +343,13 @@ truth. Model physics used by a measurement (like [`binder_denominator`](@ref Uni
 or [`clock_angle_order`](@ref UnitCellMC.clock_angle_order)) belongs in the model's file, not in the
 measurement code.
 
+An [`Observable`](@ref UnitCellMC.Observable)'s `value(state)` may return any numeric
+scalar or array the binning arithmetic supports; on the analysis side,
+[`average_and_error`](@ref UnitCellMC.average_and_error) covers the built-in
+`Float64`/`ComplexF64` shapes and has a generic `Vector{<:AbstractArray}`
+fallback, so other element types (say `Float32` vectors) analyze without
+defining new methods.
+
 ## A note on geometry
 
 There is nothing to extend: a [`Geometry`](@ref UnitCellMC.Geometry) is built from any

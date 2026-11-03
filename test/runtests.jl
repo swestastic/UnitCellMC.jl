@@ -738,6 +738,43 @@ end
     @test haskey(sw_container.data, :largest_cluster_fraction)
 end
 
+@testset "average_and_error element types" begin
+    # scalar bins of any real element type (a custom observable's bins may be
+    # Float32, not Float64); the loose tolerance is Float32 precision
+    avg, err = ucmc.average_and_error(Float32[1, 2, 3, 4])
+    @test avg ≈ 2.5
+    @test err ≈ sqrt(5 / 12) atol = 1e-6  # Bessel variance 5/3, divided by n_bins = 4
+
+    # vector-valued bins of other real element types
+    bins32 = [Float32[1, 2], Float32[3, 0], Float32[2, 1], Float32[0, 3]]
+    avg32, err32 = ucmc.average_and_error(bins32)
+    @test avg32 ≈ [1.5, 1.5]
+    @test err32 ≈ [sqrt(5 / 12), sqrt(5 / 12)] atol = 1e-6
+    @test eltype(avg32) == Float32
+
+    # complex bins of any precision keep the per-component error convention
+    bins_c32 = [ComplexF32[1 + 1im, 2], ComplexF32[3 - 1im, 0],
+                ComplexF32[2, 1], ComplexF32[0 + 2im, 3]]
+    avgc, errc = ucmc.average_and_error(bins_c32)
+    @test real(avgc) ≈ Float32[1.5, 1.5]
+    @test imag(avgc) ≈ Float32[0.5, 0.0]
+    @test eltype(avgc) == ComplexF32
+
+    # other array eltypes (here Float32 matrices) reach the generic fallback
+    bins_m32 = [Float32[1 2; 3 4], Float32[3 0; 1 2], Float32[2 1; 2 3]]
+    avgm, errm = ucmc.average_and_error(bins_m32)
+    @test avgm ≈ Float32[2 1; 2 3]
+    @test all(>(0), errm)
+
+    # the built-in Float64 paths are unchanged
+    bins64 = [Float64[1, 2], Float64[3, 0], Float64[2, 1], Float64[0, 3]]
+    avg64, err64 = ucmc.average_and_error(bins64)
+    @test avg64 ≈ [1.5, 1.5]
+    @test err64 ≈ [sqrt(5 / 12), sqrt(5 / 12)]
+    @test_throws ArgumentError ucmc.average_and_error(Float32[1.0])
+    @test_throws ArgumentError ucmc.average_and_error([Float32[1.0]])
+end
+
 @testset "Model/geometry validation" begin
     geometry = square_geometry(2)
     valid_model = ucmc.IsingModel([1.0, 1.0], [0.0])

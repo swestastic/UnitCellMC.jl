@@ -87,12 +87,15 @@ function step!(
     workspace::Union{Nothing, ClusterWorkspace} = nothing
 )
     T > 0 || throw(ArgumentError("Temperature must be positive, got $T"))
-    validate_cluster_model(model, geometry, state, T)
+    ws = workspace === nothing ? ClusterWorkspace() : workspace
+    if !ws.validated
+        validate_cluster_model(model, geometry, state, T)
+        ws.validated = true
+    end
     context = cluster_context(rng, model, geometry, state, T)
 
     ghost_count = cluster_ghost_count(model, geometry, state, context)
     total_sites = geometry.n_sites + ghost_count
-    ws = workspace === nothing ? ClusterWorkspace() : workspace
     parents = _resize_buffer!(ws.parents, total_sites)
     ranks = _resize_buffer!(ws.ranks, total_sites)
     parents .= 1:total_sites

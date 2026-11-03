@@ -31,6 +31,9 @@ shared between concurrent runs.
 - `flip::Vector{Bool}`: Per-root cluster orientation decision, drawn by
   [`draw_cluster_flips!`](@ref).
 - `seen::BitVector`: First-encounter markers used to build `roots`.
+- `validated::Bool`: Whether [`validate_cluster_model`](@ref) has run on this
+  workspace; the model-level check runs once per run (i.e. per workspace),
+  not once per step. A workspace must not be reused with a different model.
 """
 mutable struct ClusterWorkspace
     in_cluster::BitVector
@@ -43,10 +46,11 @@ mutable struct ClusterWorkspace
     sizes::Vector{Int}
     flip::Vector{Bool}
     seen::BitVector
+    validated::Bool
 end
 
 ClusterWorkspace() = ClusterWorkspace(
-    BitVector(), Int[], Int[], Int[], UInt8[], Int[], Int[], Int[], Bool[], BitVector[]
+    BitVector(), Int[], Int[], Int[], UInt8[], Int[], Int[], Int[], Bool[], BitVector[], false
 )
 
 """

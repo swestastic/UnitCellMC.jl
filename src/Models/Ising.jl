@@ -113,7 +113,7 @@ given `bond_template`, the index of the bond's template in `geometry.bonds`
 (taken from `neighbor_table[site].templates`). Only equal neighboring spins
 can join the cluster.
 
-The coupling signs are checked once per update by
+The coupling signs are checked once per run by
 [`validate_cluster_model`](@ref) (cluster updates require non-negative,
 ferromagnetic couplings), not per bond visit.
 """

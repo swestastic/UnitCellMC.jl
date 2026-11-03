@@ -253,6 +253,18 @@ function structure_factor_rows(results)
     return df
 end
 
+# Single-frame counterpart of `_write_sweep_csv`'s contract: results without
+# this data must not leave an earlier run's file behind in `dir`.
+function _write_or_remove(dir, filename, df)
+    path = joinpath(dir, filename)
+    if df === nothing
+        isfile(path) && rm(path)
+    else
+        CSV.write(path, df)
+    end
+    return nothing
+end
+
 """
     save_measurements(dir, results)
 
@@ -270,28 +282,24 @@ end
     save_correlations(dir, results)
 
 Write `results`'s per-displacement-class correlation data (via
-[`correlation_rows`](@ref)) to `dir/correlation_results.csv`. Does nothing
-if `results` has no correlation data.
+[`correlation_rows`](@ref)) to `dir/correlation_results.csv`. If `results`
+has no correlation data, no file is written and a stale one from an earlier
+save into `dir` is removed.
 """
 function save_correlations(dir, results)
-    df = correlation_rows(results)
-    df === nothing && return nothing
-    CSV.write(joinpath(dir, "correlation_results.csv"), df)
-    return nothing
+    return _write_or_remove(dir, "correlation_results.csv", correlation_rows(results))
 end
 
 """
     save_structure_factor(dir, results)
 
 Write `results`'s structure-factor data (via [`structure_factor_rows`](@ref))
-to `dir/structure_factor_results.csv`. Does nothing if `results` has no
-structure-factor data.
+to `dir/structure_factor_results.csv`. If `results` has no structure-factor
+data, no file is written and a stale one from an earlier save into `dir` is
+removed.
 """
 function save_structure_factor(dir, results)
-    df = structure_factor_rows(results)
-    df === nothing && return nothing
-    CSV.write(joinpath(dir, "structure_factor_results.csv"), df)
-    return nothing
+    return _write_or_remove(dir, "structure_factor_results.csv", structure_factor_rows(results))
 end
 
 """
@@ -333,14 +341,13 @@ end
 
 Write `results`'s per-orbital magnetization data (via
 [`magnetization_per_orbital_rows`](@ref)) to
-`dir/magnetization_per_orbital_results.csv`. Does nothing if `results` has no
-such data.
+`dir/magnetization_per_orbital_results.csv`. If `results` has no such data,
+no file is written and a stale one from an earlier save into `dir` is
+removed.
 """
 function save_magnetization_per_orbital(dir, results)
-    df = magnetization_per_orbital_rows(results)
-    df === nothing && return nothing
-    CSV.write(joinpath(dir, "magnetization_per_orbital_results.csv"), df)
-    return nothing
+    return _write_or_remove(
+        dir, "magnetization_per_orbital_results.csv", magnetization_per_orbital_rows(results))
 end
 
 """
@@ -374,14 +381,12 @@ end
     save_autocorrelation(dir, results)
 
 Write `results`'s integrated autocorrelation times (via
-[`autocorrelation_rows`](@ref)) to `dir/autocorrelation_results.csv`. Does
-nothing if `results` has no autocorrelation data.
+[`autocorrelation_rows`](@ref)) to `dir/autocorrelation_results.csv`. If
+`results` has no autocorrelation data, no file is written and a stale one
+from an earlier save into `dir` is removed.
 """
 function save_autocorrelation(dir, results)
-    df = autocorrelation_rows(results)
-    df === nothing && return nothing
-    CSV.write(joinpath(dir, "autocorrelation_results.csv"), df)
-    return nothing
+    return _write_or_remove(dir, "autocorrelation_results.csv", autocorrelation_rows(results))
 end
 
 """
@@ -391,7 +396,8 @@ end
 Save all output for a single-temperature run: create the run directory,
 write metadata, measurements, correlations (if any), the structure factor
 (if any), per-orbital magnetizations (if any), and autocorrelation times (if
-any).
+any). Optional-data files the new results lack are removed, so re-running
+into a directory that held a richer run never leaves stale files behind.
 
 Combines [`results_dirname`](@ref), [`save_metadata`](@ref),
 [`save_measurements`](@ref), [`save_correlations`](@ref),
@@ -573,7 +579,9 @@ with [`measurement_rows`](@ref), [`correlation_rows`](@ref),
 concatenated across all temperatures.
 Temperatures with no correlation (structure-factor, autocorrelation) data are simply
 omitted from the corresponding file; if none have such data, that file is not
-written at all. Autocorrelation times are in units of measurements, i.e.
+written at all, and a stale file from an earlier save into the same directory
+is removed (an empty sweep therefore only writes metadata and cleans up stale
+files). Autocorrelation times are in units of measurements, i.e.
 `n_unmeasured + 1` sweeps.
 
 # Arguments
@@ -611,15 +619,6 @@ function save_sweep_results(
     time_series = nothing,
 )
     L = geometry.lattice.L
-    if isempty(sweep_results) && isempty(Ts)
-        dir = sweep_dirname(model, algorithm, L; root = root)
-        mkpath(dir)
-        save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
-            seed = seed, n_runs = n_runs, simulated_annealing = simulated_annealing,
-            measurements = measurements, diagnostics = diagnostics, time_series = time_series)
-        return dir
-    end
-
     length(sweep_results) == length(Ts) ||
         throw(ArgumentError("sweep_results ($(length(sweep_results))) and Ts ($(length(Ts))) must have the same length"))
 

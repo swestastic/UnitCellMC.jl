@@ -55,7 +55,8 @@ If an observable's `τ` could not be resolved within the pilot, a warning is
 emitted and its lower bound ([`tau_lower_bound`](@ref)) is used, so the
 recommendation may still be too small: increase `n_pilot` in that case.
 Observables that did not change at all during the pilot (frozen dynamics)
-are ignored with a warning.
+are ignored with a warning, as are series whose element type
+[`autocorrelation`](@ref) cannot analyze (e.g. matrix-valued observables).
 
 # Throws
 
@@ -98,6 +99,7 @@ function autotune_binning(
     per_temperature = Dict{Symbol, AutocorrelationResult}[]
     unresolved = Tuple{Float64, Symbol}[]
     frozen = Tuple{Float64, Symbol}[]
+    unsupported = Tuple{Float64, Symbol}[]
     best = (tau = -Inf, T = NaN, observable = :none)
     # Deterministic per-geometry workspace data (e.g. a lattice coloring) is
     # shared by the pilot runs instead of recomputed per temperature.
@@ -125,6 +127,7 @@ function autotune_binning(
         for (name, result) in results
             result.status === :unresolved && push!(unresolved, (Float64(T), name))
             result.status === :constant && push!(frozen, (Float64(T), name))
+            result.status === :unsupported && push!(unsupported, (Float64(T), name))
             tau = tau_lower_bound(result)
             isfinite(tau) || continue
             tau > best.tau && (best = (tau = tau, T = Float64(T), observable = name))
@@ -144,10 +147,26 @@ function autotune_binning(
         "no Metropolis move accepted at very low T), so these were ignored. Error " *
         "bars at such temperatures will be zero or unreliable."
     )
-    isfinite(best.tau) || throw(ArgumentError(
-        "No selected observable fluctuated during the pilot run, so no " *
-        "autocorrelation time could be estimated"
-    ))
+    isempty(unsupported) || @warn(
+        "The selected observables " *
+        join(("$name at T = $T" for (T, name) in unsupported), ", ") *
+        " have element types that `autocorrelation` cannot analyze (e.g. a " *
+        "matrix-valued series), so they do not contribute to the binning " *
+        "recommendation; deselect them via `observables` or `time_series`."
+    )
+    if !isfinite(best.tau)
+        isempty(unsupported) || throw(ArgumentError(
+            "No selected observable yielded an autocorrelation time: " *
+            join(("$name at T = $T" for (T, name) in unsupported), ", ") *
+            " cannot be analyzed by `autocorrelation` (unsupported element type)" *
+            (isempty(frozen) ? "" : ", and the remaining selections did not " *
+                "fluctuate during the pilot run")
+        ))
+        throw(ArgumentError(
+            "No selected observable fluctuated during the pilot run, so no " *
+            "autocorrelation time could be estimated"
+        ))
+    end
 
     recommendation = recommended_binning(best.tau; bin_factor = bin_factor, n_unmeasured = n_unmeasured)
     return (

@@ -36,11 +36,29 @@ struct SimulationParameters{T<:Real}
 
     function SimulationParameters{T}(T_val, n_thermalization, n_measurements, n_unmeasured, n_bins) where {T<:Real}
         T_val > 0 || throw(ArgumentError("T must be > 0, got $T_val"))
+        # Counts often arrive as Float64 from literal arithmetic; only integer
+        # values are meaningful, and the Int fields would otherwise reject
+        # e.g. 10.5 with an InexactError instead of an ArgumentError.
+        n_thermalization = _integer_count(n_thermalization, "n_thermalization")
+        n_measurements = _integer_count(n_measurements, "n_measurements")
+        n_unmeasured = _integer_count(n_unmeasured, "n_unmeasured")
+        n_bins = _integer_count(n_bins, "n_bins")
         n_thermalization >= 0 || throw(ArgumentError("n_thermalization must be >= 0, got $n_thermalization"))
         n_unmeasured >= 0 || throw(ArgumentError("n_unmeasured must be >= 0, got $n_unmeasured"))
         validate_binning(n_measurements, n_bins)
         new{T}(T_val, n_thermalization, n_measurements, n_unmeasured, n_bins)
     end
+end
+
+# Convert a sweep count to Int, rejecting non-integer values with an
+# ArgumentError that names the argument.
+function _integer_count(value, name)
+    value isa Integer && return Int(value)
+    value isa Real && isinteger(value) ||
+        throw(ArgumentError("$name must be an integer, got $value"))
+    typemin(Int) <= value <= typemax(Int) ||
+        throw(ArgumentError("$name is out of range for Int, got $value"))
+    return Int(value)
 end
 
 """
@@ -61,9 +79,9 @@ from the temperature argument.
 
 # Throws
 
-`ArgumentError` if `T` is not positive, if `n_thermalization` or
-`n_unmeasured` is negative, or if `n_measurements` and `n_bins` fail
-[`validate_binning`](@ref).
+`ArgumentError` if `T` is not positive, if any sweep count is not an
+integer, if `n_thermalization` or `n_unmeasured` is negative, or if
+`n_measurements` and `n_bins` fail [`validate_binning`](@ref).
 """
 SimulationParameters(T_val::T, n_thermalization, n_measurements, n_unmeasured, n_bins) where {T<:Real} =
     SimulationParameters{T}(T_val, n_thermalization, n_measurements, n_unmeasured, n_bins)

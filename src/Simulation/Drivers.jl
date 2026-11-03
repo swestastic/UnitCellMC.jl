@@ -26,7 +26,7 @@ model/algorithm pairs with a fused fast path (single-orbital
 - `container`: A [`MeasurementContainer`](@ref); only its `diagnostics` field
   is used to select which diagnostics to accumulate.
 - `T`: Temperature passed to [`step!`](@ref).
-- `stats`: Vector of [`UpdateStatistic`](@ref)s, one per entry in
+- `stats`: Tuple of [`UpdateStatistic`](@ref)s, one per entry in
   `container.diagnostics`. Reset at the start of the sweep.
 - `rng`: Random number generator passed to every [`step!`](@ref).
 - `workspace`: Per-run scratch space passed to [`step!`](@ref) (see

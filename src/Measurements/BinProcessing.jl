@@ -283,10 +283,12 @@ function analyze(container::MeasurementContainer, T, N)
 
     # Integrated autocorrelation time of each observable's per-measurement
     # series, so the adequacy of the binning can be checked from the data.
-    # Independent runs merged by `merge_containers` are kept as separate chains.
-    chain_lengths = isempty(container.chain_lengths) ? nothing : container.chain_lengths
+    # Independent runs merged by `merge_containers` are kept as separate
+    # chains; any tail measured into the container after the last recorded
+    # boundary counts as one more chain (see `chain_lengths_with_tail`).
     autocorrelations = Dict{Symbol, AutocorrelationResult}(
-        name => autocorrelation(series; chain_lengths = chain_lengths)
+        name => autocorrelation(series;
+            chain_lengths = chain_lengths_with_tail(container.chain_lengths, length(series)))
         for (name, series) in pairs(container.time_series)
     )
 

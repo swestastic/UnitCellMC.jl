@@ -203,7 +203,8 @@ pooled analysis. Containers holding different *numbers* of equal-size bins
 (say, an already-merged container and a fresh run) merge fine, since
 equal-size bins stay equal-weight. The time series are concatenated too,
 with each run's length stored in `chain_lengths` so autocorrelations never
-straddle runs.
+straddle runs. Measuring further into the merged container keeps working:
+the new samples count as one more chain (see [`chain_lengths_with_tail`](@ref)).
 
 # Returns
 
@@ -250,10 +251,13 @@ function merge_containers(containers::Vector{<:MeasurementContainer})
         for name in series_names
     )
     # Keep track of where each run's series starts so that autocorrelations
-    # are never computed across the boundary between independent runs.
+    # are never computed across the boundary between independent runs; a tail
+    # measured into an input after its own merge counts as one more chain.
     chain_lengths = isempty(series_names) ? Int[] : filter(>(0), reduce(vcat, (
-        isempty(container.chain_lengths) ?
-            [length(first(container.time_series))] : container.chain_lengths
+        let cl = chain_lengths_with_tail(
+                container.chain_lengths, length(first(container.time_series)))
+            cl === nothing ? [length(first(container.time_series))] : cl
+        end
         for container in containers
     )))
     diag_names = diagnostic_names(first_container)

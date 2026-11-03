@@ -2024,6 +2024,26 @@ end
     @test merged.time_series.energy == vcat(container.time_series.energy, other.time_series.energy)
     @test ucmc.merge_containers([merged, other]).chain_lengths == [40, 40, 40]
     @test all(r -> r.n == 80, values(ucmc.analyze(merged, 2.0, geometry.n_sites).autocorrelation))
+
+    # measuring further into a merged container keeps analyze working: the
+    # unrecorded tail counts as one more chain (it used to throw, since
+    # chain_lengths summed to less than the series length)
+    grown = ucmc.merge_containers([container, other])
+    ucmc.measure!(grown, state; diagnostics = (acceptance_ratio = 1.0,))
+    @test ucmc.chain_lengths_with_tail(grown.chain_lengths, 81) == [40, 40, 1]
+    results_grown = ucmc.analyze(grown, 2.0, geometry.n_sites)
+    @test all(r -> r.n == 81, values(results_grown.autocorrelation))
+
+    # the same holds through a full run_simulation into the merged container
+    ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state, grown, parameters)
+    results_rerun = ucmc.analyze(grown, 2.0, geometry.n_sites)
+    @test all(r -> r.n == 81 + 40, values(results_rerun.autocorrelation))
+
+    # the helper itself: exact, tail, empty, and inconsistent cases
+    @test ucmc.chain_lengths_with_tail(Int[], 5) === nothing
+    @test ucmc.chain_lengths_with_tail([8, 8], 16) == [8, 8]
+    @test ucmc.chain_lengths_with_tail([8, 8], 20) == [8, 8, 4]
+    @test_throws ArgumentError ucmc.chain_lengths_with_tail([8, 8], 10)
 end
 
 @testset "time_series recording options" begin

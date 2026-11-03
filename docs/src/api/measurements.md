@@ -22,6 +22,7 @@ UnitCellMC.recommended_binning
 UnitCellMC.MeasurementContainer
 UnitCellMC.validate_binning
 UnitCellMC.validate_dependencies
+UnitCellMC.chain_lengths_with_tail
 ```
 
 ```@docs

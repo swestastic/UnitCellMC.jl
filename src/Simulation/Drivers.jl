@@ -322,7 +322,11 @@ so only the `n_runs` runs at a temperature execute in parallel. With
 `simulated_annealing = false` the `(temperature, run)` pairs are fully
 independent, so all `length(Ts) * n_runs` simulations form a single
 parallel pool — temperatures are parallelized too, which keeps all threads
-busy even when `n_runs` is smaller than the thread count.
+busy even when `n_runs` is smaller than the thread count. The trade-off is
+that every run's [`MeasurementContainer`](@ref) (including its unbinned time
+series) is allocated up front and stays alive until the pool finishes, so
+peak memory scales with `length(Ts) * n_runs`; with annealing, only `n_runs`
+containers are alive at a time.
 
 # Reproducibility
 

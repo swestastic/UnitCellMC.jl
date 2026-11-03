@@ -348,7 +348,7 @@ function tempering_sweep(
     save && save_tempering_results(result, model, algorithm, geometry,
         n_thermalization, n_measurements, n_unmeasured, n_bins;
         root = root, seed = seed, swap_every = swap_every,
-        measurements = measurements, time_series = time_series)
+        measurements = measurements, diagnostics = diagnostics, time_series = time_series)
 
     return result
 end

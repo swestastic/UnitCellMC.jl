@@ -457,7 +457,7 @@ end
 """
     save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
         seed = global_seed(), n_runs = nothing, simulated_annealing = nothing,
-        measurements = nothing, time_series = nothing)
+        measurements = nothing, diagnostics = nothing, time_series = nothing)
 
 Write a `metadata.txt` file in `dir` recording the model, algorithm, system
 size, the full list of temperatures `Ts`, the sweep's simulation parameters
@@ -481,6 +481,8 @@ recreate it.
   temperatures; written as `unknown` when `nothing`.
 - `measurements`: The optional measurements enabled in each container;
   written as `unknown` when `nothing`.
+- `diagnostics`: The algorithm diagnostics recorded per sweep; written as
+  `unknown` when `nothing`.
 - `time_series`: The time-series recording option; written as `unknown` when
   `nothing`.
 """
@@ -490,6 +492,7 @@ function save_sweep_metadata(
     n_runs = nothing,
     simulated_annealing = nothing,
     measurements = nothing,
+    diagnostics = nothing,
     time_series = nothing,
 )
     open(joinpath(dir, "metadata.txt"), "w") do io
@@ -504,6 +507,7 @@ function save_sweep_metadata(
         println(io, "n_runs = ", something(n_runs, "unknown"))
         println(io, "simulated_annealing = ", something(simulated_annealing, "unknown"))
         println(io, "measurements = ", something(measurements, "unknown"))
+        println(io, "diagnostics = ", something(diagnostics, "unknown"))
         println(io, "time_series = ", something(time_series, "unknown"))
         write_reproducibility_metadata(io, seed)
     end
@@ -582,9 +586,10 @@ written at all. Autocorrelation times are in units of measurements, i.e.
   simulation parameters, recorded in the metadata.
 - `root`: Base directory under which the sweep directory is created.
 - `seed`: RNG seed recorded in the metadata (see [`save_sweep_metadata`](@ref)).
-- `n_runs`, `simulated_annealing`, `measurements`, `time_series`: The sweep's
-  run configuration, recorded in the metadata (`unknown` for each if omitted).
-  [`sweep_Ts`](@ref) passes them automatically.
+- `n_runs`, `simulated_annealing`, `measurements`, `diagnostics`,
+  `time_series`: The sweep's run configuration, recorded in the metadata
+  (`unknown` for each if omitted). [`sweep_Ts`](@ref) passes them
+  automatically.
 
 # Throws
 
@@ -602,6 +607,7 @@ function save_sweep_results(
     n_runs = nothing,
     simulated_annealing = nothing,
     measurements = nothing,
+    diagnostics = nothing,
     time_series = nothing,
 )
     L = geometry.lattice.L
@@ -610,7 +616,7 @@ function save_sweep_results(
         mkpath(dir)
         save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
             seed = seed, n_runs = n_runs, simulated_annealing = simulated_annealing,
-            measurements = measurements, time_series = time_series)
+            measurements = measurements, diagnostics = diagnostics, time_series = time_series)
         return dir
     end
 
@@ -621,7 +627,7 @@ function save_sweep_results(
     mkpath(dir)
     save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
         seed = seed, n_runs = n_runs, simulated_annealing = simulated_annealing,
-        measurements = measurements, time_series = time_series)
+        measurements = measurements, diagnostics = diagnostics, time_series = time_series)
 
     _write_sweep_csv(dir, "measurement_results.csv", _measurement_frame, Ts, sweep_results)
     _write_sweep_csv(dir, "correlation_results.csv", correlation_rows, Ts, sweep_results)
@@ -661,7 +667,7 @@ end
     save_tempering_results(result, model, algorithm, geometry,
         n_thermalization, n_measurements, n_unmeasured, n_bins;
         root = "results", seed = global_seed(), swap_every = nothing,
-        measurements = nothing, time_series = nothing)
+        measurements = nothing, diagnostics = nothing, time_series = nothing)
 
 Save the output of a [`tempering_sweep`](@ref): the per-temperature files of
 [`save_sweep_results`](@ref) (`measurement_results.csv`,
@@ -682,9 +688,9 @@ a trailing `swap_every` line.
   sweep's simulation parameters, recorded in the metadata.
 - `root`: Base directory under which the sweep directory is created.
 - `seed`: RNG seed recorded in the metadata (see [`save_sweep_metadata`](@ref)).
-- `swap_every`, `measurements`, `time_series`: The sweep's run
-  configuration, recorded in the metadata (`unknown` for each if omitted).
-  [`tempering_sweep`](@ref) passes them automatically.
+- `swap_every`, `measurements`, `diagnostics`, `time_series`: The sweep's
+  run configuration, recorded in the metadata (`unknown` for each if
+  omitted). [`tempering_sweep`](@ref) passes them automatically.
 
 # Returns
 
@@ -697,6 +703,7 @@ function save_tempering_results(
     seed = global_seed(),
     swap_every = nothing,
     measurements = nothing,
+    diagnostics = nothing,
     time_series = nothing,
 )
     Ts = result.temperatures
@@ -704,7 +711,7 @@ function save_tempering_results(
     dir = tempering_dirname(model, algorithm, L; root = root)
     mkpath(dir)
     save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
-        seed = seed, measurements = measurements, time_series = time_series)
+        seed = seed, measurements = measurements, diagnostics = diagnostics, time_series = time_series)
     open(joinpath(dir, "metadata.txt"), "a") do io
         println(io, "swap_every = ", something(swap_every, "unknown"))
     end

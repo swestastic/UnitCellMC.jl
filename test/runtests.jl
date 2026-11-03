@@ -1354,6 +1354,35 @@ end
     @test haskey(connected_container.data, :magnetization_per_orbital)
 end
 
+@testset "Connected correlation requires periodic boundaries" begin
+    # The connected subtraction uses whole-lattice per-orbital magnetization
+    # products, which match the exact per-class valid-cell subtraction only
+    # under full translation invariance; open lattices must be refused rather
+    # than silently inexact (confirmed by exact enumeration on an open 3×3
+    # two-orbital Ising lattice, where the error flips signs).
+    unit_cell = lu.UnitCell(
+        lattice_vecs = [[1.0, 0.0], [0.0, 1.0]],
+        basis_vecs = [[0.0, 0.0]],
+    )
+    bonds = [lu.Bond(orbitals = (1, 1), displacement = [1, 0]),
+             lu.Bond(orbitals = (1, 1), displacement = [0, 1])]
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    for periodic in ([false, false], [true, false])
+        open_geometry = ucmc.Geometry(
+            unit_cell, lu.Lattice(L = [3, 3], periodic = periodic), bonds)
+        @test_throws ArgumentError ucmc.MeasurementContainer(
+            model, open_geometry, 4, 2; measurements = [:connected_correlation])
+        # the raw correlation is exact either way and stays available
+        raw = ucmc.MeasurementContainer(
+            model, open_geometry, 4, 2; measurements = [:raw_correlation])
+        @test :correlation in keys(raw.data)
+    end
+    # fully periodic lattices are unaffected
+    periodic_container = ucmc.MeasurementContainer(
+        model, square_geometry(2), 4, 2; measurements = [:connected_correlation])
+    @test :correlation in keys(periodic_container.data)
+end
+
 @testset "Connected correlation is per-orbital" begin
     # Two decoupled sublattices under opposite fields have inequivalent
     # sublattice magnetizations, so the per-orbital subtraction differs from

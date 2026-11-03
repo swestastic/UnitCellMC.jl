@@ -50,7 +50,7 @@ mutable struct ClusterWorkspace
 end
 
 ClusterWorkspace() = ClusterWorkspace(
-    BitVector(), Int[], Int[], Int[], UInt8[], Int[], Int[], Int[], Bool[], BitVector[], false
+    BitVector(), Int[], Int[], Int[], UInt8[], Int[], Int[], Int[], Bool[], BitVector(), false
 )
 
 """

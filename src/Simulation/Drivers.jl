@@ -405,6 +405,10 @@ function sweep_Ts(
     seed = recorded_seed(rng)
 )
     n_runs >= 1 || throw(ArgumentError("n_runs must be >= 1, got $n_runs"))
+    # `Ts` is iterated several times (validation, the sweep, saving), so
+    # collect one-shot iterators up front instead of failing on the second
+    # pass.
+    Ts = collect(Ts)
     # `state` seeds run 1 when annealing; catch a model/state mismatch here, on
     # the calling task, rather than inside a thread. It is unused otherwise.
     simulated_annealing && validate_model_state(model, state)

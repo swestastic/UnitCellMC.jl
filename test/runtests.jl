@@ -666,9 +666,42 @@ end
     field_state = ucmc.initialize_state(field_model, geometry)
     for _ in 1:20
         result = ucmc.step!(algorithm, field_model, geometry, field_state, 2.0)
-        @test result.cluster_size in 1:geometry.n_sites
+        @test result.cluster_size in 0:geometry.n_sites
         @test field_state.magnetization == sum(field_state.spins)
         @test field_state.energy ≈ spin_energy(field_model, geometry, field_state.spins)
+    end
+end
+
+@testset "Wolff cluster_size counts only flipped clusters" begin
+    # 4x4, not 2x2: on the smallest lattice every cluster spans the lattice
+    # and always reaches a ghost, so nothing ever flips
+    geometry = square_geometry(4)
+    algorithm = ucmc.WolffAlgorithm()
+
+    # with a strong field, ghost-attached clusters are never flipped and the
+    # diagnostic reports zero exactly for those frozen steps
+    model = ucmc.IsingModel([1.0, 1.0], [1.5])
+    rng = Xoshiro(11)
+    state = ucmc.initialize_state(model, geometry; rng = rng)
+    n_frozen = 0
+    for _ in 1:2000
+        before = copy(state.spins)
+        result = ucmc.step!(algorithm, model, geometry, state, 1.0; rng = rng)
+        if state.spins == before
+            n_frozen += 1
+            @test result.cluster_size == 0
+        else
+            @test result.cluster_size > 0
+        end
+    end
+    @test 0 < n_frozen < 2000  # the field regime freezes most but not all steps
+
+    # without a field there are no ghosts to freeze a cluster: every step
+    # flips its (non-empty) cluster
+    model0 = ucmc.IsingModel([1.0, 1.0], [0.0])
+    state0 = ucmc.initialize_state(model0, geometry; rng = rng)
+    for _ in 1:100
+        @test ucmc.step!(algorithm, model0, geometry, state0, 1.0; rng = rng).cluster_size > 0
     end
 end
 

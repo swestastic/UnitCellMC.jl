@@ -118,9 +118,19 @@ Contract dimension `d` of the array `A` with the matrix `W`,
 with the matrices from [`build_momentum_classes`](@ref) gives a
 `D`-dimensional discrete Fourier transform in `O(N Σ_d L[d])` operations
 without an FFT dependency.
+
+# Throws
+
+`ArgumentError` if `W`'s second dimension does not match `size(A, d)` — the
+contraction is unchecked (`@inbounds`) below, so the shapes are validated
+here.
 """
 function fourier_transform_dim(A::Array{T}, W::AbstractMatrix, d::Int) where T
     sz = size(A)
+    1 <= d <= ndims(A) || throw(ArgumentError(
+        "d = $d is out of range for an $(ndims(A))-dimensional array"))
+    size(W, 2) == sz[d] || throw(ArgumentError(
+        "size(W, 2) = $(size(W, 2)) does not match size(A, $d) = $(sz[d])"))
     n_out = size(W, 1)
     pre = prod(sz[1:(d - 1)]; init = 1)
     post = prod(sz[(d + 1):end]; init = 1)

@@ -147,12 +147,15 @@ Check that `container` can record the run described by `parameters` with
 The container's bin size must equal
 `parameters.n_measurements ÷ parameters.n_bins`; otherwise measurements
 would be grouped into a different number of bins than requested, and a
-trailing partial bin would be silently dropped. Every diagnostic the
-container records must be among [`available_diagnostics`](@ref)`(algorithm)`.
+trailing partial bin would be silently dropped. The container must not hold
+a partially filled bin from an earlier (aborted) run — its stale partial sum
+would otherwise mix into this run's first bin. Every diagnostic the
+container records must be among
+[`available_diagnostics`](@ref)`(algorithm)`.
 
 # Throws
 
-`ArgumentError` if either condition fails.
+`ArgumentError` if any of these conditions fails.
 
 # Returns
 
@@ -163,6 +166,10 @@ function validate_run(
     container::MeasurementContainer,
     parameters::SimulationParameters
 )
+    container.bin_count == 0 || throw(ArgumentError(
+        "MeasurementContainer holds a partially filled bin ($(container.bin_count) of " *
+        "$(container.bin_size) measurements), likely from an aborted run; measuring " *
+        "further would mix the stale partial bin into this run. Use a fresh container."))
     expected_bin_size = parameters.n_measurements ÷ parameters.n_bins
     container.bin_size == expected_bin_size || throw(ArgumentError(
         "MeasurementContainer has bin_size = $(container.bin_size), but parameters " *
@@ -202,7 +209,10 @@ would silently weight unequal-quality averages equally, and adopting the
 first container's derived set would silently gain or lose quantities in the
 pooled analysis. Containers holding different *numbers* of equal-size bins
 (say, an already-merged container and a fresh run) merge fine, since
-equal-size bins stay equal-weight. The time series are concatenated too,
+equal-size bins stay equal-weight. A container holding a partially filled
+bin (e.g. from an aborted run) is rejected with an `ArgumentError`, since
+the incomplete bin cannot be pooled and would otherwise be silently dropped.
+The time series are concatenated too,
 with each run's length stored in `chain_lengths` so autocorrelations never
 straddle runs. Measuring further into the merged container keeps working:
 the new samples count as one more chain (see [`chain_lengths_with_tail`](@ref)).
@@ -224,6 +234,11 @@ function merge_containers(containers::Vector{<:MeasurementContainer})
     expected_bin_size = first_container.bin_size
     expected_derived = Set(d.names for d in first_container.derived)
     for container in containers
+        container.bin_count == 0 || throw(ArgumentError(
+            "Cannot merge a container with a partially filled bin " *
+            "($(container.bin_count) of $(container.bin_size) measurements); the " *
+            "incomplete bin would be silently dropped. Finish or discard the run " *
+            "first."))
         # Set comparisons: key order (from the measurement request order) is
         # not significant; the merged container keeps the first container's
         # layout either way.

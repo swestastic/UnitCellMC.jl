@@ -371,7 +371,7 @@ function _ising_metropolis_sweep!(
     ))
     T64 = Float64(T)
 
-    for _ in 1:n
+    for _ in 1:steps_per_sweep(alg, geometry)
         site = rand(rng, 1:n)
         @inbounds s = spins[site]
         @inbounds info = table[site]

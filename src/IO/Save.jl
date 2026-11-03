@@ -35,7 +35,8 @@ the directory name.
 - `algorithm`: The algorithm instance being used (see
   [`algorithm_label`](@ref)).
 - `L`: System size, joined component-wise with `"x"` (e.g. `(4, 4)` → `"4x4"`).
-- `T`: Temperature, rounded to 6 digits for the directory name.
+- `T`: Temperature, formatted with `repr` (shortest lossless round-trip) for
+  the directory name, so distinct values never share a directory.
 - `root`: Base directory under which the run directory is created.
 
 # Returns
@@ -46,7 +47,7 @@ function results_dirname(model, algorithm, L, T; root::AbstractString = "results
     model_name = string(nameof(typeof(model)))
     alg_name   = algorithm_label(algorithm)
     L_str      = join(L, "x")
-    T_str      = string(round(T, digits = 6))
+    T_str      = repr(T)
     return joinpath(root, "$(model_name)_$(alg_name)_L$(L_str)_temp$(T_str)")
 end
 

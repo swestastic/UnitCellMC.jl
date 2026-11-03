@@ -282,8 +282,8 @@ function tempering_sweep(
     n_unmeasured::Int,
     n_bins::Int;
     swap_every::Int = 1,
-    measurements::Vector{Symbol} = Symbol[],
-    diagnostics::Vector{Symbol} = Symbol[],
+    measurements = Symbol[],
+    diagnostics = Symbol[],
     time_series = :scalars,
     states = nothing,
     root::AbstractString = "results",

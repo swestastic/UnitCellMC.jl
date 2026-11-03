@@ -396,8 +396,8 @@ function sweep_Ts(
     Ts;
     simulated_annealing::Bool = true,
     n_runs::Int = 1,
-    measurements::Vector{Symbol} = Symbol[],
-    diagnostics::Vector{Symbol} = Symbol[],
+    measurements = Symbol[],
+    diagnostics = Symbol[],
     time_series = :scalars,
     root::AbstractString = "results",
     save::Bool = true,

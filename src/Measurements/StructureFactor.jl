@@ -4,18 +4,22 @@
 Return the number of real components of the local operator of `model`, i.e.
 the length of the tuple returned by [`operator_components`](@ref).
 
-This is the model hook that enables the `:structure_factor` measurement (see
-[`structure_factor_entry`](@ref)). A new model supports the structure factor
-by implementing this method together with [`operator_components`](@ref);
-nothing else in the measurement code needs to change. For example, a
-Heisenberg model would return `3`, a `q`-state clock model `2`.
+This is the model hook that enables the `:structure_factor` and
+`:magnetization_per_orbital` measurements (see
+[`structure_factor_entry`](@ref), [`magnetization_per_orbital_entry`](@ref)).
+A new model supports them by implementing this method together with
+[`operator_components`](@ref); nothing else in the measurement code needs to
+change. For example, a Heisenberg model would return `3`, a `q`-state clock
+model `2`.
 
 # Throws
 
 `ArgumentError` for models that do not implement the hook.
 """
 n_operator_components(model::AbstractModel) = throw(ArgumentError(
-    "$(nameof(typeof(model))) does not support the structure factor; implement " *
+    "$(nameof(typeof(model))) does not implement the operator-component hooks " *
+    "required by measurements such as `:structure_factor` and " *
+    "`:magnetization_per_orbital`; implement " *
     "`n_operator_components(::$(nameof(typeof(model))))` and " *
     "`operator_components(::$(nameof(typeof(model))), value)`"
 ))

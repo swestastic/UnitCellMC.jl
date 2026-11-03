@@ -273,6 +273,14 @@ A named tuple `(primary = ..., derived = ..., autocorrelation = ...)`:
 function analyze(container::MeasurementContainer, T, N)
     bin_means = container.data
 
+    # Name the observable on too-few-bins failures (e.g. analyzing a
+    # never-filled container), which average_and_error cannot do.
+    for (name, means) in pairs(bin_means)
+        length(means) >= 2 || throw(ArgumentError(
+            "Observable :$name has $(length(means)) completed bin(s); at least two " *
+            "are required. Was the container filled by a run (see `run_simulation`)?"
+        ))
+    end
     primary = Dict(name => average_and_error(means) for (name, means) in pairs(bin_means))
     jk      = Dict(name => jackknife_samples(means) for (name, means) in pairs(bin_means))
 

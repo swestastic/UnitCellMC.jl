@@ -6,7 +6,8 @@ to `new_value`.
 
 The proposal carries the change the update makes to the total magnetization
 in `magnetization_change` — a scalar for [`IsingModel`](@ref), a
-`(ΔMx, ΔMy)` tuple for [`XYModel`](@ref) and [`ClockModel`](@ref) — because
+`(ΔMx, ΔMy)` tuple for [`XYModel`](@ref) and [`ClockModel`](@ref), a
+`(ΔMx, ΔMy, ΔMz)` tuple for [`HeisenbergModel`](@ref) — because
 only the model knows how its local values map to magnetization (clock
 indices, for example, through their lookup tables). [`apply_update!`](@ref)
 can therefore keep the state's running totals exact without access to the

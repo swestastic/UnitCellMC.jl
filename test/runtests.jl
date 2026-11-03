@@ -1664,10 +1664,28 @@ end
     results = ucmc.analyze(merged, 2.0, geometry.n_sites)
     @test haskey(results.primary, :energy)
 
-    # mismatched containers and empty input are rejected
+    # mismatched containers and empty input are rejected, with the differing
+    # keys named in the message
     mismatched = ucmc.MeasurementContainer(model, geometry, 8, 4; diagnostics = [:cluster_size])
-    @test_throws ArgumentError ucmc.merge_containers([first(containers), mismatched])
+    err = try
+        ucmc.merge_containers([first(containers), mismatched])
+        nothing
+    catch err
+        err
+    end
+    @test err isa ArgumentError
+    @test occursin("cluster_size", err.msg)
     @test_throws ArgumentError ucmc.merge_containers(ucmc.MeasurementContainer[])
+
+    # key order is not significant: the same measurements in a different
+    # request order merge fine (the first container's layout is kept)
+    fwd = ucmc.MeasurementContainer(model, geometry, 8, 4;
+        measurements = [:raw_correlation, :magnetization_per_orbital])
+    rev = ucmc.MeasurementContainer(model, geometry, 8, 4;
+        measurements = [:magnetization_per_orbital, :raw_correlation])
+    @test keys(fwd.data) != keys(rev.data)  # order differs
+    reordered = ucmc.merge_containers([fwd, rev])
+    @test keys(reordered.data) == keys(fwd.data)
 
     # mismatched bin sizes are rejected: pooling unequal-size bins would
     # silently weight unequal-quality averages equally (both containers hold

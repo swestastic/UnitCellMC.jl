@@ -192,10 +192,11 @@ whose `data` holds the concatenation of all runs' bins. Analysis on the
 merged container therefore pools all runs, and error estimates reflect the
 variance between independent runs as well as within them.
 
-The containers must record the same observables and diagnostics, keep
-the same unbinned time series, use the same `bin_size`, and compute the same
-derived quantities (e.g. built with identical
-`measurements`/`diagnostics`/`time_series` arguments and binning);
+The containers must record the same observables and diagnostics, keep the
+same unbinned time series, use the same `bin_size`, and compute the same
+derived quantities — each in any order (e.g. built with the same
+`measurements`/`diagnostics`/`time_series` arguments and binning, regardless
+of request order);
 an `ArgumentError` is thrown otherwise — pooling bins of different sizes
 would silently weight unequal-quality averages equally, and adopting the
 first container's derived set would silently gain or lose quantities in the
@@ -216,20 +217,27 @@ further into an input container never mutates the merged one, or vice versa.
 function merge_containers(containers::Vector{<:MeasurementContainer})
     isempty(containers) && throw(ArgumentError("Cannot merge zero containers"))
     first_container = first(containers)
-    expected_names = keys(first_container.data)
-    series_names = keys(first_container.time_series)
+    first_names = keys(first_container.data)
+    series_order = keys(first_container.time_series)
+    expected_names = Set(first_names)
+    series_names = Set(series_order)
     expected_bin_size = first_container.bin_size
     expected_derived = Set(d.names for d in first_container.derived)
     for container in containers
-        keys(container.data) == expected_names ||
-            throw(ArgumentError("All containers must record identical observables and diagnostics"))
-        keys(container.time_series) == series_names ||
-            throw(ArgumentError("All containers must record identical time series"))
+        # Set comparisons: key order (from the measurement request order) is
+        # not significant; the merged container keeps the first container's
+        # layout either way.
+        container_names = Set(keys(container.data))
+        container_names == expected_names || throw(ArgumentError(
+            "All containers must record identical observables and diagnostics; " *
+            "they differ by $(sort!(collect(symdiff(container_names, expected_names))))"))
+        container_series = Set(keys(container.time_series))
+        container_series == series_names || throw(ArgumentError(
+            "All containers must record identical time series; " *
+            "they differ by $(sort!(collect(symdiff(container_series, series_names))))"))
         container.bin_size == expected_bin_size || throw(ArgumentError(
             "All containers must use the same bin size: got bin_size = " *
             "$(container.bin_size), expected $expected_bin_size"))
-        # Set comparison: the derived order only orders the output fields,
-        # so a different request order is not a mismatch.
         container_derived = Set(d.names for d in container.derived)
         container_derived == expected_derived || throw(ArgumentError(
             "All containers must compute identical derived quantities; " *
@@ -243,12 +251,12 @@ function merge_containers(containers::Vector{<:MeasurementContainer})
     data = NamedTuple(
         name => single ? copy(first_container.data[name]) :
             reduce(vcat, (container.data[name] for container in containers))
-        for name in expected_names
+        for name in first_names
     )
     time_series = NamedTuple(
         name => single ? copy(first_container.time_series[name]) :
             reduce(vcat, (container.time_series[name] for container in containers))
-        for name in series_names
+        for name in series_order
     )
     # Keep track of where each run's series starts so that autocorrelations
     # are never computed across the boundary between independent runs; a tail

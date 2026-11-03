@@ -185,14 +185,22 @@ If `x` is the concatenation of several independent Markov chains, pass their
 lengths in `chain_lengths`: lagged products are then only formed within each
 chain (the mean `x̄` is still the global mean).
 
+A `max_lag` larger than the longest chain minus one is clamped (longer lags
+pair no samples).
+
+The cost is `O(length(x) * max_lag)` — quadratic in the series length at the
+default — so for long series prefer [`autocorrelation`](@ref), which sums
+only up to an adaptively windowed lag (capped at a tenth of the shortest
+chain).
+
 # Returns
 
-`(lags, acf)` with `lags = 0:max_lag` and `acf[k + 1] = ρ(k)`.
+`(lags, acf)` with `lags = 0:max_lag` (after clamping) and `acf[k + 1] = ρ(k)`.
 
 # Throws
 
-`ArgumentError` if `x` has fewer than two samples or is constant, or if
-`chain_lengths` is inconsistent with `x`.
+`ArgumentError` if `x` has fewer than two samples or is constant, if
+`max_lag < 1`, or if `chain_lengths` is inconsistent with `x`.
 """
 function autocorrelation_function(
     x::AbstractVector{<:Real};
@@ -204,18 +212,20 @@ function autocorrelation_function(
     chains = _chain_ranges(n, chain_lengths)
     longest = maximum(length, chains)
     longest >= 2 || throw(ArgumentError("every chain has fewer than two samples"))
-    max_lag = clamp(something(max_lag, n ÷ 2), 1, longest - 1)
+    lag = something(max_lag, n ÷ 2)
+    lag >= 1 || throw(ArgumentError("max_lag must be at least 1, got $lag"))
+    lag = min(lag, longest - 1)
 
     centered = _centered(x)
     centered === nothing && throw(ArgumentError("time series has zero variance"))
     c, c0 = centered
 
-    acf = Vector{Float64}(undef, max_lag + 1)
+    acf = Vector{Float64}(undef, lag + 1)
     acf[1] = 1.0
-    for k in 1:max_lag
+    for k in 1:lag
         acf[k + 1] = _lag_sum(c, chains, k) / c0
     end
-    return (0:max_lag, acf)
+    return (0:lag, acf)
 end
 
 """

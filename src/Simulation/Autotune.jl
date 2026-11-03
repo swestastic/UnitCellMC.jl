@@ -91,6 +91,9 @@ function autotune_binning(
     unresolved = Tuple{Float64, Symbol}[]
     frozen = Tuple{Float64, Symbol}[]
     best = (tau = -Inf, T = NaN, observable = :none)
+    # Deterministic per-geometry workspace data (e.g. a lattice coloring) is
+    # shared by the pilot runs instead of recomputed per temperature.
+    shared = shared_workspace(algorithm, model, geometry)
 
     for T in temperatures
         # One measurement per sweep (n_unmeasured = 0), so τ is in sweeps.
@@ -102,7 +105,8 @@ function autotune_binning(
         selected = collect(keys(pilot.time_series))
 
         parameters = SimulationParameters(T, n_thermalization, n_pilot, 0, n_pilot_bins)
-        run_simulation(algorithm, model, geometry, state, pilot, parameters; rng = rng)
+        run_simulation(algorithm, model, geometry, state, pilot, parameters;
+                       rng = rng, shared = shared)
 
         results = Dict{Symbol, AutocorrelationResult}(
             name => autocorrelation(pilot.time_series[name]; window = window, max_lag = max_lag)

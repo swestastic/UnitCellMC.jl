@@ -2,6 +2,7 @@ include("Updates.jl")
 include("IsingState.jl")
 include("XYState.jl")
 include("ClockState.jl")
+include("HeisenbergState.jl")
 
 """
     state_type(model)
@@ -57,11 +58,11 @@ end
     magnetization_value(state)
 
 Return the scalar magnetization represented by `state`: the stored total
-magnetization for an [`IsingState`](@ref), and the magnitude
-`hypot(magnetization_x, magnetization_y)` of the two components for an
-[`XYState`](@ref) or [`ClockState`](@ref). Used by the optional
-order-parameter measurements (`:abs_magnetization`, `:binder_cumulant`,
-`:magnetization_fourth`).
+magnetization for an [`IsingState`](@ref), and the magnitude of the Cartesian
+components for an [`XYState`](@ref), [`ClockState`](@ref), or
+[`HeisenbergState`](@ref) (`hypot` of two, resp. three, components). Used by
+the optional order-parameter measurements (`:abs_magnetization`,
+`:binder_cumulant`, `:magnetization_fourth`).
 
 Each state type provides its own method (in the corresponding model's file,
 next to [`local_operator`](@ref)); this fallback throws for state types

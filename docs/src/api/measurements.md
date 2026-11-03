@@ -22,12 +22,14 @@ UnitCellMC.recommended_binning
 UnitCellMC.MeasurementContainer
 UnitCellMC.validate_binning
 UnitCellMC.validate_dependencies
+UnitCellMC.chain_lengths_with_tail
 ```
 
 ```@docs
 UnitCellMC.CorrelationClass
 UnitCellMC.correlation_instantaneous
 UnitCellMC.correlation_instantaneous_dft
+UnitCellMC.inverse_phases
 UnitCellMC.correlation_entry
 UnitCellMC.magnetization_per_orbital_entry
 ```

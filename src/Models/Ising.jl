@@ -49,17 +49,18 @@ n_operator_components(::IsingModel) = 1
 operator_components(::IsingModel, s::Real) = (s,)
 
 """
-    propose(rng, ::MetropolisAlgorithm, model, geometry, state)
+    propose(rng, ::MetropolisAlgorithm, model::IsingModel, geometry, state, site)
 
-Generate a Metropolis trial move for `model`: pick a random site, drawn from
-`rng`, and propose flipping its spin.
+Generate a Metropolis trial move for the Ising model at `site` (chosen by the
+algorithm's [`AbstractProposalScheme`](@ref)): propose flipping its spin.
+`rng` goes unused — the flip is deterministic — but is part of the shared
+single-site update contract (see [`apply_update!`](@ref)).
 
 # Returns
 
 A `SpinUpdate` describing the site and its proposed (flipped) value.
 """
-function propose(rng::AbstractRNG, ::MetropolisAlgorithm, ::IsingModel, geometry, state)
-    site = rand(rng, eachindex(state.spins))
+function propose(::AbstractRNG, ::MetropolisAlgorithm, ::IsingModel, geometry, state, site::Int)
     s = state.spins[site]
     return SpinUpdate(site, -s, -2s)
 end
@@ -159,6 +160,11 @@ function cluster_ghost_attached!(context::IsingClusterContext, ::Int)
     context.ghost_attached = true
     return nothing
 end
+
+# The Ising ΔE spectrum is discrete (sums of ±J per neighbor plus one field
+# value per orbital), so local updates memoize Boltzmann factors; see
+# `AcceptanceCache`.
+tabulate_acceptance(::IsingModel) = true
 
 """
     apply_cluster!(model, geometry, state, cluster)
@@ -320,4 +326,75 @@ function _flip_ising_clusters!(
     state.energy += ΔE
     state.magnetization += ΔM
     return nothing
+end
+
+# Fused fast path for the common case of a single-orbital Ising lattice swept
+# with uniform-random site selection: with the field uniform across sites,
+# the `field_strength` lookup, the `SpinUpdate` struct, and the per-step
+# function layering all drop out of the inner loop. The loop draws from `rng`
+# exactly as the generic path (one site draw per update, one acceptance draw
+# per uphill proposal) and mirrors the `energy_difference` arithmetic term
+# for term, so a seeded run follows the same trajectory either way.
+function sweep_steps!(
+    alg::MetropolisAlgorithm{RandomProposal},
+    model::IsingModel,
+    geometry::Geometry,
+    state::IsingState,
+    T, stats::Tuple, diagnostics::Val{D};
+    rng::AbstractRNG, workspace
+) where {D}
+    if LatticeUtilities.norbits(geometry.unit_cell) == 1
+        return _ising_metropolis_sweep!(
+            alg, model, geometry, state, T, stats, diagnostics, rng,
+            _acceptance_cache(workspace)
+        )
+    end
+    return _generic_sweep_steps!(
+        alg, model, geometry, state, T, stats, diagnostics; rng = rng, workspace = workspace
+    )
+end
+
+function _ising_metropolis_sweep!(
+    alg::MetropolisAlgorithm, model::IsingModel, geometry::Geometry,
+    state::IsingState, T, stats::Tuple, ::Val{D}, rng::AbstractRNG, cache
+) where {D}
+    T > 0 || throw(ArgumentError("Temperature must be positive, got $T"))
+    validate_model_geometry(model, geometry)
+
+    n = geometry.n_sites
+    table = geometry.neighbor_table
+    J = couplings(model)
+    h = fields(model)[1]  # single orbital: the field is uniform
+    spins = state.spins
+    length(spins) == n || throw(ArgumentError(
+        "length(state.spins) = $(length(spins)) does not match geometry.n_sites = $n"
+    ))
+    T64 = Float64(T)
+
+    for _ in 1:n
+        site = rand(rng, 1:n)
+        @inbounds s = spins[site]
+        @inbounds info = table[site]
+        weighted_sum = zero(promote_type(eltype(spins), eltype(J)))
+        @inbounds for k in eachindex(info.neighbors)
+            neighbor = info.neighbors[k]
+            neighbor == site && continue
+            weighted_sum += J[info.templates[k]] * spins[neighbor]
+        end
+        ΔE = (s - (-s)) * (weighted_sum + h)
+        accepted = if ΔE <= 0
+            true
+        elseif cache === nothing
+            log(rand(rng)) < -ΔE / T
+        else
+            rand(rng) < cached_boltzmann_factor(cache, ΔE, T64)
+        end
+        if accepted
+            @inbounds spins[site] = -s
+            state.energy += ΔE
+            state.magnetization += -2 * s
+        end
+        record_all!(stats, diagnostic_values(alg, MetropolisUpdateResult(accepted)), Val(D))
+    end
+    return stats
 end

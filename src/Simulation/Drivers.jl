@@ -1,8 +1,3 @@
-@inline function record_all!(stats::Tuple, values, ::Val{D}) where {D}
-    ntuple(i -> record!(stats[i], getfield(values, D[i])), Val(length(D)))
-    return nothing
-end
-
 """
     MC_Sweep!(algorithm, model, geometry, state, container, T, stats;
         rng = Random.default_rng())
@@ -16,7 +11,11 @@ one cluster update for cluster algorithms. After each update,
 `diagnostic_values` is evaluated and the values matching
 `container.diagnostics` are recorded into the corresponding
 [`UpdateStatistic`](@ref)s in `stats`, which must be one per diagnostic (see
-[`run_simulation`](@ref)).
+[`run_simulation`](@ref)). The per-update loop is delegated to
+[`sweep_steps!`](@ref), whose default method calls [`step!`](@ref);
+model/algorithm pairs with a fused fast path (single-orbital
+[`IsingModel`](@ref) under [`MetropolisAlgorithm`](@ref) with
+[`RandomProposal`](@ref)) override it.
 
 # Arguments
 
@@ -32,7 +31,10 @@ one cluster update for cluster algorithms. After each update,
 - `rng`: Random number generator passed to every [`step!`](@ref).
 - `workspace`: Per-run scratch space passed to [`step!`](@ref) (see
   [`algorithm_workspace`](@ref)); `nothing` lets `step!` allocate its own.
-  Only cluster algorithms use it.
+  Cluster algorithms reuse a [`ClusterWorkspace`](@ref); local-update
+  algorithms carry a [`LocalUpdateWorkspace`](@ref) bundling the proposal
+  scheme's site cursor (see [`SequentialProposal`](@ref)) with the
+  [`AcceptanceCache`](@ref) of discrete-spectrum models.
 
 # Returns
 
@@ -43,17 +45,9 @@ function MC_Sweep!(
     T, stats::Tuple; rng::AbstractRNG = Random.default_rng(), workspace = nothing
 ) where {D}
     foreach(reset!, stats)
-    for _ in 1:steps_per_sweep(algorithm, geometry)
-        # Pass the workspace only when there is one to pass, so custom
-        # algorithms need not accept the keyword.
-        result = if workspace === nothing
-            step!(algorithm, model, geometry, state, T; rng = rng)
-        else
-            step!(algorithm, model, geometry, state, T; rng = rng, workspace = workspace)
-        end
-        record_all!(stats, diagnostic_values(algorithm, result), Val(D))
-    end
-    return stats
+    return sweep_steps!(
+        algorithm, model, geometry, state, T, stats, Val(D); rng = rng, workspace = workspace
+    )
 end
 
 """
@@ -89,6 +83,11 @@ cluster update for `WolffAlgorithm` and `SwendsenWangAlgorithm`.
 - `rng`: Random number generator for every update. Defaults to the
   task-local global RNG, so calling `Random.seed!(seed)` beforehand makes the
   run reproducible; pass e.g. `Random.Xoshiro(seed)` for an explicit stream.
+- `shared`: Deterministic, geometry-only workspace data shared across runs —
+  must be [`shared_workspace`](@ref)`(algorithm, model, geometry)` (the
+  default recomputes it). [`sweep_Ts`](@ref) builds it once and passes it to
+  every run, so the lattice coloring of a colored proposal scheme is not
+  recomputed per (temperature, run).
 
 # Throws
 
@@ -109,13 +108,14 @@ function run_simulation(
     state::AbstractState,
     container::MeasurementContainer{D},
     parameters::SimulationParameters;
-    rng::AbstractRNG = Random.default_rng()
+    rng::AbstractRNG = Random.default_rng(),
+    shared = shared_workspace(algorithm, model, geometry)
 ) where {D}
     validate_run(algorithm, container, parameters)
     validate_model_state(model, state)
     T = parameters.T
     stats = ntuple(i -> UpdateStatistic(D[i]), Val(length(D)))
-    workspace = algorithm_workspace(algorithm, model, geometry, state)
+    workspace = algorithm_workspace(algorithm, model, geometry, state, shared)
 
     for _ in 1:parameters.n_thermalization
         MC_Sweep!(algorithm, model, geometry, state, container, T, stats;
@@ -192,42 +192,80 @@ whose `data` holds the concatenation of all runs' bins. Analysis on the
 merged container therefore pools all runs, and error estimates reflect the
 variance between independent runs as well as within them.
 
-The containers must record the same observables and diagnostics, and keep
-the same unbinned time series (e.g. built with identical
-`measurements`/`diagnostics`/`time_series` arguments); an `ArgumentError`
-is thrown otherwise. The time series are concatenated too, with each run's
-length stored in `chain_lengths` so autocorrelations never straddle runs.
+The containers must record the same observables and diagnostics, keep the
+same unbinned time series, use the same `bin_size`, and compute the same
+derived quantities — each in any order (e.g. built with the same
+`measurements`/`diagnostics`/`time_series` arguments and binning, regardless
+of request order);
+an `ArgumentError` is thrown otherwise — pooling bins of different sizes
+would silently weight unequal-quality averages equally, and adopting the
+first container's derived set would silently gain or lose quantities in the
+pooled analysis. Containers holding different *numbers* of equal-size bins
+(say, an already-merged container and a fresh run) merge fine, since
+equal-size bins stay equal-weight. The time series are concatenated too,
+with each run's length stored in `chain_lengths` so autocorrelations never
+straddle runs. Measuring further into the merged container keeps working:
+the new samples count as one more chain (see [`chain_lengths_with_tail`](@ref)).
 
 # Returns
 
 A new `MeasurementContainer` with `length(containers) * n_bins` completed
-bins, ready for [`analyze`](@ref).
+bins, ready for [`analyze`](@ref). Its vectors are freshly allocated (a
+single-container merge copies rather than aliases its input), so measuring
+further into an input container never mutates the merged one, or vice versa.
 """
 function merge_containers(containers::Vector{<:MeasurementContainer})
     isempty(containers) && throw(ArgumentError("Cannot merge zero containers"))
     first_container = first(containers)
-    expected_names = keys(first_container.data)
-    series_names = keys(first_container.time_series)
+    first_names = keys(first_container.data)
+    series_order = keys(first_container.time_series)
+    expected_names = Set(first_names)
+    series_names = Set(series_order)
+    expected_bin_size = first_container.bin_size
+    expected_derived = Set(d.names for d in first_container.derived)
     for container in containers
-        keys(container.data) == expected_names ||
-            throw(ArgumentError("All containers must record identical observables and diagnostics"))
-        keys(container.time_series) == series_names ||
-            throw(ArgumentError("All containers must record identical time series"))
+        # Set comparisons: key order (from the measurement request order) is
+        # not significant; the merged container keeps the first container's
+        # layout either way.
+        container_names = Set(keys(container.data))
+        container_names == expected_names || throw(ArgumentError(
+            "All containers must record identical observables and diagnostics; " *
+            "they differ by $(sort!(collect(symdiff(container_names, expected_names))))"))
+        container_series = Set(keys(container.time_series))
+        container_series == series_names || throw(ArgumentError(
+            "All containers must record identical time series; " *
+            "they differ by $(sort!(collect(symdiff(container_series, series_names))))"))
+        container.bin_size == expected_bin_size || throw(ArgumentError(
+            "All containers must use the same bin size: got bin_size = " *
+            "$(container.bin_size), expected $expected_bin_size"))
+        container_derived = Set(d.names for d in container.derived)
+        container_derived == expected_derived || throw(ArgumentError(
+            "All containers must compute identical derived quantities; " *
+            "they differ by $(collect(symdiff(container_derived, expected_derived)))"))
     end
 
+    # `reduce(vcat, (x,))` returns `x` itself, so a single-container merge
+    # would alias the input's vectors and a later `measure!` on either would
+    # mutate both; copy them instead.
+    single = length(containers) == 1
     data = NamedTuple(
-        name => reduce(vcat, (container.data[name] for container in containers))
-        for name in expected_names
+        name => single ? copy(first_container.data[name]) :
+            reduce(vcat, (container.data[name] for container in containers))
+        for name in first_names
     )
     time_series = NamedTuple(
-        name => reduce(vcat, (container.time_series[name] for container in containers))
-        for name in series_names
+        name => single ? copy(first_container.time_series[name]) :
+            reduce(vcat, (container.time_series[name] for container in containers))
+        for name in series_order
     )
     # Keep track of where each run's series starts so that autocorrelations
-    # are never computed across the boundary between independent runs.
+    # are never computed across the boundary between independent runs; a tail
+    # measured into an input after its own merge counts as one more chain.
     chain_lengths = isempty(series_names) ? Int[] : filter(>(0), reduce(vcat, (
-        isempty(container.chain_lengths) ?
-            [length(first(container.time_series))] : container.chain_lengths
+        let cl = chain_lengths_with_tail(
+                container.chain_lengths, length(first(container.time_series)))
+            cl === nothing ? [length(first(container.time_series))] : cl
+        end
         for container in containers
     )))
     diag_names = diagnostic_names(first_container)
@@ -285,8 +323,9 @@ count. To reproduce a sweep, call
 [`set_global_seed!`](@ref) at the start of the script and keep the inputs,
 including the initial `state`, the same. The seed is written to the sweep's
 `metadata.txt` (as `unknown` if the global RNG was seeded some other way,
-e.g. with `Random.seed!`), so every results folder records how to recreate
-it. An explicit generator such as `rng = Random.Xoshiro(seed)` works too;
+e.g. with `Random.seed!`), alongside `n_runs`, `simulated_annealing`,
+`measurements`, and `time_series`, so every results folder records how to
+recreate it. An explicit generator such as `rng = Random.Xoshiro(seed)` works too;
 pass `seed` alongside it to have it recorded.
 
 A new [`SimulationParameters`](@ref) is created for every temperature
@@ -369,6 +408,12 @@ function sweep_Ts(
     # `state` seeds run 1 when annealing; catch a model/state mismatch here, on
     # the calling task, rather than inside a thread. It is unused otherwise.
     simulated_annealing && validate_model_state(model, state)
+    # Deterministic per-geometry workspace data (the lattice coloring of a
+    # colored proposal scheme) is built once — here on the calling task — and
+    # shared by every run at every temperature, instead of being recomputed
+    # per (temperature, run). This also surfaces its `ArgumentError` for an
+    # uncolorable geometry directly rather than from inside a thread.
+    shared = shared_workspace(algorithm, model, geometry)
     # Validate every temperature and the binning up front, on the calling task,
     # so invalid inputs throw here instead of from inside the threaded loop.
     parameters_by_T = [
@@ -402,7 +447,7 @@ function sweep_Ts(
             Threads.@threads for r in 1:n_runs
                 run_simulation(
                     algorithm, model, geometry, states[r], run_containers[r], parameters;
-                    rng = run_rngs[r]
+                    rng = run_rngs[r], shared = shared
                 )
             end
 
@@ -429,7 +474,7 @@ function sweep_Ts(
             job_state = initialize_state(model, geometry; rng = job_rngs[job])
             run_simulation(
                 algorithm, model, geometry, job_state, job_containers[job],
-                parameters_by_T[i]; rng = job_rngs[job]
+                parameters_by_T[i]; rng = job_rngs[job], shared = shared
             )
         end
 
@@ -442,7 +487,9 @@ function sweep_Ts(
     save && save_sweep_results(
         sweep_results, Ts, model, algorithm, geometry,
         n_thermalization, n_measurements, n_unmeasured, n_bins;
-        root = root, seed = seed
+        root = root, seed = seed,
+        n_runs = n_runs, simulated_annealing = simulated_annealing,
+        measurements = measurements, time_series = time_series
     )
 
     return sweep_results

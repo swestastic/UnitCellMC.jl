@@ -1,5 +1,5 @@
 """
-    average_and_error(values::Vector{Float64})
+    average_and_error(values::Vector{<:Real})
 
 Compute the bin average and standard error of the mean for a scalar
 observable's per-bin values.
@@ -10,7 +10,8 @@ sample variance of `values` (Bessel-corrected, dividing by `n_bins - 1`).
 # Arguments
 
 - `values`: Per-bin averages for one scalar observable (e.g. energy,
-  magnetization), one entry per bin.
+  magnetization), one entry per bin. Any real element type works (e.g.
+  `Float32`).
 
 # Throws
 
@@ -20,7 +21,7 @@ sample variance of `values` (Bessel-corrected, dividing by `n_bins - 1`).
 
 A `(average, error)` tuple.
 """
-function average_and_error(values::Vector{Float64})
+function average_and_error(values::Vector{<:Real})
     n_bins = length(values)
     n_bins > 1 || throw(ArgumentError("At least two bins are required"))
 
@@ -32,7 +33,7 @@ function average_and_error(values::Vector{Float64})
 end
 
 """
-    average_and_error(values::Vector{Vector{Float64}})
+    average_and_error(values::Vector{<:Vector{<:Real}})
 
 Compute the elementwise bin average and standard error of the mean for a
 vector-valued observable's per-bin values (e.g. a correlation function
@@ -40,7 +41,8 @@ evaluated at each displacement).
 
 Each element of `values` is one bin's vector of per-displacement (or
 otherwise per-component) values; these are stacked into an `n_disp × n_bins`
-matrix and averaged/errored along the bin dimension.
+matrix and averaged/errored along the bin dimension. Any real element type
+works (e.g. `Float32`).
 
 # Arguments
 
@@ -58,7 +60,7 @@ matrix and averaged/errored along the bin dimension.
 An `(averages, errors)` tuple of vectors, each of the same length as the
 per-bin vectors in `values`.
 """
-function average_and_error(values::Vector{Vector{Float64}})
+function average_and_error(values::Vector{<:Vector{<:Real}})
     n_bins = length(values)
     n_bins > 1 || throw(ArgumentError("At least two bins are required"))
 
@@ -70,7 +72,7 @@ function average_and_error(values::Vector{Vector{Float64}})
 end
 
 """
-    average_and_error(values::Vector{Vector{ComplexF64}})
+    average_and_error(values::Vector{<:Vector{<:Complex}})
 
 Complex counterpart of the vector method, used for complex-valued
 observables such as `:structure_factor`. The real and imaginary parts are
@@ -78,10 +80,11 @@ averaged and errored independently.
 
 # Returns
 
-An `(averages, errors)` tuple of `Vector{ComplexF64}`; `real(errors)` and
-`imag(errors)` are the standard errors of the real and imaginary parts.
+An `(averages, errors)` tuple of vectors of the same complex element type;
+`real(errors)` and `imag(errors)` are the standard errors of the real and
+imaginary parts.
 """
-function average_and_error(values::Vector{Vector{ComplexF64}})
+function average_and_error(values::Vector{<:Vector{<:Complex}})
     re_avg, re_err = average_and_error([real.(v) for v in values])
     im_avg, im_err = average_and_error([imag.(v) for v in values])
     return complex.(re_avg, im_avg), complex.(re_err, im_err)
@@ -104,6 +107,34 @@ An `(averages, errors)` tuple of matrices, each the size of the per-bin
 matrices in `values`.
 """
 function average_and_error(values::Vector{Matrix{Float64}})
+    n_bins = length(values)
+    n_bins > 1 || throw(ArgumentError("At least two bins are required"))
+    return Statistics.mean(values), Statistics.std(values) ./ sqrt(n_bins)
+end
+
+"""
+    average_and_error(values::Vector{<:AbstractArray})
+
+Generic fallback for array-valued observables whose bin values are not plain
+`Float64` vectors or matrices (say `Float32` matrices, or another
+`AbstractArray` eltype): elementwise bin average and Bessel-corrected
+standard error of the mean, requiring only `Statistics.mean`/`Statistics.std`
+support from the element type.
+
+This is what lets custom observables with other numeric element types reach
+[`analyze`](@ref) without defining their own method; the scalar, vector, and
+complex-vector methods above take precedence where they apply (in particular
+complex vector-valued observables keep their per-component error convention).
+
+# Throws
+
+`ArgumentError` if fewer than two bins are given.
+
+# Returns
+
+An `(averages, errors)` tuple of the same array type as the per-bin values.
+"""
+function average_and_error(values::Vector{<:AbstractArray})
     n_bins = length(values)
     n_bins > 1 || throw(ArgumentError("At least two bins are required"))
     return Statistics.mean(values), Statistics.std(values) ./ sqrt(n_bins)
@@ -252,10 +283,12 @@ function analyze(container::MeasurementContainer, T, N)
 
     # Integrated autocorrelation time of each observable's per-measurement
     # series, so the adequacy of the binning can be checked from the data.
-    # Independent runs merged by `merge_containers` are kept as separate chains.
-    chain_lengths = isempty(container.chain_lengths) ? nothing : container.chain_lengths
+    # Independent runs merged by `merge_containers` are kept as separate
+    # chains; any tail measured into the container after the last recorded
+    # boundary counts as one more chain (see `chain_lengths_with_tail`).
     autocorrelations = Dict{Symbol, AutocorrelationResult}(
-        name => autocorrelation(series; chain_lengths = chain_lengths)
+        name => autocorrelation(series;
+            chain_lengths = chain_lengths_with_tail(container.chain_lengths, length(series)))
         for (name, series) in pairs(container.time_series)
     )
 

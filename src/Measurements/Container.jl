@@ -29,7 +29,9 @@ the codebase).
   ones), so its keys are a subset of those of `data`.
 - `chain_lengths::Vector{Int}`: Lengths of the independent Markov chains
   concatenated in `time_series` when containers are combined with
-  [`merge_containers`](@ref); empty for a single run.
+  [`merge_containers`](@ref); empty for a single run. Samples measured after
+  the last recorded boundary (a merged container measured into further) count
+  as one more chain — see [`chain_lengths_with_tail`](@ref).
 - `bin_count::Int`: Number of measurements accumulated in the current bin;
   reset to `0` when the bin is flushed into `data`.
 - `bin_size::Int`: Number of measurements per bin (`n_measurements ÷ n_bins`).
@@ -54,6 +56,25 @@ mutable struct MeasurementContainer{D, N, T, S, Ts, O}
 end
 
 diagnostic_names(::MeasurementContainer{D}) where {D} = D
+
+"""
+    chain_lengths_with_tail(chain_lengths, n)
+
+The chain-boundary bookkeeping for a time series of `n` samples in a
+[`MeasurementContainer`](@ref): the `chain_lengths` recorded when containers
+were combined with [`merge_containers`](@ref), with any tail of samples
+measured *after* the last recorded boundary counted as one more chain.
+`nothing` (no recorded boundaries) means a single chain. A recorded sum
+larger than `n` is a genuine inconsistency and throws an `ArgumentError`.
+"""
+function chain_lengths_with_tail(chain_lengths::AbstractVector{<:Integer}, n::Int)
+    isempty(chain_lengths) && return nothing
+    accounted = sum(chain_lengths)
+    accounted == n && return chain_lengths
+    accounted < n && return [chain_lengths; n - accounted]
+    throw(ArgumentError(
+        "chain_lengths sum to $accounted but the series has only $n samples"))
+end
 
 """
     validate_binning(n_measurements, n_bins)

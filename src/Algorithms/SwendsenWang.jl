@@ -4,6 +4,11 @@
 Marker type selecting a Swendsen-Wang cluster update. Bond activation is
 delegated to `cluster_bond_probability`, and model-specific cluster mutations
 are delegated to `apply_clusters!`.
+
+With an external field, clusters that attach to a ghost site are never
+flipped, and for β|h| ≳ 1 most of the lattice attaches — most steps leave the
+state unchanged. Prefer a local-update algorithm
+([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref)) in strong fields.
 """
 struct SwendsenWangAlgorithm <: AbstractAlgorithm end
 
@@ -13,7 +18,10 @@ struct SwendsenWangAlgorithm <: AbstractAlgorithm end
 Result of one Swendsen-Wang update, recording the number of clusters, the
 total number of lattice sites processed (`updated_sites`; always equal to
 `geometry.n_sites`, since every site belongs to exactly one cluster), and
-the fraction of sites contained in the largest cluster.
+the fraction of sites contained in the largest cluster. The size distribution
+includes ghost-attached clusters, which are never flipped — with an external
+field, `largest_cluster_fraction` can be large even when little changed (see
+[`SwendsenWangAlgorithm`](@ref)).
 """
 struct SwendsenWangUpdateResult <: AbstractUpdateResult
     cluster_count::Int

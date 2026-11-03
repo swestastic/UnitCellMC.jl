@@ -25,6 +25,18 @@ function two_orbital_geometry(L::Int)
     return ucmc.Geometry(unit_cell, lattice, [bond_1, bond_2])
 end
 
+function triangular_geometry(L::Int)
+    unit_cell = lu.UnitCell(
+        lattice_vecs = [[1.0, 0.0], [0.5, sqrt(3) / 2]],
+        basis_vecs = [[0.0, 0.0]],
+    )
+    lattice = lu.Lattice(L = [L, L], periodic = [true, true])
+    bonds = [lu.Bond(orbitals = (1, 1), displacement = [1, 0]),
+             lu.Bond(orbitals = (1, 1), displacement = [0, 1]),
+             lu.Bond(orbitals = (1, 1), displacement = [1, -1])]
+    return ucmc.Geometry(unit_cell, lattice, bonds)
+end
+
 function spin_energy(model, geometry, spins)
     energy = zero(promote_type(eltype(model.J), eltype(model.h)))
     for i in 1:geometry.n_sites
@@ -38,18 +50,35 @@ function spin_energy(model, geometry, spins)
     return energy
 end
 
-function xy_energy(model, geometry, angles)
+function xy_energy(model, geometry, cosines, sines)
     energy = zero(promote_type(eltype(model.J), eltype(model.h)))
     for i in 1:geometry.n_sites
         info = geometry.neighbor_table[i]
         for (bond_id, j) in zip(info.bonds, info.neighbors)
             J = ucmc.bond_strength(model, geometry, bond_id)
-            energy += -0.5 * J * cos(angles[i] - angles[j])
+            energy += -0.5 * J * (cosines[i] * cosines[j] + sines[i] * sines[j])
         end
-        energy += -ucmc.field_strength(model, geometry, i) * cos(angles[i])
+        energy += -ucmc.field_strength(model, geometry, i) * cosines[i]
     end
     return energy
 end
+xy_energy(model, geometry, state::ucmc.XYState) =
+    xy_energy(model, geometry, state.cosines, state.sines)
+
+function heisenberg_energy(model, geometry, xs, ys, zs)
+    energy = zero(promote_type(eltype(model.J), eltype(model.h)))
+    for i in 1:geometry.n_sites
+        info = geometry.neighbor_table[i]
+        for (bond_id, j) in zip(info.bonds, info.neighbors)
+            J = ucmc.bond_strength(model, geometry, bond_id)
+            energy += -0.5 * J * (xs[i] * xs[j] + ys[i] * ys[j] + zs[i] * zs[j])
+        end
+        energy += -ucmc.field_strength(model, geometry, i) * xs[i]
+    end
+    return energy
+end
+heisenberg_energy(model, geometry, state::ucmc.HeisenbergState) =
+    heisenberg_energy(model, geometry, state.xs, state.ys, state.zs)
 
 function clock_energy(model, geometry, spins)
     q = model.q
@@ -148,16 +177,19 @@ end
     model = ucmc.XYModel([1.0, 2.0], [0.5, -0.25])
     state = ucmc.initialize_state(model, geometry)
 
-    @test length(state.angles) == geometry.n_sites
-    @test state.energy ≈ xy_energy(model, geometry, state.angles)
-    @test state.magnetization_x ≈ sum(cos, state.angles)
-    @test state.magnetization_y ≈ sum(sin, state.angles)
+    @test length(state.cosines) == geometry.n_sites
+    @test length(state.sines) == geometry.n_sites
+    @test state.cosines .^ 2 .+ state.sines .^ 2 ≈ ones(geometry.n_sites)
+    @test state.energy ≈ xy_energy(model, geometry, state)
+    @test state.magnetization_x ≈ sum(state.cosines)
+    @test state.magnetization_y ≈ sum(state.sines)
 
     for _ in 1:50
         ucmc.step!(ucmc.MetropolisAlgorithm(), model, geometry, state, 2.0)
-        @test state.energy ≈ xy_energy(model, geometry, state.angles)
-        @test state.magnetization_x ≈ sum(cos, state.angles)
-        @test state.magnetization_y ≈ sum(sin, state.angles)
+        @test state.energy ≈ xy_energy(model, geometry, state)
+        @test state.magnetization_x ≈ sum(state.cosines)
+        @test state.magnetization_y ≈ sum(state.sines)
+        @test state.cosines .^ 2 .+ state.sines .^ 2 ≈ ones(geometry.n_sites)
     end
 
     @test_throws ArgumentError ucmc.initialize_state(
@@ -173,7 +205,7 @@ end
     for algorithm in (ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
         for _ in 1:10
             ucmc.step!(algorithm, model, geometry, state, 2.0)
-            @test state.energy ≈ xy_energy(model, geometry, state.angles)
+            @test state.energy ≈ xy_energy(model, geometry, state)
         end
     end
 
@@ -183,9 +215,9 @@ end
         field_state = ucmc.initialize_state(field_model, field_geometry)
         for _ in 1:20
             ucmc.step!(algorithm, field_model, field_geometry, field_state, 2.0)
-            @test field_state.energy ≈ xy_energy(field_model, field_geometry, field_state.angles)
-            @test field_state.magnetization_x ≈ sum(cos, field_state.angles)
-            @test field_state.magnetization_y ≈ sum(sin, field_state.angles)
+            @test field_state.energy ≈ xy_energy(field_model, field_geometry, field_state)
+            @test field_state.magnetization_x ≈ sum(field_state.cosines)
+            @test field_state.magnetization_y ≈ sum(field_state.sines)
         end
     end
 
@@ -209,16 +241,137 @@ end
 @testset "XY cluster reflection" begin
     geometry = square_geometry(2)
     model = ucmc.XYModel([1.0, 1.0], [0.0])
-    angles = [0.0, π / 2, 0.0, π / 2]
+    cosines = [1.0, 0.0, 1.0, 0.0]
+    sines = [0.0, 1.0, 0.0, 1.0]
     state = ucmc.XYState(
-        angles, xy_energy(model, geometry, angles), sum(cos, angles), sum(sin, angles)
+        cosines, sines, xy_energy(model, geometry, cosines, sines), sum(cosines), sum(sines)
     )
     ucmc.apply_cluster!(model, geometry, state, [1], 0.0)
 
-    @test state.angles[1] ≈ π
-    @test cos(state.angles[1]) == -1.0
-    @test state.magnetization_x ≈ sum(cos, state.angles) atol = 1e-12
-    @test state.magnetization_y ≈ sum(sin, state.angles) atol = 1e-12
+    @test state.cosines[1] == -1.0
+    @test state.sines[1] == 0.0
+    @test state.magnetization_x ≈ sum(state.cosines) atol = 1e-12
+    @test state.magnetization_y ≈ sum(state.sines) atol = 1e-12
+end
+
+@testset "Heisenberg state and updates" begin
+    geometry = two_orbital_geometry(2)
+    model = ucmc.HeisenbergModel([1.0, 2.0], [0.5, -0.25])
+    state = ucmc.initialize_state(model, geometry)
+
+    @test length(state.xs) == length(state.ys) == length(state.zs) == geometry.n_sites
+    @test state.xs .^ 2 .+ state.ys .^ 2 .+ state.zs .^ 2 ≈ ones(geometry.n_sites)
+    @test state.energy ≈ heisenberg_energy(model, geometry, state)
+    @test state.magnetization_x ≈ sum(state.xs)
+    @test state.magnetization_y ≈ sum(state.ys)
+    @test state.magnetization_z ≈ sum(state.zs)
+
+    for _ in 1:50
+        ucmc.step!(ucmc.MetropolisAlgorithm(), model, geometry, state, 2.0)
+        @test state.energy ≈ heisenberg_energy(model, geometry, state)
+        @test state.magnetization_x ≈ sum(state.xs)
+        @test state.magnetization_y ≈ sum(state.ys)
+        @test state.magnetization_z ≈ sum(state.zs)
+        @test state.xs .^ 2 .+ state.ys .^ 2 .+ state.zs .^ 2 ≈ ones(geometry.n_sites)
+    end
+
+    @test_throws ArgumentError ucmc.initialize_state(
+        ucmc.HeisenbergModel([1.0, 2.0], [0.5]), geometry
+    )
+end
+
+@testset "Heisenberg cluster updates" begin
+    geometry = square_geometry(2)
+    model = ucmc.HeisenbergModel([1.0, 1.0], [0.0])
+
+    for algorithm in (ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
+        state = ucmc.initialize_state(model, geometry)
+        for _ in 1:10
+            ucmc.step!(algorithm, model, geometry, state, 2.0)
+            @test state.energy ≈ heisenberg_energy(model, geometry, state)
+        end
+    end
+
+    field_geometry = two_orbital_geometry(2)
+    field_model = ucmc.HeisenbergModel([1.0, 2.0], [0.5, -0.25])
+    for algorithm in (ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
+        field_state = ucmc.initialize_state(field_model, field_geometry)
+        for _ in 1:20
+            ucmc.step!(algorithm, field_model, field_geometry, field_state, 2.0)
+            @test field_state.energy ≈ heisenberg_energy(field_model, field_geometry, field_state)
+            @test field_state.magnetization_x ≈ sum(field_state.xs)
+            @test field_state.magnetization_y ≈ sum(field_state.ys)
+            @test field_state.magnetization_z ≈ sum(field_state.zs)
+            @test field_state.xs .^ 2 .+ field_state.ys .^ 2 .+ field_state.zs .^ 2 ≈
+                ones(field_geometry.n_sites)
+        end
+    end
+end
+
+@testset "Heisenberg cluster reflection" begin
+    geometry = square_geometry(2)
+    model = ucmc.HeisenbergModel([1.0, 1.0], [0.0])
+    xs = [1.0, 0.0, 0.0, -1.0]
+    ys = [0.0, 1.0, 0.0, 0.0]
+    zs = [0.0, 0.0, 1.0, 0.0]
+    state = ucmc.HeisenbergState(
+        xs, ys, zs, heisenberg_energy(model, geometry, xs, ys, zs), sum(xs), sum(ys), sum(zs)
+    )
+
+    # reflecting x̂ about r̂ = x̂ flips it; a non-unit axis is normalized on entry
+    ucmc.apply_cluster!(model, geometry, state, [1], (2.0, 0.0, 0.0))
+    @test state.xs[1] == -1.0
+    @test state.ys[1] == 0.0
+    @test state.zs[1] == 0.0
+    @test state.energy ≈ heisenberg_energy(model, geometry, state) atol = 1e-12
+    @test state.magnetization_x ≈ sum(state.xs) atol = 1e-12
+    @test state.magnetization_y ≈ sum(state.ys) atol = 1e-12
+    @test state.magnetization_z ≈ sum(state.zs) atol = 1e-12
+
+    # a spin perpendicular to the axis has p = 0 and is unchanged exactly
+    ucmc.apply_cluster!(model, geometry, state, [3], (1.0, 0.0, 0.0))
+    @test (state.xs[3], state.ys[3], state.zs[3]) == (0.0, 0.0, 1.0)
+
+    # about r̂ = (x̂ + ŷ)/√2 the reflection maps -x̂ to +ŷ
+    ucmc.apply_cluster!(model, geometry, state, [1], (1.0, 1.0, 0.0))
+    @test state.xs[1] ≈ 0.0 atol = 1e-12
+    @test state.ys[1] ≈ 1.0 atol = 1e-12
+    @test state.zs[1] ≈ 0.0 atol = 1e-12
+    @test state.energy ≈ heisenberg_energy(model, geometry, state) atol = 1e-12
+
+    @test_throws ArgumentError ucmc.apply_cluster!(model, geometry, state, [1], (0.0, 0.0, 0.0))
+end
+
+@testset "Heisenberg matches the exact Langevin response" begin
+    # J = 0: independent spins in a field along x, so the per-site response is
+    # the Langevin function ⟨m_x⟩ = coth(h / T) - T / h, and ⟨m_y⟩ = ⟨m_z⟩ = 0.
+    # The Wolff run exercises the ghost-only dynamics (no bonds to activate).
+    geometry = ucmc.Geometry(
+        lu.UnitCell(lattice_vecs = [[1.0, 0.0], [0.0, 1.0]], basis_vecs = [[0.0, 0.0]]),
+        lu.Lattice(L = [4, 4], periodic = [true, true]),
+        lu.Bond{2}[],
+    )
+    T = 1.0
+    h = 0.5
+    model = ucmc.HeisenbergModel(Float64[], [h])
+    exact_mx = coth(h / T) - T / h
+
+    for (algorithm, n_measurements) in (
+        (ucmc.MetropolisAlgorithm(), 50_000), (ucmc.WolffAlgorithm(), 200_000)
+    )
+        rng = Xoshiro(19)
+        state = ucmc.initialize_state(model, geometry; rng = rng)
+        container = ucmc.MeasurementContainer(model, geometry, n_measurements, 25)
+        parameters = ucmc.SimulationParameters(T, 500, n_measurements, 0, 25)
+        ucmc.run_simulation(algorithm, model, geometry, state, container, parameters; rng = rng)
+        result = ucmc.analyze(container, T, geometry.n_sites)
+        mx, mx_err = result.primary[:magnetization_x]
+        my, my_err = result.primary[:magnetization_y]
+        mz, mz_err = result.primary[:magnetization_z]
+        @test abs(mx - exact_mx) < 4 * mx_err
+        @test abs(my) < 4 * my_err
+        @test abs(mz) < 4 * mz_err
+    end
 end
 
 @testset "Metropolis updates keep invariants" begin
@@ -236,6 +389,105 @@ end
     end
 end
 
+@testset "AcceptanceCache" begin
+    cache = ucmc.AcceptanceCache()
+    T = 2.0
+
+    # memoized Boltzmann factors match a direct evaluation bit for bit
+    for ΔE in (0.5, 4.0, 8.0, -2.0, 0.5, 4.0)
+        @test ucmc.cached_boltzmann_factor(cache, ΔE, T) === exp(-ΔE / T)
+    end
+    @test length(cache.delta_Es) == 4  # the repeats were cache hits
+
+    # changing the temperature clears the memo table
+    @test ucmc.cached_boltzmann_factor(cache, 4.0, 3.0) === exp(-4.0 / 3.0)
+    @test cache.T == 3.0
+    @test length(cache.delta_Es) == 1
+
+    # a spectrum wider than the capacity stops memoizing new values but keeps
+    # serving the entries already present
+    wide = ucmc.AcceptanceCache()
+    for k in 1:(ucmc.ACCEPTANCE_CACHE_CAPACITY + 10)
+        @test ucmc.cached_boltzmann_factor(wide, Float64(k), 1.0) === exp(-Float64(k))
+    end
+    @test length(wide.delta_Es) == ucmc.ACCEPTANCE_CACHE_CAPACITY
+    @test ucmc.cached_boltzmann_factor(wide, 1.0, 1.0) === exp(-1.0)
+    @test ucmc.cached_boltzmann_factor(wide, 999.0, 1.0) === exp(-999.0)
+
+    # only spectra that are discrete and small enough to scan are tabulated:
+    # Ising's handful of values qualifies; the clock spectrum grows with q
+    # times the coordination number, so memoizing it does not pay off
+    @test ucmc.tabulate_acceptance(ucmc.IsingModel([1.0, 1.0], [0.0]))
+    @test !ucmc.tabulate_acceptance(ucmc.ClockModel(6, [1.0, 1.0], [0.0]))
+    @test !ucmc.tabulate_acceptance(ucmc.XYModel([1.0, 1.0], [0.0]))
+    @test !ucmc.tabulate_acceptance(ucmc.HeisenbergModel([1.0, 1.0], [0.0]))
+end
+
+@testset "Single-orbital Metropolis fast path" begin
+    geometry = square_geometry(4)
+    model = ucmc.IsingModel([1.0, 1.0], [0.3])
+    T = 1.7
+    algorithm = ucmc.MetropolisAlgorithm()
+    container = ucmc.MeasurementContainer(model, geometry, 10, 2;
+                                          diagnostics = [:acceptance_ratio])
+
+    # The fused sweep visits sites, draws, and accepts exactly like the
+    # per-step loop, so a seeded run follows the same trajectory either way —
+    # with a workspace (tabulated acceptance) or without one.
+    for with_workspace in (true, false)
+        rng_fast, rng_ref = Xoshiro(123), Xoshiro(123)
+        fast_state = ucmc.initialize_state(model, geometry; rng = Xoshiro(99))
+        ref_state = ucmc.initialize_state(model, geometry; rng = Xoshiro(99))
+        stats = (ucmc.UpdateStatistic(:acceptance_ratio),)
+
+        fast_workspace = with_workspace ?
+            ucmc.algorithm_workspace(algorithm, model, geometry, fast_state) : nothing
+        ref_workspace = with_workspace ?
+            ucmc.algorithm_workspace(algorithm, model, geometry, ref_state) : nothing
+
+        for _ in 1:25
+            ucmc.MC_Sweep!(algorithm, model, geometry, fast_state, container, T,
+                           stats; rng = rng_fast, workspace = fast_workspace)
+        end
+        for _ in 1:(25 * geometry.n_sites)
+            ucmc.step!(algorithm, model, geometry, ref_state, T;
+                       rng = rng_ref, workspace = ref_workspace)
+        end
+
+        @test fast_state.spins == ref_state.spins
+        @test fast_state.energy == ref_state.energy
+        @test fast_state.magnetization == ref_state.magnetization
+        @test stats[1].count == geometry.n_sites
+        @test 0.0 <= ucmc.value(stats[1]) <= 1.0
+    end
+
+    # running totals stay exact through fused sweeps, field included
+    plain_container = ucmc.MeasurementContainer(model, geometry, 10, 2)
+    state = ucmc.initialize_state(model, geometry; rng = Xoshiro(31))
+    workspace = ucmc.algorithm_workspace(algorithm, model, geometry, state)
+    rng = Xoshiro(7)
+    for _ in 1:50
+        ucmc.MC_Sweep!(algorithm, model, geometry, state, plain_container, T, ();
+                       rng = rng, workspace = workspace)
+        @test state.energy ≈ spin_energy(model, geometry, state.spins)
+        @test state.magnetization == sum(state.spins)
+    end
+
+    # multi-orbital geometries fall back to the generic per-step loop
+    geometry2 = two_orbital_geometry(2)
+    model2 = ucmc.IsingModel([1.0, 2.0], [0.5, -0.25])
+    container2 = ucmc.MeasurementContainer(model2, geometry2, 10, 2)
+    state2 = ucmc.initialize_state(model2, geometry2; rng = Xoshiro(5))
+    workspace2 = ucmc.algorithm_workspace(algorithm, model2, geometry2, state2)
+    rng2 = Xoshiro(13)
+    for _ in 1:10
+        ucmc.MC_Sweep!(algorithm, model2, geometry2, state2, container2, 2.0, ();
+                       rng = rng2, workspace = workspace2)
+        @test state2.energy ≈ spin_energy(model2, geometry2, state2.spins)
+        @test state2.magnetization == sum(state2.spins)
+    end
+end
+
 @testset "Glauber acceptance probability" begin
     @test ucmc.glauber_probability(0.0, 1.0) == 0.5
     @test ucmc.glauber_probability(Inf, 1.0) == 0.0
@@ -248,6 +500,13 @@ end
         @test p + ucmc.glauber_probability(-ΔE, T) ≈ 1.0
         # detailed balance for a symmetric proposal
         @test p / ucmc.glauber_probability(-ΔE, T) ≈ exp(-ΔE / T)
+    end
+
+    # the tabulated form used with an AcceptanceCache agrees with the direct one
+    cache = ucmc.AcceptanceCache()
+    for ΔE in (-3.0, -0.4, 0.0, 0.7, 2.5), T in (0.5, 1.0, 3.0)
+        u = ucmc.cached_boltzmann_factor(cache, ΔE, Float64(T))
+        @test (ΔE > 0 ? u / (1 + u) : 1 / (1 + 1 / u)) ≈ ucmc.glauber_probability(ΔE, T)
     end
 end
 
@@ -281,9 +540,9 @@ end
     state = ucmc.initialize_state(model, geometry; rng = rng)
     for _ in 1:100
         ucmc.step!(algorithm, model, geometry, state, 2.0; rng = rng)
-        @test state.energy ≈ xy_energy(model, geometry, state.angles)
-        @test state.magnetization_x ≈ sum(cos, state.angles)
-        @test state.magnetization_y ≈ sum(sin, state.angles)
+        @test state.energy ≈ xy_energy(model, geometry, state)
+        @test state.magnetization_x ≈ sum(state.cosines)
+        @test state.magnetization_y ≈ sum(state.sines)
     end
 
     # Glauber uses the same trial moves as Metropolis for every model
@@ -303,6 +562,27 @@ end
     state = ucmc.initialize_state(free, geometry; rng = rng)
     accepted = [ucmc.step!(algorithm, free, geometry, state, 1.0; rng = rng).accepted for _ in 1:4000]
     @test abs(sum(accepted) / length(accepted) - 0.5) < 0.05
+
+    # the same holds with a workspace, where acceptance uses the tabulated
+    # Boltzmann factors of the Ising model's AcceptanceCache
+    rng = Xoshiro(17)
+    state = ucmc.initialize_state(free, geometry; rng = rng)
+    workspace = ucmc.algorithm_workspace(algorithm, free, geometry, state)
+    accepted = [ucmc.step!(algorithm, free, geometry, state, 1.0;
+                           rng = rng, workspace = workspace).accepted for _ in 1:4000]
+    @test abs(sum(accepted) / length(accepted) - 0.5) < 0.05
+
+    # and the running totals stay exact on the tabulated path for a model
+    # with a nontrivial ΔE spectrum
+    model = ucmc.IsingModel([1.0, 2.0], [0.5, -0.25])
+    rng = Xoshiro(21)
+    state = ucmc.initialize_state(model, geometry; rng = rng)
+    workspace = ucmc.algorithm_workspace(algorithm, model, geometry, state)
+    for _ in 1:100
+        ucmc.step!(algorithm, model, geometry, state, 2.0; rng = rng, workspace = workspace)
+        @test state.magnetization == sum(state.spins)
+        @test state.energy ≈ spin_energy(model, geometry, state.spins)
+    end
 end
 
 @testset "Glauber Ising and XY match exact results" begin
@@ -346,7 +626,7 @@ end
     θs = (2π / n_grid) .* (0:(n_grid - 1))
     Z = E = Mx = 0.0
     for a in θs, b in θs
-        e = xy_energy(xy, chain, [a, b])
+        e = xy_energy(xy, chain, cos.([a, b]), sin.([a, b]))
         w = exp(-e / T)
         Z += w
         E += w * e
@@ -386,9 +666,42 @@ end
     field_state = ucmc.initialize_state(field_model, geometry)
     for _ in 1:20
         result = ucmc.step!(algorithm, field_model, geometry, field_state, 2.0)
-        @test result.cluster_size in 1:geometry.n_sites
+        @test result.cluster_size in 0:geometry.n_sites
         @test field_state.magnetization == sum(field_state.spins)
         @test field_state.energy ≈ spin_energy(field_model, geometry, field_state.spins)
+    end
+end
+
+@testset "Wolff cluster_size counts only flipped clusters" begin
+    # 4x4, not 2x2: on the smallest lattice every cluster spans the lattice
+    # and always reaches a ghost, so nothing ever flips
+    geometry = square_geometry(4)
+    algorithm = ucmc.WolffAlgorithm()
+
+    # with a strong field, ghost-attached clusters are never flipped and the
+    # diagnostic reports zero exactly for those frozen steps
+    model = ucmc.IsingModel([1.0, 1.0], [1.5])
+    rng = Xoshiro(11)
+    state = ucmc.initialize_state(model, geometry; rng = rng)
+    n_frozen = 0
+    for _ in 1:2000
+        before = copy(state.spins)
+        result = ucmc.step!(algorithm, model, geometry, state, 1.0; rng = rng)
+        if state.spins == before
+            n_frozen += 1
+            @test result.cluster_size == 0
+        else
+            @test result.cluster_size > 0
+        end
+    end
+    @test 0 < n_frozen < 2000  # the field regime freezes most but not all steps
+
+    # without a field there are no ghosts to freeze a cluster: every step
+    # flips its (non-empty) cluster
+    model0 = ucmc.IsingModel([1.0, 1.0], [0.0])
+    state0 = ucmc.initialize_state(model0, geometry; rng = rng)
+    for _ in 1:100
+        @test ucmc.step!(algorithm, model0, geometry, state0, 1.0; rng = rng).cluster_size > 0
     end
 end
 
@@ -458,6 +771,43 @@ end
     @test haskey(sw_container.data, :largest_cluster_fraction)
 end
 
+@testset "average_and_error element types" begin
+    # scalar bins of any real element type (a custom observable's bins may be
+    # Float32, not Float64); the loose tolerance is Float32 precision
+    avg, err = ucmc.average_and_error(Float32[1, 2, 3, 4])
+    @test avg ≈ 2.5
+    @test err ≈ sqrt(5 / 12) atol = 1e-6  # Bessel variance 5/3, divided by n_bins = 4
+
+    # vector-valued bins of other real element types
+    bins32 = [Float32[1, 2], Float32[3, 0], Float32[2, 1], Float32[0, 3]]
+    avg32, err32 = ucmc.average_and_error(bins32)
+    @test avg32 ≈ [1.5, 1.5]
+    @test err32 ≈ [sqrt(5 / 12), sqrt(5 / 12)] atol = 1e-6
+    @test eltype(avg32) == Float32
+
+    # complex bins of any precision keep the per-component error convention
+    bins_c32 = [ComplexF32[1 + 1im, 2], ComplexF32[3 - 1im, 0],
+                ComplexF32[2, 1], ComplexF32[0 + 2im, 3]]
+    avgc, errc = ucmc.average_and_error(bins_c32)
+    @test real(avgc) ≈ Float32[1.5, 1.5]
+    @test imag(avgc) ≈ Float32[0.5, 0.0]
+    @test eltype(avgc) == ComplexF32
+
+    # other array eltypes (here Float32 matrices) reach the generic fallback
+    bins_m32 = [Float32[1 2; 3 4], Float32[3 0; 1 2], Float32[2 1; 2 3]]
+    avgm, errm = ucmc.average_and_error(bins_m32)
+    @test avgm ≈ Float32[2 1; 2 3]
+    @test all(>(0), errm)
+
+    # the built-in Float64 paths are unchanged
+    bins64 = [Float64[1, 2], Float64[3, 0], Float64[2, 1], Float64[0, 3]]
+    avg64, err64 = ucmc.average_and_error(bins64)
+    @test avg64 ≈ [1.5, 1.5]
+    @test err64 ≈ [sqrt(5 / 12), sqrt(5 / 12)]
+    @test_throws ArgumentError ucmc.average_and_error(Float32[1.0])
+    @test_throws ArgumentError ucmc.average_and_error([Float32[1.0]])
+end
+
 @testset "Model/geometry validation" begin
     geometry = square_geometry(2)
     valid_model = ucmc.IsingModel([1.0, 1.0], [0.0])
@@ -482,10 +832,12 @@ struct PairingTestState <: ucmc.AbstractState end
     ising = ucmc.IsingModel([1.0, 1.0], [0.0])
     xy = ucmc.XYModel([1.0, 1.0], [0.0])
     clock = ucmc.ClockModel(4, [1.0, 1.0], [0.0])
+    heisenberg = ucmc.HeisenbergModel([1.0, 1.0], [0.0])
 
     @test ucmc.state_type(ising) == ucmc.IsingState
     @test ucmc.state_type(xy) == ucmc.XYState
     @test ucmc.state_type(clock) == ucmc.ClockState
+    @test ucmc.state_type(heisenberg) == ucmc.HeisenbergState
     @test_throws ArgumentError ucmc.state_type(PairingTestModel())
 
     # Models without their own methods fail loudly instead of falling back
@@ -494,13 +846,16 @@ struct PairingTestState <: ucmc.AbstractState end
 
     ising_state = ucmc.initialize_state(ising, geometry)
     xy_state = ucmc.initialize_state(xy, geometry)
+    heisenberg_state = ucmc.initialize_state(heisenberg, geometry)
     @test ising_state isa ucmc.state_type(ising)
     @test xy_state isa ucmc.state_type(xy)
     @test ucmc.initialize_state(clock, geometry) isa ucmc.state_type(clock)
+    @test heisenberg_state isa ucmc.state_type(heisenberg)
 
     @test isnothing(ucmc.validate_model_state(ising, ising_state))
     @test_throws ArgumentError ucmc.validate_model_state(ising, xy_state)
     @test_throws ArgumentError ucmc.validate_model_state(xy, ising_state)
+    @test_throws ArgumentError ucmc.validate_model_state(heisenberg, xy_state)
     @test_throws ArgumentError ucmc.validate_model_state(PairingTestModel(), PairingTestState())
 
     container = ucmc.MeasurementContainer(ising, geometry, 4, 2)
@@ -515,6 +870,9 @@ struct PairingTestState <: ucmc.AbstractState end
     @test ucmc.magnetization_value(ising_state) == ising_state.magnetization
     @test ucmc.magnetization_value(xy_state) ==
         hypot(xy_state.magnetization_x, xy_state.magnetization_y)
+    @test ucmc.magnetization_value(heisenberg_state) ==
+        hypot(heisenberg_state.magnetization_x, heisenberg_state.magnetization_y,
+              heisenberg_state.magnetization_z)
     @test ucmc.magnetization_value(ucmc.initialize_state(clock, geometry)) isa Real
     @test_throws ArgumentError ucmc.magnetization_value(PairingTestState())
 end
@@ -525,16 +883,26 @@ end
         (ucmc.IsingModel([1.0, 1.0], [0.5]), spin_energy),
         (ucmc.XYModel([1.0, 1.0], [0.5]), xy_energy),
         (ucmc.ClockModel(4, [1.0, 1.0], [0.5]), clock_energy),
+        (ucmc.HeisenbergModel([1.0, 1.0], [0.5]), heisenberg_energy),
     )
     mag_totals(s::ucmc.IsingState) = (s.magnetization,)
+    mag_totals(s::ucmc.HeisenbergState) =
+        (s.magnetization_x, s.magnetization_y, s.magnetization_z)
     mag_totals(s) = (s.magnetization_x, s.magnetization_y)
 
     for (model, energy) in models_and_energy, algorithm in
-            (ucmc.MetropolisAlgorithm(), ucmc.GlauberAlgorithm())
+            (ucmc.MetropolisAlgorithm(), ucmc.GlauberAlgorithm(),
+             ucmc.MetropolisAlgorithm(ucmc.SequentialProposal()),
+             ucmc.GlauberAlgorithm(ucmc.SequentialProposal()),
+             ucmc.MetropolisAlgorithm(ucmc.CheckerboardProposal()),
+             ucmc.GlauberAlgorithm(ucmc.CheckerboardProposal()),
+             ucmc.MetropolisAlgorithm(ucmc.ColoredProposal(2)),
+             ucmc.GlauberAlgorithm(ucmc.ColoredProposal(2)))
         rng = Xoshiro(7)
         state = ucmc.initialize_state(model, geometry; rng = rng)
+        workspace = ucmc.algorithm_workspace(algorithm, model, geometry, state)
         for _ in 1:10
-            proposal = ucmc.propose(rng, algorithm, model, geometry, state)
+            proposal = ucmc.propose(rng, algorithm, model, geometry, state; workspace = workspace)
 
             # one shared proposal type across models and local algorithms
             @test proposal isa ucmc.SpinUpdate
@@ -551,17 +919,386 @@ end
             Δm = collect(mag_totals(state)) - collect(before_m)
             @test all(Δm .≈ carried)
             @test state.energy == before_e + ΔE
-            values = state isa ucmc.XYState ? state.angles : state.spins
-            @test state.energy ≈ energy(model, geometry, values) atol = 1e-10
+            if state isa Union{ucmc.XYState, ucmc.HeisenbergState}
+                @test state.energy ≈ energy(model, geometry, state) atol = 1e-10
+            else
+                @test state.energy ≈ energy(model, geometry, state.spins) atol = 1e-10
+            end
         end
     end
+end
+
+@testset "Proposal schemes" begin
+    geometry = square_geometry(3)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    rng = Xoshiro(3)
+
+    @test ucmc.MetropolisAlgorithm().proposal isa ucmc.RandomProposal
+    @test ucmc.GlauberAlgorithm().proposal isa ucmc.RandomProposal
+    @test ucmc.MetropolisAlgorithm(ucmc.SequentialProposal()).proposal isa
+        ucmc.SequentialProposal
+    @test ucmc.GlauberAlgorithm(ucmc.SequentialProposal()).proposal isa
+        ucmc.SequentialProposal
+
+    # the default scheme carries no site-selection state; the Ising model's
+    # discrete ΔE spectrum still gets a per-run acceptance cache
+    state = ucmc.initialize_state(model, geometry; rng = rng)
+    default_workspace = ucmc.algorithm_workspace(ucmc.MetropolisAlgorithm(), model, geometry, state)
+    @test default_workspace isa ucmc.LocalUpdateWorkspace
+    @test isnothing(default_workspace.proposal)
+    @test default_workspace.acceptance isa ucmc.AcceptanceCache
+
+    # continuous-spectrum models get no acceptance cache
+    xy_model = ucmc.XYModel([1.0, 1.0], [0.0])
+    xy_state = ucmc.initialize_state(xy_model, geometry; rng = rng)
+    @test isnothing(ucmc.algorithm_workspace(
+        ucmc.MetropolisAlgorithm(), xy_model, geometry, xy_state).acceptance)
+
+    sequential_algorithms = (ucmc.MetropolisAlgorithm(ucmc.SequentialProposal()),
+                             ucmc.GlauberAlgorithm(ucmc.SequentialProposal()))
+
+    for algorithm in sequential_algorithms
+        workspace = ucmc.algorithm_workspace(algorithm, model, geometry, state)
+        @test workspace isa ucmc.LocalUpdateWorkspace
+        @test workspace.proposal isa ucmc.SequentialProposalWorkspace
+
+        # sites are visited in site-index order, wrapping after a full sweep
+        sites = [ucmc.propose(rng, algorithm, model, geometry, state; workspace = workspace).site
+                 for _ in 1:geometry.n_sites]
+        @test sites == collect(1:geometry.n_sites)
+        @test ucmc.propose(rng, algorithm, model, geometry, state; workspace = workspace).site == 1
+
+        # a stateful scheme without its workspace is an explicit error
+        @test_throws ArgumentError ucmc.propose(rng, algorithm, model, geometry, state)
+        @test_throws ArgumentError ucmc.step!(algorithm, model, geometry, state, 2.0; rng = rng)
+
+        # running totals stay exact through sequential sweeps
+        seq_state = ucmc.initialize_state(model, geometry; rng = rng)
+        seq_workspace = ucmc.algorithm_workspace(algorithm, model, geometry, seq_state)
+        for _ in 1:(3 * geometry.n_sites)
+            ucmc.step!(algorithm, model, geometry, seq_state, 2.0;
+                       rng = rng, workspace = seq_workspace)
+            @test seq_state.energy ≈ spin_energy(model, geometry, seq_state.spins)
+            @test seq_state.magnetization == sum(seq_state.spins)
+        end
+    end
+
+    # the drivers build and thread the workspace automatically
+    for algorithm in sequential_algorithms
+        container = ucmc.MeasurementContainer(model, geometry, 4, 2;
+                                              diagnostics = [:acceptance_ratio])
+        parameters = ucmc.SimulationParameters(2.0, 2, 4, 0, 2)
+        ucmc.run_simulation(algorithm, model, geometry,
+                            ucmc.initialize_state(model, geometry; rng = rng),
+                            container, parameters; rng = rng)
+        @test all(isfinite, container.data[:energy])
+        @test all(isfinite, container.data[:acceptance_ratio])
+    end
+
+    # sweeps with different schemes write to different results directories
+    @test ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L) !=
+        ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(ucmc.SequentialProposal()),
+                           geometry.lattice.L)
+end
+
+@testset "Checkerboard proposal" begin
+    geometry = square_geometry(4)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    rng = Xoshiro(11)
+    state = ucmc.initialize_state(model, geometry; rng = rng)
+
+    checkerboard_algorithms = (ucmc.MetropolisAlgorithm(ucmc.CheckerboardProposal()),
+                               ucmc.GlauberAlgorithm(ucmc.CheckerboardProposal()))
+
+    # the coloring is the square-lattice parity mod(x + y, 2)
+    colors = ucmc.checkerboard_colors(geometry)
+    @test length(colors) == geometry.n_sites
+    for site in 1:geometry.n_sites
+        (loc, orbital) = lu.site_to_loc(site, geometry.unit_cell, geometry.lattice)
+        @test colors[site] == mod(sum(loc), 2)
+    end
+
+    for algorithm in checkerboard_algorithms
+        workspace = ucmc.algorithm_workspace(algorithm, model, geometry, state)
+        @test workspace isa ucmc.LocalUpdateWorkspace
+        @test workspace.proposal isa ucmc.ColoredProposalWorkspace
+
+        # one sweep visits every site exactly once, color block by color block
+        sites = [ucmc.propose(rng, algorithm, model, geometry, state; workspace = workspace).site
+                 for _ in 1:geometry.n_sites]
+        @test sort(sites) == collect(1:geometry.n_sites)
+        half = geometry.n_sites ÷ 2
+        @test all(==(0), colors[sites[1:half]])
+        @test all(==(1), colors[sites[(half + 1):end]])
+        # wraps around to the first color-0 site
+        @test ucmc.propose(rng, algorithm, model, geometry, state; workspace = workspace).site ==
+            findfirst(==(0), colors)
+
+        # no bond connects two sites updated in the same half-sweep
+        for block in (sites[1:half], sites[(half + 1):end])
+            in_block = falses(geometry.n_sites)
+            in_block[block] .= true
+            for site in block
+                @test !any(in_block[geometry.neighbor_table[site].neighbors])
+            end
+        end
+
+        # a stateful scheme without its workspace is an explicit error
+        @test_throws ArgumentError ucmc.propose(rng, algorithm, model, geometry, state)
+        @test_throws ArgumentError ucmc.step!(algorithm, model, geometry, state, 2.0; rng = rng)
+
+        # running totals stay exact through checkerboard sweeps
+        cb_state = ucmc.initialize_state(model, geometry; rng = rng)
+        cb_workspace = ucmc.algorithm_workspace(algorithm, model, geometry, cb_state)
+        for _ in 1:(3 * geometry.n_sites)
+            ucmc.step!(algorithm, model, geometry, cb_state, 2.0;
+                       rng = rng, workspace = cb_workspace)
+            @test cb_state.energy ≈ spin_energy(model, geometry, cb_state.spins)
+            @test cb_state.magnetization == sum(cb_state.spins)
+        end
+    end
+
+    # non-bipartite lattices are rejected eagerly, when the workspace is built
+    triangular = triangular_geometry(3)
+    tri_model = ucmc.IsingModel([1.0, 1.0, 1.0], [0.0])
+    tri_state = ucmc.initialize_state(tri_model, triangular)
+    for algorithm in checkerboard_algorithms
+        @test_throws ArgumentError ucmc.algorithm_workspace(algorithm, tri_model, triangular, tri_state)
+    end
+
+    # the drivers build and thread the workspace automatically
+    for algorithm in checkerboard_algorithms
+        container = ucmc.MeasurementContainer(model, geometry, 4, 2;
+                                              diagnostics = [:acceptance_ratio])
+        parameters = ucmc.SimulationParameters(2.0, 2, 4, 0, 2)
+        ucmc.run_simulation(algorithm, model, geometry,
+                            ucmc.initialize_state(model, geometry; rng = rng),
+                            container, parameters; rng = rng)
+        @test all(isfinite, container.data[:energy])
+        @test all(isfinite, container.data[:acceptance_ratio])
+    end
+
+    # sweeps with different schemes write to different results directories
+    @test ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(ucmc.CheckerboardProposal()),
+                             geometry.lattice.L) !=
+        ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L)
+end
+
+@testset "Colored proposal" begin
+    rng = Xoshiro(17)
+
+    @test ucmc.ColoredProposal(3).ncolors == 3
+    @test_throws ArgumentError ucmc.ColoredProposal(1)
+    @test_throws ArgumentError ucmc.ColoredProposal(0)
+
+    # tripartite coloring of the triangular lattice
+    triangular = triangular_geometry(3)
+    tri_model = ucmc.IsingModel([1.0, 1.0, 1.0], [0.0])
+    tri_state = ucmc.initialize_state(tri_model, triangular; rng = rng)
+    colors = ucmc.color_lattice(triangular, 3)
+    @test sort(unique(colors)) == [1, 2, 3]
+    for site in 1:triangular.n_sites
+        for neighbor in triangular.neighbor_table[site].neighbors
+            @test colors[site] != colors[neighbor]
+        end
+    end
+
+    # the triangular lattice needs all three colors
+    @test_throws ArgumentError ucmc.color_lattice(triangular, 2)
+
+    colored_algorithms = (ucmc.MetropolisAlgorithm(ucmc.ColoredProposal(3)),
+                          ucmc.GlauberAlgorithm(ucmc.ColoredProposal(3)))
+
+    for algorithm in colored_algorithms
+        workspace = ucmc.algorithm_workspace(algorithm, tri_model, triangular, tri_state)
+        @test workspace isa ucmc.LocalUpdateWorkspace
+        @test workspace.proposal isa ucmc.ColoredProposalWorkspace
+
+        # one sweep visits every site exactly once, color block by color block
+        sites = [ucmc.propose(rng, algorithm, tri_model, triangular, tri_state; workspace = workspace).site
+                 for _ in 1:triangular.n_sites]
+        @test sort(sites) == collect(1:triangular.n_sites)
+        @test issorted(colors[sites])
+        @test ucmc.propose(rng, algorithm, tri_model, triangular, tri_state; workspace = workspace).site ==
+            findfirst(==(1), colors)
+
+        # no bond connects two sites updated in the same color block
+        for color in unique(colors)
+            block = sites[colors[sites] .== color]
+            in_block = falses(triangular.n_sites)
+            in_block[block] .= true
+            for site in block
+                @test !any(in_block[triangular.neighbor_table[site].neighbors])
+            end
+        end
+
+        # a stateful scheme without its workspace is an explicit error
+        @test_throws ArgumentError ucmc.propose(rng, algorithm, tri_model, triangular, tri_state)
+        @test_throws ArgumentError ucmc.step!(algorithm, tri_model, triangular, tri_state, 2.0; rng = rng)
+
+        # running totals stay exact through colored sweeps
+        col_state = ucmc.initialize_state(tri_model, triangular; rng = rng)
+        col_workspace = ucmc.algorithm_workspace(algorithm, tri_model, triangular, col_state)
+        for _ in 1:(3 * triangular.n_sites)
+            ucmc.step!(algorithm, tri_model, triangular, col_state, 2.0;
+                       rng = rng, workspace = col_workspace)
+            @test col_state.energy ≈ spin_energy(tri_model, triangular, col_state.spins)
+            @test col_state.magnetization == sum(col_state.spins)
+        end
+    end
+
+    # a self-bond can never be colored
+    square = square_geometry(3)
+    self_table = deepcopy(square.neighbor_table)
+    push!(self_table[1].bonds, -1)
+    push!(self_table[1].templates, 1)
+    push!(self_table[1].neighbors, 1)
+    self_geometry = ucmc.Geometry(square.unit_cell, square.lattice, square.bonds,
+                                  square.bond_id_to_template, self_table, square.n_sites)
+    @test_throws ArgumentError ucmc.color_lattice(self_geometry, 3)
+
+    # the drivers build and thread the workspace automatically
+    for algorithm in colored_algorithms
+        container = ucmc.MeasurementContainer(tri_model, triangular, 4, 2;
+                                              diagnostics = [:acceptance_ratio])
+        parameters = ucmc.SimulationParameters(2.0, 2, 4, 0, 2)
+        ucmc.run_simulation(algorithm, tri_model, triangular,
+                            ucmc.initialize_state(tri_model, triangular; rng = rng),
+                            container, parameters; rng = rng)
+        @test all(isfinite, container.data[:energy])
+        @test all(isfinite, container.data[:acceptance_ratio])
+    end
+
+    # results directories distinguish colorings by count as well as name
+    L = triangular.lattice.L
+    @test ucmc.sweep_dirname(tri_model, ucmc.MetropolisAlgorithm(ucmc.ColoredProposal(2)), L) !=
+        ucmc.sweep_dirname(tri_model, ucmc.MetropolisAlgorithm(ucmc.ColoredProposal(3)), L)
+    @test ucmc.sweep_dirname(tri_model, ucmc.MetropolisAlgorithm(ucmc.ColoredProposal(2)), L) !=
+        ucmc.sweep_dirname(tri_model, ucmc.MetropolisAlgorithm(ucmc.CheckerboardProposal()), L)
+end
+
+@testset "Shared visiting order" begin
+    geometry = square_geometry(4)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+
+    # stateless schemes and non-local algorithms have no shareable data
+    @test isnothing(ucmc.visiting_order(ucmc.RandomProposal(), geometry))
+    @test isnothing(ucmc.visiting_order(ucmc.SequentialProposal(), geometry))
+    @test isnothing(ucmc.shared_workspace(ucmc.MetropolisAlgorithm(), model, geometry))
+    @test isnothing(ucmc.shared_workspace(ucmc.WolffAlgorithm(), model, geometry))
+
+    for scheme in (ucmc.CheckerboardProposal(), ucmc.ColoredProposal(2))
+        order = ucmc.visiting_order(scheme, geometry)
+        @test length(order) == geometry.n_sites
+        @test isperm(order)
+
+        # a workspace built from the shared order carries that very vector,
+        # and matches what a fresh coloring would produce
+        workspace = ucmc.proposal_workspace(scheme, geometry, order)
+        @test workspace isa ucmc.ColoredProposalWorkspace
+        @test workspace.order === order
+        @test ucmc.proposal_workspace(scheme, geometry).order == order
+
+        # a bogus order is rejected: a non-permutation would silently skip or
+        # revisit sites
+        @test_throws ArgumentError ucmc.proposal_workspace(
+            scheme, geometry, collect(1:(geometry.n_sites - 1)))
+        @test_throws ArgumentError ucmc.proposal_workspace(
+            scheme, geometry, fill(1, geometry.n_sites))
+
+        # runs sharing one coloring match runs that re-color per simulation
+        algorithm = ucmc.MetropolisAlgorithm(scheme)
+        parameters = ucmc.SimulationParameters(2.0, 5, 20, 1, 4)
+        shared = ucmc.shared_workspace(algorithm, model, geometry)
+        @test shared == order
+        datas = map((shared, nothing)) do sh
+            rng = Xoshiro(2024)
+            run_state = ucmc.initialize_state(model, geometry; rng = rng)
+            container = ucmc.MeasurementContainer(model, geometry, 20, 4;
+                                                  diagnostics = [:acceptance_ratio])
+            ucmc.run_simulation(algorithm, model, geometry, run_state, container,
+                                parameters; rng = rng, shared = sh)
+            container.data
+        end
+        @test isequal(datas[1], datas[2])
+    end
+
+    # the coloring error of an uncolorable geometry is raised by
+    # visiting_order — and by sweep_Ts directly, on the calling task
+    triangular = triangular_geometry(3)
+    tri_model = ucmc.IsingModel([1.0, 1.0, 1.0], [0.0])
+    tri_state = ucmc.initialize_state(tri_model, triangular)
+    @test_throws ArgumentError ucmc.visiting_order(ucmc.CheckerboardProposal(), triangular)
+    @test_throws ArgumentError ucmc.sweep_Ts(
+        ucmc.MetropolisAlgorithm(ucmc.CheckerboardProposal()), tri_model, triangular,
+        tri_state, 2, 4, 0, 2, [2.0]; save = false)
+
+    # a sweep with a colored proposal shares one coloring across its runs and
+    # temperatures and stays reproducible
+    algorithm = ucmc.MetropolisAlgorithm(ucmc.CheckerboardProposal())
+    primaries(results) = [r.primary for r in results]
+    seeded_sweep() = (Random.seed!(77); ucmc.sweep_Ts(
+        algorithm, model, geometry,
+        ucmc.initialize_state(model, geometry; rng = Xoshiro(5)),
+        2, 10, 1, 2, [3.0, 2.0]; n_runs = 2, save = false, time_series = :none))
+    @test isequal(primaries(seeded_sweep()), primaries(seeded_sweep()))
+end
+
+# Custom-algorithm/scheme fixtures for the workspace extension contracts:
+# one with only the four-argument algorithm_workspace (the pre-sharing
+# pattern), one with the documented defaulted-fifth-argument form, and a
+# proposal scheme that exposes a visiting_order but no three-argument
+# proposal_workspace.
+struct FallbackWorkspaceAlg <: ucmc.AbstractAlgorithm end
+struct FallbackWorkspace end
+ucmc.algorithm_workspace(::FallbackWorkspaceAlg, model, geometry, state) = FallbackWorkspace()
+
+struct DefaultedWorkspaceAlg <: ucmc.AbstractAlgorithm end
+ucmc.shared_workspace(::DefaultedWorkspaceAlg, model, geometry) = 42
+ucmc.algorithm_workspace(alg::DefaultedWorkspaceAlg, model, geometry, state,
+                         shared = ucmc.shared_workspace(alg, model, geometry)) = shared
+
+struct OrderExposingScheme <: ucmc.AbstractProposalScheme end
+ucmc.proposal_workspace(::OrderExposingScheme, geometry) = :toy_workspace
+ucmc.visiting_order(::OrderExposingScheme, geometry) = collect(1:geometry.n_sites)
+
+@testset "Workspace extension contracts" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    state = ucmc.initialize_state(model, geometry)
+
+    # a custom algorithm with only a four-argument method keeps working
+    # through the five-argument fallback: the shared data is discarded, the
+    # workspace is not dropped, and nothing recurses
+    @test ucmc.algorithm_workspace(FallbackWorkspaceAlg(), model, geometry, state) isa
+        FallbackWorkspace
+    @test ucmc.algorithm_workspace(FallbackWorkspaceAlg(), model, geometry, state, nothing) isa
+        FallbackWorkspace
+
+    # the documented defaulted-fifth-argument form receives the shared data
+    @test ucmc.algorithm_workspace(DefaultedWorkspaceAlg(), model, geometry, state) == 42
+    @test ucmc.algorithm_workspace(DefaultedWorkspaceAlg(), model, geometry, state, 7) == 7
+
+    # a custom proposal scheme exposing visiting_order but no three-argument
+    # proposal_workspace still builds a workspace (the order is discarded and
+    # rebuilt per run); this used to be a MethodError
+    alg = ucmc.MetropolisAlgorithm(OrderExposingScheme())
+    @test ucmc.shared_workspace(alg, model, geometry) == collect(1:geometry.n_sites)
+    workspace = ucmc.algorithm_workspace(alg, model, geometry, state)
+    @test workspace isa ucmc.LocalUpdateWorkspace
+    @test workspace.proposal == :toy_workspace
+    @test workspace.acceptance isa ucmc.AcceptanceCache
+    # and with the shared order passed explicitly
+    @test ucmc.algorithm_workspace(alg, model, geometry, state,
+                                   collect(1:geometry.n_sites)).proposal == :toy_workspace
 end
 
 @testset "Coupling and field accessors" begin
     geometry = two_orbital_geometry(2)
     for model in (ucmc.IsingModel([1.0, 2.0], [0.5, -0.25]),
                   ucmc.XYModel([1.0, 2.0], [0.5, -0.25]),
-                  ucmc.ClockModel(4, [1.0, 2.0], [0.5, -0.25]))
+                  ucmc.ClockModel(4, [1.0, 2.0], [0.5, -0.25]),
+                  ucmc.HeisenbergModel([1.0, 2.0], [0.5, -0.25]))
         @test ucmc.couplings(model) === model.J
         @test ucmc.fields(model) === model.h
         for site in 1:geometry.n_sites
@@ -573,7 +1310,8 @@ end
     # cluster algorithms reject antiferromagnetic couplings for every model
     for model in (ucmc.IsingModel([1.0, -1.0], [0.0, 0.0]),
                   ucmc.XYModel([1.0, -1.0], [0.0, 0.0]),
-                  ucmc.ClockModel(3, [1.0, -1.0], [0.0, 0.0]))
+                  ucmc.ClockModel(3, [1.0, -1.0], [0.0, 0.0]),
+                  ucmc.HeisenbergModel([1.0, -1.0], [0.0, 0.0]))
         state = ucmc.initialize_state(model, geometry)
         for algorithm in (ucmc.WolffAlgorithm(), ucmc.SwendsenWangAlgorithm())
             @test_throws ArgumentError ucmc.step!(algorithm, model, geometry, state, 1.0)
@@ -926,10 +1664,103 @@ end
     results = ucmc.analyze(merged, 2.0, geometry.n_sites)
     @test haskey(results.primary, :energy)
 
-    # mismatched containers and empty input are rejected
+    # mismatched containers and empty input are rejected, with the differing
+    # keys named in the message
     mismatched = ucmc.MeasurementContainer(model, geometry, 8, 4; diagnostics = [:cluster_size])
-    @test_throws ArgumentError ucmc.merge_containers([first(containers), mismatched])
+    err = try
+        ucmc.merge_containers([first(containers), mismatched])
+        nothing
+    catch err
+        err
+    end
+    @test err isa ArgumentError
+    @test occursin("cluster_size", err.msg)
     @test_throws ArgumentError ucmc.merge_containers(ucmc.MeasurementContainer[])
+
+    # key order is not significant: the same measurements in a different
+    # request order merge fine (the first container's layout is kept)
+    fwd = ucmc.MeasurementContainer(model, geometry, 8, 4;
+        measurements = [:raw_correlation, :magnetization_per_orbital])
+    rev = ucmc.MeasurementContainer(model, geometry, 8, 4;
+        measurements = [:magnetization_per_orbital, :raw_correlation])
+    @test keys(fwd.data) != keys(rev.data)  # order differs
+    reordered = ucmc.merge_containers([fwd, rev])
+    @test keys(reordered.data) == keys(fwd.data)
+
+    # mismatched bin sizes are rejected: pooling unequal-size bins would
+    # silently weight unequal-quality averages equally (both containers hold
+    # the same observables, so the bin-size check is what fires)
+    other_bin_size = ucmc.MeasurementContainer(model, geometry, 12, 4;  # bin_size 3, not 2
+                                               diagnostics = [:acceptance_ratio])
+    err = try
+        ucmc.merge_containers([first(containers), other_bin_size])
+        nothing
+    catch err
+        err
+    end
+    @test err isa ArgumentError
+    @test occursin("bin size", err.msg)
+
+    # the derived quantities must match too: identical raw data keys with a
+    # different derived set would silently gain/lose quantities in the pooled
+    # analysis (binder_cumulant adds a derived entry on top of the same raw
+    # magnetization_fourth observable)
+    plain = ucmc.MeasurementContainer(model, geometry, 8, 4; measurements = [:magnetization_fourth])
+    binder = ucmc.MeasurementContainer(model, geometry, 8, 4; measurements = [:binder_cumulant])
+    @test keys(plain.data) == keys(binder.data)  # the trap: raw keys match
+    err = try
+        ucmc.merge_containers([plain, binder])
+        nothing
+    catch err
+        err
+    end
+    @test err isa ArgumentError
+    @test occursin("derived", err.msg)
+    @test occursin("binder_cumulant", err.msg)
+    @test_throws ArgumentError ucmc.merge_containers([binder, plain])
+
+    # same for the correlation labels: raw + per-orbital magnetization has the
+    # same raw keys as connected_correlation but lacks its derived entries
+    raw_mpo = ucmc.MeasurementContainer(model, geometry, 8, 4;
+        measurements = [:raw_correlation, :magnetization_per_orbital])
+    connected = ucmc.MeasurementContainer(model, geometry, 8, 4;
+        measurements = [:connected_correlation])
+    @test_throws ArgumentError ucmc.merge_containers([raw_mpo, connected])
+
+    # same bin size with different bin counts merges fine: equal-size bins
+    # stay equal-weight in the pooled jackknife (this is how an
+    # already-merged container pools with a fresh run)
+    parameters_long = ucmc.SimulationParameters(2.0, 2, 10, 1, 5)
+    longer = ucmc.MeasurementContainer(model, geometry, 10, 5;  # bin_size 2, 5 bins
+                                       diagnostics = [:acceptance_ratio])
+    ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry,
+                        ucmc.initialize_state(model, geometry), longer, parameters_long)
+    pooled = ucmc.merge_containers([first(containers), longer])
+    @test length(pooled.data.energy) == 4 + 5
+    @test pooled.bin_size == 2
+
+    # a single-container merge copies instead of aliasing: a later measure!
+    # on either container must not mutate the other
+    solo = ucmc.MeasurementContainer(model, geometry, 8, 4;
+                                     diagnostics = [:acceptance_ratio], time_series = :all)
+    solo_state = ucmc.initialize_state(model, geometry)
+    ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, solo_state, solo, parameters)
+    merged_solo = ucmc.merge_containers([solo])
+    @test merged_solo.data.energy == solo.data.energy
+    @test merged_solo.data.energy !== solo.data.energy
+    @test merged_solo.time_series.energy !== solo.time_series.energy
+
+    n_bins_before = length(merged_solo.data.energy)
+    n_series_before = length(merged_solo.time_series.energy)
+    # two more measurements (bin_size = 2) flush one new bin into `solo`
+    ucmc.measure!(solo, solo_state; diagnostics = (acceptance_ratio = 0.5,))
+    ucmc.measure!(solo, solo_state; diagnostics = (acceptance_ratio = 0.5,))
+    @test length(solo.data.energy) == n_bins_before + 1
+    @test length(merged_solo.data.energy) == n_bins_before
+    @test length(merged_solo.time_series.energy) == n_series_before
+
+    # merge_containers is exported (it is documented in the API reference)
+    @test :merge_containers in names(ucmc)
 end
 
 @testset "sweep_Ts ensemble averaging" begin
@@ -1004,10 +1835,11 @@ end
     model = ucmc.IsingModel([1.0, 1.0], [0.0])
     xy_model = ucmc.XYModel([1.0, 1.0], [0.0])
     clock_model = ucmc.ClockModel(5, [1.0, 1.0], [0.3])
+    heisenberg_model = ucmc.HeisenbergModel([1.0, 1.0], [0.0])
     parameters = ucmc.SimulationParameters(2.0, 5, 20, 1, 4)
 
     # explicit rng: identical streams give identical states and bins
-    for m in (model, xy_model, clock_model),
+    for m in (model, xy_model, clock_model, heisenberg_model),
         algorithm in (ucmc.MetropolisAlgorithm(), ucmc.GlauberAlgorithm(), ucmc.WolffAlgorithm(),
                       ucmc.SwendsenWangAlgorithm())
         containers = map(1:2) do _
@@ -1075,6 +1907,29 @@ end
     lines = metadata(sweep_dir(root))
     @test "seed = 42" in lines
     @test "julia_version = $VERSION" in lines
+
+    # ... and the run configuration needed to recreate the sweep
+    @test "n_runs = 2" in lines
+    @test "simulated_annealing = true" in lines
+    @test "measurements = Symbol[]" in lines
+    @test "time_series = none" in lines
+
+    root2 = mktempdir()
+    sweep(root2; simulated_annealing = false, measurements = [:raw_correlation])
+    lines2 = metadata(sweep_dir(root2))
+    @test "n_runs = 2" in lines2
+    @test "simulated_annealing = false" in lines2
+    @test "measurements = [:raw_correlation]" in lines2
+
+    # direct save_sweep_results callers that omit the configuration get "unknown"
+    root3 = mktempdir()
+    dir3 = ucmc.save_sweep_results([], [], model, ucmc.MetropolisAlgorithm(), geometry,
+                                   2, 4, 0, 2; root = root3)
+    lines3 = metadata(dir3)
+    @test "n_runs = unknown" in lines3
+    @test "simulated_annealing = unknown" in lines3
+    @test "measurements = unknown" in lines3
+    @test "time_series = unknown" in lines3
 
     # the recorded seed recreates the saved results
     first_csv = read(joinpath(sweep_dir(root), "measurement_results.csv"), String)
@@ -1177,6 +2032,15 @@ ar1_tau(phi) = (1 + phi) / (2 * (1 - phi))
     @test_throws ArgumentError ucmc.autocorrelation_function(fill(2.0, 10))
     @test_throws ArgumentError ucmc.autocorrelation(x; window = 0)
 
+    # max_lag < 1 is an error (it used to be silently clamped to 1), while an
+    # oversized max_lag is clamped to the longest chain minus one — the same
+    # behavior as the windowed autocorrelation's _resolve_max_lag
+    @test_throws ArgumentError ucmc.autocorrelation_function(x; max_lag = 0)
+    @test_throws ArgumentError ucmc.autocorrelation_function(x; max_lag = -2)
+    @test first(ucmc.autocorrelation_function(x; max_lag = 10^6)) == 0:(length(x) - 1)
+    @test first(ucmc.autocorrelation_function(randn(200); max_lag = 10^6,
+                                              chain_lengths = [100, 100])) == 0:99
+
     # vector-valued series: the slowest non-constant component is reported
     slow = ar1_series(0.8, 50_000)
     fast = randn(50_000)
@@ -1260,6 +2124,26 @@ end
     @test merged.time_series.energy == vcat(container.time_series.energy, other.time_series.energy)
     @test ucmc.merge_containers([merged, other]).chain_lengths == [40, 40, 40]
     @test all(r -> r.n == 80, values(ucmc.analyze(merged, 2.0, geometry.n_sites).autocorrelation))
+
+    # measuring further into a merged container keeps analyze working: the
+    # unrecorded tail counts as one more chain (it used to throw, since
+    # chain_lengths summed to less than the series length)
+    grown = ucmc.merge_containers([container, other])
+    ucmc.measure!(grown, state; diagnostics = (acceptance_ratio = 1.0,))
+    @test ucmc.chain_lengths_with_tail(grown.chain_lengths, 81) == [40, 40, 1]
+    results_grown = ucmc.analyze(grown, 2.0, geometry.n_sites)
+    @test all(r -> r.n == 81, values(results_grown.autocorrelation))
+
+    # the same holds through a full run_simulation into the merged container
+    ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state, grown, parameters)
+    results_rerun = ucmc.analyze(grown, 2.0, geometry.n_sites)
+    @test all(r -> r.n == 81 + 40, values(results_rerun.autocorrelation))
+
+    # the helper itself: exact, tail, empty, and inconsistent cases
+    @test ucmc.chain_lengths_with_tail(Int[], 5) === nothing
+    @test ucmc.chain_lengths_with_tail([8, 8], 16) == [8, 8]
+    @test ucmc.chain_lengths_with_tail([8, 8], 20) == [8, 8, 4]
+    @test_throws ArgumentError ucmc.chain_lengths_with_tail([8, 8], 10)
 end
 
 @testset "time_series recording options" begin
@@ -1317,11 +2201,119 @@ end
     @test isempty(sweep[1].autocorrelation)
     dir = ucmc.sweep_dirname(model, ucmc.WolffAlgorithm(), geometry.lattice.L; root = root)
     @test isfile(joinpath(dir, "measurement_results.csv"))
+    @test isfile(joinpath(dir, "correlation_results.csv"))  # raw correlation data must reach disk
     @test !isfile(joinpath(dir, "autocorrelation_results.csv"))
     sweep = ucmc.sweep_Ts(ucmc.WolffAlgorithm(), model, geometry, ucmc.initialize_state(model, geometry),
         2, 8, 0, 2, [2.0]; n_runs = 2, measurements = [:raw_correlation], root = root)
     @test haskey(sweep[1].autocorrelation, :energy)
     @test !haskey(sweep[1].autocorrelation, :correlation)
+end
+
+@testset "raw_correlation results are saved" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    rng = Xoshiro(5)
+    state = ucmc.initialize_state(model, geometry; rng = rng)
+    parameters = ucmc.SimulationParameters(2.0, 5, 20, 1, 4)
+
+    container = ucmc.MeasurementContainer(model, geometry, 20, 4;
+                                          measurements = [:raw_correlation])
+    ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state,
+                        container, parameters; rng = rng)
+    results = ucmc.analyze(container, 2.0, geometry.n_sites)
+
+    # the raw correlation carries its displacement-class labels through
+    # analyze, so correlation_rows can label its columns (bug: the data used
+    # to be silently dropped on the save path)
+    @test haskey(results.primary, :correlation)
+    @test hasproperty(results.derived, :correlation_classes)
+    @test !hasproperty(results.derived, :correlation_connected)
+
+    classes = results.derived.correlation_classes
+    df = ucmc.correlation_rows(results)
+    @test df !== nothing
+    @test propertynames(df) == [:disp_1, :disp_2, :orbital_i, :orbital_j,
+                                :raw_value, :raw_error]
+    @test size(df, 1) == length(classes)
+    @test df.raw_value == first(results.primary[:correlation])
+    @test df.orbital_i == [c.orbitals[1] for c in classes]
+    @test df.disp_2 == [c.displacement[2] for c in classes]
+
+    # and it is written to disk on the single-run save path
+    root = mktempdir()
+    dir = ucmc.save_results(model, ucmc.MetropolisAlgorithm(), geometry, 2.0,
+                            results, parameters; root = root)
+    @test isfile(joinpath(dir, "correlation_results.csv"))
+
+    # no classes, no frame
+    @test ucmc.correlation_rows((primary = Dict(), derived = NamedTuple())) === nothing
+
+    # the connected measurement still adds its two columns
+    container = ucmc.MeasurementContainer(model, geometry, 20, 4;
+                                          measurements = [:connected_correlation])
+    ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry,
+                        ucmc.initialize_state(model, geometry; rng = rng),
+                        container, parameters; rng = rng)
+    df = ucmc.correlation_rows(ucmc.analyze(container, 2.0, geometry.n_sites))
+    @test propertynames(df) == [:disp_1, :disp_2, :orbital_i, :orbital_j,
+                                :raw_value, :raw_error,
+                                :connected_value, :connected_error]
+
+    # requesting both raw and connected emits the labels exactly once
+    container = ucmc.MeasurementContainer(model, geometry, 20, 4;
+        measurements = [:raw_correlation, :connected_correlation])
+    @test count(d -> :correlation_classes in d.names, container.derived) == 1
+end
+
+@testset "magnetization_per_orbital results are saved" begin
+    geometry = two_orbital_geometry(2)
+    model = ucmc.IsingModel([1.0, 2.0], [0.5, -0.25])
+    rng = Xoshiro(5)
+    state = ucmc.initialize_state(model, geometry; rng = rng)
+    parameters = ucmc.SimulationParameters(2.0, 5, 20, 1, 4)
+
+    container = ucmc.MeasurementContainer(model, geometry, 20, 4;
+                                          measurements = [:magnetization_per_orbital])
+    ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state,
+                        container, parameters; rng = rng)
+    results = ucmc.analyze(container, 2.0, geometry.n_sites)
+
+    # the matrix-valued observable is analyzed but used to be dropped on the
+    # save path; the rows unroll it with one row per (orbital, component)
+    @test haskey(results.primary, :magnetization_per_orbital)
+    df = ucmc.magnetization_per_orbital_rows(results)
+    @test df !== nothing
+    @test propertynames(df) == [:orbital, :component, :value, :error]
+    avg, err = results.primary[:magnetization_per_orbital]
+    n_comp, n_orb = size(avg)
+    @test (n_comp, n_orb) == (1, 2)  # Ising on the two-orbital geometry
+    @test size(df, 1) == n_comp * n_orb
+    @test df.orbital == [1, 2]
+    @test df.component == [1, 1]
+    @test df.value == vec(permutedims(avg, (2, 1)))
+    @test df.error == vec(permutedims(err, (2, 1)))
+
+    # written to disk on the single-run path...
+    root = mktempdir()
+    dir = ucmc.save_results(model, ucmc.MetropolisAlgorithm(), geometry, 2.0,
+                            results, parameters; root = root)
+    path = joinpath(dir, "magnetization_per_orbital_results.csv")
+    @test isfile(path)
+    csv = read(path, String)
+    @test occursin("orbital,component,value,error", csv)
+    @test length(split(chomp(csv), "\n")) == 1 + n_comp * n_orb
+
+    # ...and on the sweep path, including via :connected_correlation's
+    # implicit inclusion of :magnetization_per_orbital
+    sroot = mktempdir()
+    ucmc.sweep_Ts(ucmc.MetropolisAlgorithm(), model, geometry,
+                  ucmc.initialize_state(model, geometry), 2, 8, 0, 2, [2.0];
+                  measurements = [:connected_correlation], time_series = :none, root = sroot)
+    sdir = ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L; root = sroot)
+    @test isfile(joinpath(sdir, "magnetization_per_orbital_results.csv"))
+
+    # no measurement, no frame
+    @test ucmc.magnetization_per_orbital_rows((primary = Dict(),)) === nothing
 end
 
 @testset "autotune_binning" begin
@@ -1450,9 +2442,21 @@ struct NoComponentsModel <: ucmc.AbstractModel{Float64} end
     rng = Xoshiro(11)
     for _ in 1:20
         θ, φ = 2π * rand(rng), 2π * rand(rng)
-        a, b = ucmc.operator_components(xy, θ), ucmc.operator_components(xy, φ)
+        v, w = (cos(θ), sin(θ)), (cos(φ), sin(φ))
+        a, b = ucmc.operator_components(xy, v), ucmc.operator_components(xy, w)
         @test length(a) == ucmc.n_operator_components(xy)
-        @test sum(a .* b) ≈ ucmc.operator_product(xy, θ, φ)
+        @test sum(a .* b) ≈ ucmc.operator_product(xy, v, w)
+        @test sum(a .* b) ≈ cos(θ - φ)
+    end
+    heisenberg = ucmc.HeisenbergModel([1.0], [0.0])
+    for _ in 1:20
+        v = ucmc.random_unit_vector(rng)
+        w = ucmc.random_unit_vector(rng)
+        a, b = ucmc.operator_components(heisenberg, v), ucmc.operator_components(heisenberg, w)
+        @test length(a) == ucmc.n_operator_components(heisenberg)
+        @test sum(a .* b) ≈ ucmc.operator_product(heisenberg, v, w)
+        @test sum(a .* b) ≈ sum(v .* w)
+        @test sum(a .* a) ≈ 1.0
     end
     for q in (2, 3, 4, 6)
         clock = ucmc.ClockModel(q, [1.0], [0.0])
@@ -1510,6 +2514,7 @@ end
         (ucmc.IsingModel([1.0, 0.5], [0.0, 0.0]), ucmc.MetropolisAlgorithm()),
         (ucmc.XYModel([1.0, 0.5], [0.0, 0.0]), ucmc.WolffAlgorithm()),
         (ucmc.ClockModel(6, [1.0, 0.5], [0.0, 0.0]), ucmc.SwendsenWangAlgorithm()),
+        (ucmc.HeisenbergModel([1.0, 0.5], [0.0, 0.0]), ucmc.WolffAlgorithm()),
     )
         state = ucmc.initialize_state(model, geometry; rng = rng)
         for _ in 1:5
@@ -1544,6 +2549,7 @@ end
         (ucmc.IsingModel([1.0, 0.5], [0.0, 0.0]), ucmc.MetropolisAlgorithm()),
         (ucmc.XYModel([1.0, 0.5], [0.0, 0.0]), ucmc.WolffAlgorithm()),
         (ucmc.ClockModel(4, [1.0, 0.5], [0.0, 0.0]), ucmc.SwendsenWangAlgorithm()),
+        (ucmc.HeisenbergModel([1.0, 0.5], [0.0, 0.0]), ucmc.SwendsenWangAlgorithm()),
     )
         rng = Xoshiro(9)
         for geometry in (rectangular_two_orbital_geometry(3, 4),                  # periodic: DFT path
@@ -1598,6 +2604,7 @@ end
     @test :structure_factor in ucmc.available_measurements(ucmc.IsingModel)
     @test :structure_factor in ucmc.available_measurements(ucmc.XYModel([1.0], [0.0]))
     @test :structure_factor in ucmc.available_measurements(ucmc.ClockModel(3, [1.0], [0.0]))
+    @test :structure_factor in ucmc.available_measurements(ucmc.HeisenbergModel([1.0], [0.0]))
 
     geometry = rectangular_two_orbital_geometry(3, 2)
     n_classes = 2^2 * 6
@@ -1946,10 +2953,12 @@ end
     @test :clock_order_parameter in ucmc.available_measurements(ucmc.ClockModel(6, [1.0], [0.0]))
     @test :clock_order_parameter ∉ ucmc.available_measurements(ucmc.IsingModel)
     @test :clock_order_parameter ∉ ucmc.available_measurements(ucmc.XYModel)
+    @test :clock_order_parameter ∉ ucmc.available_measurements(ucmc.HeisenbergModel)
 
     geometry = square_geometry(2)
     N = geometry.n_sites
-    for model in (ucmc.IsingModel([1.0, 1.0], [0.0]), ucmc.XYModel([1.0, 1.0], [0.0]))
+    for model in (ucmc.IsingModel([1.0, 1.0], [0.0]), ucmc.XYModel([1.0, 1.0], [0.0]),
+                  ucmc.HeisenbergModel([1.0, 1.0], [0.0]))
         @test_throws ArgumentError ucmc.MeasurementContainer(model, geometry, 4, 2;
             measurements = [:clock_order_parameter])
     end
@@ -2053,4 +3062,159 @@ end
     @test ucmc.extra_measurements(ucmc.ClockModel) == (:clock_order_parameter,)
     @test isempty(ucmc.extra_measurements(ucmc.IsingModel))
     @test_throws ArgumentError ucmc.binder_denominator(PairingTestModel())
+end
+
+@testset "swap_pass!" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    s1 = ucmc.initialize_state(model, geometry; rng = Xoshiro(1))
+    s2 = ucmc.initialize_state(model, geometry; rng = Xoshiro(2))
+    s3 = ucmc.initialize_state(model, geometry; rng = Xoshiro(3))
+    states = [s1, s2, s3]
+    # fabricated energies: pass 1 must swap (1, 2) (x = (2 - 1) * (1) = 1 > 0,
+    # always accepted), pass 2 must reject (2, 3) (x = (1 - 2) * (100) = -100)
+    s1.energy = -1.0
+    s2.energy = -2.0
+    s3.energy = -101.0
+    betas = [2.0, 1.0, 2.0]
+    stats = ucmc.SwapStats(2)
+
+    ucmc.swap_pass!(states, betas, stats, 1, Xoshiro(1))
+    @test states[1] === s2 && states[2] === s1 && states[3] === s3
+    @test states[1].energy == -2.0  # the cached energy travels with the configuration
+    @test stats.attempts == [1, 0] && stats.accepts == [1, 0]
+
+    ucmc.swap_pass!(states, betas, stats, 2, Xoshiro(2))
+    @test states[1] === s2 && states[2] === s1 && states[3] === s3  # rejected: unchanged
+    @test stats.attempts == [1, 1] && stats.accepts == [1, 0]
+end
+
+@testset "ParallelTemperingResult" begin
+    res = ucmc.ParallelTemperingResult([:a, :b], [1.0, 2.0], ucmc.SwapStats(1))
+    @test isnan(res.swap_acceptance[1])  # never attempted
+    @test occursin("2 temperatures", sprint(show, res))
+    @test_throws ArgumentError ucmc.ParallelTemperingResult([:a], [1.0, 2.0], ucmc.SwapStats(1))
+    @test_throws ArgumentError ucmc.ParallelTemperingResult([:a, :b], [1.0, 2.0], ucmc.SwapStats(2))
+
+    stats = ucmc.SwapStats(2)
+    stats.attempts .= [4, 2]
+    stats.accepts .= [1, 2]
+    res = ucmc.ParallelTemperingResult([:a, :b, :c], [1.0, 2.0, 3.0], stats)
+    @test res.swap_acceptance == [0.25, 1.0]
+end
+
+@testset "geometric_ladder" begin
+    Ts = ucmc.geometric_ladder(1.0, 4.0, 3)
+    @test Ts ≈ [1.0, 2.0, 4.0]
+    @test issorted(Ts)
+    @test_throws ArgumentError ucmc.geometric_ladder(0.0, 1.0, 4)
+    @test_throws ArgumentError ucmc.geometric_ladder(2.0, 1.0, 4)
+    @test_throws ArgumentError ucmc.geometric_ladder(1.0, 2.0, 1)
+end
+
+@testset "tempering_sweep validation" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    alg = ucmc.MetropolisAlgorithm()
+
+    @test_throws ArgumentError ucmc.tempering_sweep(alg, model, geometry, [2.0], 1, 4, 0, 2; save = false)
+    @test_throws ArgumentError ucmc.tempering_sweep(alg, model, geometry, [2.0, 1.0], 1, 4, 0, 2; save = false)
+    @test_throws ArgumentError ucmc.tempering_sweep(alg, model, geometry, [1.0, 0.0], 1, 4, 0, 2; save = false)
+    @test_throws ArgumentError ucmc.tempering_sweep(alg, model, geometry, [1.0, 2.0], 1, 4, 0, 2; swap_every = 0, save = false)
+    @test_throws ArgumentError ucmc.tempering_sweep(alg, model, geometry, [1.0, 2.0], 1, 4, 0, 3; save = false)
+
+    state = ucmc.initialize_state(model, geometry)
+    @test_throws ArgumentError ucmc.tempering_sweep(alg, model, geometry, [1.0, 2.0], 1, 4, 0, 2;
+        states = [state], save = false)
+    bad = ucmc.initialize_state(ucmc.XYModel([1.0, 1.0], [0.0]), geometry)
+    @test_throws ArgumentError ucmc.tempering_sweep(alg, model, geometry, [1.0, 2.0], 1, 4, 0, 2;
+        states = [state, bad], save = false)
+
+    # diagnostics the algorithm does not provide are rejected up front
+    @test_throws ArgumentError ucmc.tempering_sweep(alg, model, geometry, [1.0, 2.0], 1, 4, 0, 2;
+        diagnostics = [:cluster_size], save = false)
+end
+
+@testset "tempering_sweep end-to-end" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    Ts = [1.0, 2.0, 3.0]
+    root = mktempdir()
+
+    result = ucmc.tempering_sweep(ucmc.MetropolisAlgorithm(), model, geometry, Ts,
+        5, 8, 1, 4; diagnostics = [:acceptance_ratio], rng = Xoshiro(11), root = root)
+
+    @test result isa ucmc.ParallelTemperingResult
+    @test length(result.results) == 3
+    @test result.temperatures == Ts
+    @test all(r -> haskey(r.primary, :energy), result.results)
+    @test all(r -> haskey(r.primary, :acceptance_ratio), result.results)
+    @test all(result.swap_accepts .<= result.swap_attempts)
+    @test all(a -> 0.0 <= a <= 1.0, result.swap_acceptance)
+    # 5 + 8 * (1 + 1) = 21 rounds, one pair per pass alternating: [11, 10]
+    @test sum(result.swap_attempts) == 21
+    @test result.swap_attempts == [11, 10]
+
+    dir = ucmc.tempering_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L; root = root)
+    @test isfile(joinpath(dir, "measurement_results.csv"))
+    @test isfile(joinpath(dir, "swap_acceptance.csv"))
+    @test isfile(joinpath(dir, "metadata.txt"))
+    @test any(line -> startswith(line, "swap_every = 1"), readlines(joinpath(dir, "metadata.txt")))
+
+    # swap_every = 3: passes at rounds 3, 6, ..., 21, so 7 passes over 21 rounds
+    result3 = ucmc.tempering_sweep(ucmc.MetropolisAlgorithm(), model, geometry, Ts,
+        5, 8, 1, 4; swap_every = 3, rng = Xoshiro(11), save = false)
+    @test sum(result3.swap_attempts) == 7
+    @test result3.swap_attempts == [4, 3]
+
+    # the cluster algorithms work as the inner update too
+    wolff = ucmc.tempering_sweep(ucmc.WolffAlgorithm(), model, geometry, [1.0, 3.0],
+        2, 4, 0, 2; rng = Xoshiro(3), save = false)
+    @test length(wolff.results) == 2
+    @test all(r -> haskey(r.primary, :energy), wolff.results)
+
+    # provided starting states are accepted
+    starts = [ucmc.initialize_state(model, geometry; rng = Xoshiro(100 + r)) for r in 1:2]
+    seeded = ucmc.tempering_sweep(ucmc.MetropolisAlgorithm(), model, geometry, [1.0, 3.0],
+        2, 4, 0, 2; states = starts, rng = Xoshiro(3), save = false)
+    @test length(seeded.results) == 2
+end
+
+@testset "tempering_sweep is reproducible for a fixed rng" begin
+    geometry = square_geometry(2)
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    run() = ucmc.tempering_sweep(ucmc.MetropolisAlgorithm(), model, geometry, [1.0, 2.0],
+        3, 6, 1, 3; diagnostics = [:acceptance_ratio], save = false, rng = Xoshiro(99))
+    a, b = run(), run()
+    @test [r.primary[:energy] for r in a.results] == [r.primary[:energy] for r in b.results]
+    @test [r.primary[:acceptance_ratio] for r in a.results] == [r.primary[:acceptance_ratio] for r in b.results]
+    @test a.swap_accepts == b.swap_accepts
+end
+
+@testset "tempering_sweep matches exact results" begin
+    # 2x2 Ising with a field: exact per-site energy by enumeration over the 16
+    # configurations, at each temperature of the ladder
+    geometry = square_geometry(2)
+    N = geometry.n_sites
+    model = ucmc.IsingModel([1.0, 0.8], [0.35])
+    Ts = [1.5, 3.0]
+
+    exact = map(Ts) do T
+        Z = E = 0.0
+        for c in 0:(2^N - 1)
+            spins = 1 .- 2 .* digits(c; base = 2, pad = N)
+            e = spin_energy(model, geometry, spins)
+            w = exp(-e / T)
+            Z += w
+            E += w * e
+        end
+        E / (Z * N)
+    end
+
+    result = ucmc.tempering_sweep(ucmc.MetropolisAlgorithm(), model, geometry, Ts,
+        200, 20_000, 0, 20; save = false, rng = Xoshiro(2024))
+    for (r, exact_e) in zip(result.results, exact)
+        e, e_err = r.primary[:energy]
+        @test abs(e - exact_e) < 4 * e_err
+    end
 end

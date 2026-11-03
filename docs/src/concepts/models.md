@@ -57,3 +57,22 @@ total magnetization. It tends to 1 when the magnetization locks onto a clock
 direction and to 0 when its direction is uniformly distributed, so for
 $q \ge 5$ it distinguishes the ordered phase from the intermediate critical
 phase.
+
+## Heisenberg Model
+
+The classical Heisenberg model places a unit vector $\mathbf{v}_i \in S^2$ on
+each site, with the Hamiltonian:
+$$H=-\sum_{\langle i, j \rangle} J_{ij}\,\mathbf{v}_i \cdot \mathbf{v}_j - \sum_i h_i v_i^x$$
+
+where the external field points along the x-axis, as for the XY and clock
+models. It is constructed with the same argument layout:
+
+```julia
+model = HeisenbergModel([J₁, J₂], [h₁, h₂])
+```
+
+The state stores the three Cartesian spin components of every site. Metropolis
+and Glauber propose a new spin uniformly on the unit sphere; the Wolff and
+Swendsen-Wang updates reflect clusters about a random unit vector $\hat{r}$,
+$\mathbf{v} \mapsto \mathbf{v} - 2(\mathbf{v} \cdot \hat{r})\hat{r}$ (the
+standard $O(3)$ embedding).

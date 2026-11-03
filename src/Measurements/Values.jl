@@ -119,3 +119,65 @@ derived_observables(::Union{XYModel,ClockModel}, geometry) = [
             :magnetization_y, :magnetization_y_squared),
         (mx, mx2, my, my2; T, N) -> N * (mx2 - mx^2 + my2 - my^2) / T),
 ]
+
+"""
+    observables(::HeisenbergModel, geometry)
+
+Return the raw per-measurement observables tracked for every
+[`HeisenbergModel`](@ref) simulation: per-site energy, the three Cartesian
+magnetization components, the magnetization magnitude
+`hypot(M_x, M_y, M_z) / N`, and the square of each.
+
+# Returns
+
+A `Vector{Observable}` with `:energy`, `:energy_squared`, `:magnetization_x`,
+`:magnetization_x_squared`, `:magnetization_y`, `:magnetization_y_squared`,
+`:magnetization_z`, `:magnetization_z_squared`, `:magnetization`, and
+`:magnetization_squared`.
+"""
+observables(::HeisenbergModel, geometry) = begin
+    n_sites = geometry.n_sites
+    [
+        Observable(:energy, state -> state.energy / n_sites),
+        Observable(:energy_squared, state -> (state.energy / n_sites)^2),
+        Observable(:magnetization_x, state -> state.magnetization_x / n_sites),
+        Observable(:magnetization_x_squared, state -> (state.magnetization_x / n_sites)^2),
+        Observable(:magnetization_y, state -> state.magnetization_y / n_sites),
+        Observable(:magnetization_y_squared, state -> (state.magnetization_y / n_sites)^2),
+        Observable(:magnetization_z, state -> state.magnetization_z / n_sites),
+        Observable(:magnetization_z_squared, state -> (state.magnetization_z / n_sites)^2),
+        Observable(:magnetization, state -> hypot(
+            state.magnetization_x, state.magnetization_y, state.magnetization_z) / n_sites),
+        Observable(:magnetization_squared, state -> (
+            (state.magnetization_x^2 + state.magnetization_y^2 + state.magnetization_z^2) / n_sites^2
+        )),
+    ]
+end
+
+"""
+    derived_observables(::HeisenbergModel, geometry)
+
+Return the always-on derived quantities for the [`HeisenbergModel`](@ref):
+the specific heat, the component susceptibilities `:susceptibility_x`,
+`:susceptibility_y`, and `:susceptibility_z`, and the total
+`:susceptibility = N * (⟨m_x²⟩ - ⟨m_x⟩² + ⟨m_y²⟩ - ⟨m_y⟩² + ⟨m_z²⟩ - ⟨m_z⟩²) / T`,
+each with its jackknife error.
+"""
+derived_observables(::HeisenbergModel, geometry) = [
+    DerivedObservable(:specific_heat, :specific_heat_err, (:energy, :energy_squared),
+        (e, e2; T, N) -> N * (e2 - e^2) / T^2),
+    DerivedObservable(:susceptibility_x, :susceptibility_x_err,
+        (:magnetization_x, :magnetization_x_squared),
+        (mx, mx2; T, N) -> N * (mx2 - mx^2) / T),
+    DerivedObservable(:susceptibility_y, :susceptibility_y_err,
+        (:magnetization_y, :magnetization_y_squared),
+        (my, my2; T, N) -> N * (my2 - my^2) / T),
+    DerivedObservable(:susceptibility_z, :susceptibility_z_err,
+        (:magnetization_z, :magnetization_z_squared),
+        (mz, mz2; T, N) -> N * (mz2 - mz^2) / T),
+    DerivedObservable(:susceptibility, :susceptibility_err,
+        (:magnetization_x, :magnetization_x_squared,
+            :magnetization_y, :magnetization_y_squared,
+            :magnetization_z, :magnetization_z_squared),
+        (mx, mx2, my, my2, mz, mz2; T, N) -> N * (mx2 - mx^2 + my2 - my^2 + mz2 - mz^2) / T),
+]

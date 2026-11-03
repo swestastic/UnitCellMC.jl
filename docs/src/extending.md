@@ -91,7 +91,11 @@ When you add files, include them in the matching directory's umbrella file
 
 A model is five pieces: a state type, an initializer, a model struct, the
 update methods, and the measurement hooks. Worked example skeleton: a
-Heisenberg model.
+Heisenberg model. (The Heisenberg model is now implemented — see
+`src/Models/Heisenberg.jl`, which stores the per-site components in three
+arrays and couples the field to `x`; the skeleton below is the minimal
+contract.)
+
 
 ### 1. The state type — `src/State/HeisenbergState.jl`
 
@@ -169,9 +173,9 @@ local_operator(state::HeisenbergState, site) = state.spins[site]
 magnetization_value(state::HeisenbergState) =
     sqrt(state.magnetization_x^2 + state.magnetization_y^2 + state.magnetization_z^2)
 
-# the single-site update contract
-function propose(rng::AbstractRNG, ::MetropolisAlgorithm, model::HeisenbergModel, geometry, state)
-    site = rand(rng, eachindex(state.spins))
+# the single-site update contract — the algorithm's proposal scheme picks the
+# site (random, sequential, ...), the model proposes the new value there
+function propose(rng::AbstractRNG, ::MetropolisAlgorithm, model::HeisenbergModel, geometry, state, site::Int)
     new = random_unit_vector(rng)
     return SpinUpdate(site, new, new .- state.spins[site])
 end
@@ -186,7 +190,7 @@ function energy_difference(model::HeisenbergModel, geometry, state, proposal)
         ΔE -= J[template] * sum(proposal.new_value .* state.spins[neighbor]
                                 .- state.spins[site] .* state.spins[neighbor])
     end
-    ΔE -= field_strength(model, geometry, site) * proposal.magnetization_change[3]  # field along z
+    ΔE -= field_strength(model, geometry, site) * proposal.magnetization_change[1]  # field along x
     return ΔE
 end
 ```
@@ -214,6 +218,11 @@ Optional hooks enable optional features:
 - [`operator_product`](@ref UnitCellMC.operator_product) — the two-body product, needed by the direct
   correlation path (open boundaries).
 - [`binder_denominator`](@ref UnitCellMC.binder_denominator) — enables `:binder_cumulant`.
+- [`tabulate_acceptance`](@ref UnitCellMC.tabulate_acceptance) — return `true` when the single-site
+  `energy_difference` takes values from a small discrete set, so local-update
+  algorithms memoize Boltzmann factors per temperature in an
+  [`AcceptanceCache`](@ref UnitCellMC.AcceptanceCache) (exact, since the `ΔE`
+  values repeat bit for bit). `false` by default.
 - `extra_measurements(::Type{<:HeisenbergModel})` — advertise model-specific
   optional measurements (see "Adding a measurement" below).
 
@@ -290,10 +299,27 @@ Rules of the road:
 - If a step needs lattice-sized scratch arrays, implement
   [`algorithm_workspace`](@ref UnitCellMC.algorithm_workspace)`(::MyAlgorithm, model, geometry, state)` to
   return a reusable workspace (see [`ClusterWorkspace`](@ref UnitCellMC.ClusterWorkspace)); `step!` must
-  also accept `workspace = nothing` and allocate then.
+  also accept `workspace = nothing` and allocate then. If part of that
+  workspace is deterministic and geometry-only (like a lattice coloring),
+  expose it through [`shared_workspace`](@ref UnitCellMC.shared_workspace) and receive it with a
+  defaulted fifth argument —
+  `algorithm_workspace(alg::MyAlgorithm, model, geometry, state, shared = shared_workspace(alg, model, geometry))` —
+  so [`sweep_Ts`](@ref UnitCellMC.sweep_Ts) builds it once per sweep instead of
+  once per (temperature, run). (A four-argument method that delegates to the
+  five-argument form without a five-argument method of its own recurses
+  through the fallback forever — write the defaulted single method. Custom
+  proposal schemes that expose [`visiting_order`](@ref UnitCellMC.visiting_order) likewise
+  receive the shared order by defining
+  `proposal_workspace(scheme, geometry, order)`; without it the order is
+  discarded and rebuilt per run.)
 - The diagnostic keys returned by [`diagnostic_values`](@ref UnitCellMC.diagnostic_values) must be exactly
   [`available_diagnostics`](@ref UnitCellMC.available_diagnostics)`(MyAlgorithm)`; the container validates
   this up front ([`validate_run`](@ref UnitCellMC.validate_run)).
+- The per-sweep loop is [`sweep_steps!`](@ref UnitCellMC.sweep_steps!), whose default method calls `step!`
+  per update. A model/algorithm pair may override it with a fused fast path
+  (see `Models/Ising.jl`), but the override must visit sites and draw from
+  `rng` exactly as the generic loop, keep the state's running totals exact,
+  and record identical diagnostics.
 
 Registration checklist:
 
@@ -324,6 +350,13 @@ Unknown or unsupported names throw an `ArgumentError` listing the
 truth. Model physics used by a measurement (like [`binder_denominator`](@ref UnitCellMC.binder_denominator)
 or [`clock_angle_order`](@ref UnitCellMC.clock_angle_order)) belongs in the model's file, not in the
 measurement code.
+
+An [`Observable`](@ref UnitCellMC.Observable)'s `value(state)` may return any numeric
+scalar or array the binning arithmetic supports; on the analysis side,
+[`average_and_error`](@ref UnitCellMC.average_and_error) covers the built-in
+`Float64`/`ComplexF64` shapes and has a generic `Vector{<:AbstractArray}`
+fallback, so other element types (say `Float32` vectors) analyze without
+defining new methods.
 
 ## A note on geometry
 

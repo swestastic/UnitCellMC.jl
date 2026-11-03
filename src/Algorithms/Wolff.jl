@@ -4,6 +4,12 @@
 Marker type selecting a single-cluster Wolff update. The cluster traversal is
 model-independent; models provide `cluster_seed`, `cluster_bond_probability`,
 and `apply_cluster!` methods.
+
+With an external field, clusters that attach to a ghost site are never
+flipped, and for β|h| ≳ 1 most clusters attach — acceptance collapses and the
+cluster sizes stay small (the [`WolffUpdateResult`](@ref) `cluster_size`
+reports zero for those frozen steps). Prefer a local-update algorithm
+([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref)) in strong fields.
 """
 struct WolffAlgorithm <: AbstractAlgorithm end
 
@@ -11,7 +17,9 @@ struct WolffAlgorithm <: AbstractAlgorithm end
     WolffUpdateResult
 
 Result of one Wolff update, recording the number of sites in the flipped
-cluster.
+cluster — zero when the grown cluster attached to a ghost site and was
+therefore not flipped (ghost-attached clusters are never flipped; see
+[`step!`](@ref)).
 """
 struct WolffUpdateResult <: AbstractUpdateResult
     cluster_size::Int
@@ -151,5 +159,7 @@ function step!(
     end
 
     apply_cluster!(model, geometry, state, cluster, context, in_cluster)
-    return WolffUpdateResult(length(cluster))
+    # Ghost-attached clusters are never flipped; report their size as zero so
+    # the diagnostic counts only flipped clusters.
+    return WolffUpdateResult(any_ghost_attached ? 0 : length(cluster))
 end

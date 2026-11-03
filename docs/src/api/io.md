@@ -5,6 +5,7 @@ CollapsedDocStrings = true
 ```
 
 ```@docs
+UnitCellMC.algorithm_label
 UnitCellMC.results_dirname
 UnitCellMC.save_metadata
 UnitCellMC.write_reproducibility_metadata
@@ -14,11 +15,15 @@ UnitCellMC.save_measurements
 UnitCellMC.save_correlations
 UnitCellMC.structure_factor_rows
 UnitCellMC.save_structure_factor
+UnitCellMC.magnetization_per_orbital_rows
+UnitCellMC.save_magnetization_per_orbital
 UnitCellMC.autocorrelation_rows
 UnitCellMC.save_autocorrelation
 UnitCellMC.save_results
 UnitCellMC.sweep_dirname
 UnitCellMC.save_sweep_metadata
 UnitCellMC.save_sweep_results
+UnitCellMC.tempering_dirname
+UnitCellMC.save_tempering_results
 UnitCellMC._write_sweep_csv
 ```

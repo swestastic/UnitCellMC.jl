@@ -69,7 +69,7 @@ function correlation_instantaneous(model, state, disp)
 end
 
 """
-    correlation_instantaneous_dft(model, state, grid, index_map)
+    correlation_instantaneous_dft(model, state, grid, index_map, inv_phases)
 
 Compute one instantaneous sample of the correlation function on a fully
 periodic lattice via the Wiener–Khinchin theorem: the correlation function is
@@ -93,22 +93,42 @@ conditions (no translation invariance there).
 - `index_map`: Map from displacement-class index (ordered as
   [`build_displacement_classes`](@ref)) to the flat (orbital-pair, Δ) layout
   of the inverse transform; built once in [`correlation_entry`](@ref).
+- `inv_phases`: The inverse-DFT matrices from [`inverse_phases`](@ref).
+  Geometry-constant, so repeated sampling should precompute them once (as
+  [`correlation_entry`](@ref) does); the four-argument form recomputes them
+  every call.
 
 # Returns
 
 A `Vector{Float64}` with one correlation value per displacement class, in the
 same order as [`correlation_instantaneous`](@ref).
 """
-function correlation_instantaneous_dft(model, state, grid, index_map)
+function correlation_instantaneous_dft(model, state, grid, index_map, inv_phases)
     S = structure_factor_instantaneous(model, state, grid)
     dims = size(first(grid.sites))
     n_pairs = grid.n_orbitals^2
     C = reshape(S, dims..., n_pairs)
-    for d in 1:length(grid.phases)
-        C = fourier_transform_dim(C, grid.phases[d]' ./ dims[d], d)
+    for d in 1:length(inv_phases)
+        C = fourier_transform_dim(C, inv_phases[d], d)
     end
     return real.(vec(C)[index_map])
 end
+
+correlation_instantaneous_dft(model, state, grid, index_map) =
+    correlation_instantaneous_dft(model, state, grid, index_map, inverse_phases(grid))
+
+"""
+    inverse_phases(grid)
+
+Return the per-dimension inverse-DFT matrices for a momentum `grid` from
+[`build_momentum_grid`](@ref): `inv_phases[d] = grid.phases[d]' ./ L[d]`, the
+conjugate transpose of the forward Fourier matrix with the `1 / L[d]`
+inverse-transform normalization. Geometry-constant — precompute once per
+geometry and pass to [`correlation_instantaneous_dft`](@ref) rather than
+rebuilding per measurement (see [`correlation_entry`](@ref)).
+"""
+inverse_phases(grid) =
+    ntuple(d -> grid.phases[d]' ./ size(first(grid.sites), d), length(grid.phases))
 
 """
     correlation_entry(model, geometry)
@@ -138,11 +158,15 @@ result also includes the [`CorrelationClass`](@ref) list labeling each entry.
 
 # Returns
 
-An `(observable, derived)` tuple:
+An `(observable, labels, connected)` tuple:
 - `observable`: An `Observable` for `:correlation`, sampling a
   `Vector{Float64}` (one value per displacement class) each measurement.
-- `derived`: A `DerivedObservable` computing `:correlation_connected`,
-  `:correlation_connected_err`, and `:correlation_classes` from `:correlation`
+- `labels`: A `DerivedObservable` passing the [`CorrelationClass`](@ref) list
+  through to the analysis results as `:correlation_classes`, so that even a
+  raw-correlation-only run labels its saved columns (see
+  [`correlation_rows`](@ref)).
+- `connected`: A `DerivedObservable` computing `:correlation_connected` and
+  `:correlation_connected_err` from `:correlation`
     and `:magnetization_per_orbital` (its declared `depends_on`).
 """
 function correlation_entry(model, geometry)
@@ -161,6 +185,7 @@ function correlation_entry(model, geometry)
     # invariant.
     if all(geometry.lattice.periodic)
         grid = build_momentum_grid(geometry)
+        inv_phases = inverse_phases(grid)
         lin = LinearIndices(Tuple(geometry.lattice.L))
         n_orb = grid.n_orbitals
         index_map = Vector{Int}(undef, n_disp)
@@ -169,7 +194,7 @@ function correlation_entry(model, geometry)
             index_map[r] = ((oi - 1) * n_orb + (oj - 1)) * grid.n_cells +
                 lin[(disp.displacements[r] .+ 1)...]
         end
-        sample = state -> correlation_instantaneous_dft(model, state, grid, index_map)
+        sample = state -> correlation_instantaneous_dft(model, state, grid, index_map, inv_phases)
     else
         sample = state -> correlation_instantaneous(model, state, disp)
     end
@@ -181,8 +206,18 @@ function correlation_entry(model, geometry)
         template = () -> Vector{Float64}[],
     )
 
-    derived = DerivedObservable(
-        (:correlation_connected, :correlation_connected_err, :correlation_classes),
+    # The class labels are their own passthrough derived observable (the
+    # `structure_factor_entry` pattern): they cost no measurement, and the
+    # raw-correlation-only path attaches them so its results are labeled when
+    # written to disk.
+    labels = DerivedObservable(
+        (:correlation_classes,),
+        (jk, T, N) -> (correlation_classes = classes,);
+        depends_on = (:correlation,),
+    )
+
+    connected = DerivedObservable(
+        (:correlation_connected, :correlation_connected_err),
         (jk, T, N) -> begin
             mpo = jk[:magnetization_per_orbital]
             n_comp = size(first(mpo), 1)
@@ -190,7 +225,7 @@ function correlation_entry(model, geometry)
             # function so its O(1/n_bins) bias is corrected along with the rest.
             # The series order is [oi components..., oj components...] (in a
             # `for`-chain the last iterator is the innermost loop).
-            connected = [
+            conn = [
                 jackknife_stats(
                     (c, comps...) -> c - sum(comps[α] * comps[n_comp + α] for α in 1:n_comp),
                     [s[r] for s in jk[:correlation]],
@@ -199,26 +234,27 @@ function correlation_entry(model, geometry)
                 for (r, (oi, oj)) in enumerate(disp.orbitals)
             ]
             (
-                correlation_connected     = first.(connected),
-                correlation_connected_err = last.(connected),
-                correlation_classes       = classes,
+                correlation_connected     = first.(conn),
+                correlation_connected_err = last.(conn),
             )
         end;
         depends_on = (:correlation, :magnetization_per_orbital),
     )
 
-    return observable, derived
+    return observable, labels, connected
 end
 
-# `:raw_correlation` measures only the correlation function;
-# `:connected_correlation` additionally derives the connected form.
+# `:raw_correlation` measures only the correlation function (with the class
+# labels attached, so the results can still be written with their
+# displacement/orbital labels); `:connected_correlation` additionally derives
+# the connected form.
 function optional_observables(model, geometry, ::Val{:raw_correlation})
-    observable, _ = correlation_entry(model, geometry)
-    return [observable], DerivedObservable[]
+    observable, labels, _ = correlation_entry(model, geometry)
+    return [observable], [labels]
 end
 
 function optional_observables(model, geometry, ::Val{:connected_correlation})
-    observable, derived = correlation_entry(model, geometry)
+    observable, labels, connected = correlation_entry(model, geometry)
     orbital_obs, _ = magnetization_per_orbital_entry(model, geometry)
-    return [observable; orbital_obs], [derived]
+    return [observable; orbital_obs], [labels, connected]
 end

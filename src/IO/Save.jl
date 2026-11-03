@@ -2,6 +2,27 @@ using CSV
 using DataFrames
 
 """
+    algorithm_label(algorithm)
+
+Return the string identifying `algorithm` in results directory names: its
+type name, with a non-default proposal scheme appended for local-update
+algorithms (e.g. `"MetropolisAlgorithm-SequentialProposal"`,
+`"MetropolisAlgorithm-ColoredProposal3"`), so that runs comparing
+site-selection schemes do not overwrite each other. The default
+[`RandomProposal`](@ref) keeps the bare type name.
+"""
+algorithm_label(algorithm) = string(nameof(typeof(algorithm)))
+
+algorithm_label(alg::Union{MetropolisAlgorithm, GlauberAlgorithm}) =
+    algorithm_label(nameof(typeof(alg)), alg.proposal)
+
+algorithm_label(name, ::RandomProposal) = string(name)
+algorithm_label(name, proposal::AbstractProposalScheme) =
+    string(name, "-", nameof(typeof(proposal)))
+algorithm_label(name, proposal::ColoredProposal) =
+    string(name, "-", nameof(typeof(proposal)), proposal.ncolors)
+
+"""
     results_dirname(model, algorithm, L, T; root = "results")
 
 Construct the output directory path for a single-temperature run, encoding
@@ -11,7 +32,8 @@ the directory name.
 # Arguments
 
 - `model`: The model instance being simulated (only its type name is used).
-- `algorithm`: The algorithm instance being used (only its type name is used).
+- `algorithm`: The algorithm instance being used (see
+  [`algorithm_label`](@ref)).
 - `L`: System size, joined component-wise with `"x"` (e.g. `(4, 4)` → `"4x4"`).
 - `T`: Temperature, rounded to 6 digits for the directory name.
 - `root`: Base directory under which the run directory is created.
@@ -22,7 +44,7 @@ The path `root/ModelName_AlgorithmName_LWxH_tempT`, without creating it.
 """
 function results_dirname(model, algorithm, L, T; root::AbstractString = "results")
     model_name = string(nameof(typeof(model)))
-    alg_name   = string(nameof(typeof(algorithm)))
+    alg_name   = algorithm_label(algorithm)
     L_str      = join(L, "x")
     T_str      = string(round(T, digits = 6))
     return joinpath(root, "$(model_name)_$(alg_name)_L$(L_str)_temp$(T_str)")
@@ -81,9 +103,11 @@ observable names, values, and errors, suitable for building a `DataFrame`.
 Both `results.primary` (a collection of `(average, error)` pairs keyed by
 name) and `results.derived` (a `NamedTuple`-like collection of derived
 quantities, some paired with a `*_err` sibling) are scanned. Only scalar
-(`Real`) entries are included; vector- or struct-valued entries (e.g.
-`:correlation`, `correlation_classes`) are skipped, since those are handled
-separately by [`correlation_rows`](@ref). A derived value with no matching
+(`Real`) entries are included; vector-, matrix-, or struct-valued entries
+(e.g. `:correlation`, `:structure_factor`, `:magnetization_per_orbital`,
+`correlation_classes`) are skipped, since those are handled separately by
+[`correlation_rows`](@ref), [`structure_factor_rows`](@ref), and
+[`magnetization_per_orbital_rows`](@ref). A derived value with no matching
 `*_err` property gets `missing` for its error. Primary entries are emitted in
 sorted name order (`primary` is a `Dict`, whose iteration order varies
 between sessions), so the CSV output is deterministic.
@@ -135,21 +159,24 @@ Build a `DataFrame` of per-displacement-class correlation data from
 
 Each row corresponds to one displacement class (see
 [`build_displacement_classes`](@ref)) and records its displacement
-components, orbital pair, raw correlation value/error, and connected
-correlation value/error.
+components, orbital pair, and raw correlation value/error. When `results`
+also has the connected correlation (from the `:connected_correlation`
+measurement), its value/error are included as two further columns.
 
 # Arguments
 
 - `results`: A results object with `results.derived.correlation_classes`
-  (a vector of class descriptors with `displacement` and `orbitals` fields),
-  `results.primary[:correlation]` (raw correlation `(values, errors)`), and
-  `results.derived.correlation_connected` / `correlation_connected_err`.
+  (a vector of class descriptors with `displacement` and `orbitals` fields)
+  and `results.primary[:correlation]` (raw correlation `(values, errors)`),
+  plus optionally `results.derived.correlation_connected` /
+  `correlation_connected_err`.
 
 # Returns
 
 A `DataFrame` with columns `disp_1, ..., disp_D, orbital_i, orbital_j,
-raw_value, raw_error, connected_value, connected_error`, or `nothing` if
-`results` has no correlation data.
+raw_value, raw_error` — plus `connected_value, connected_error` when the
+connected correlation was measured — or `nothing` if `results` has no
+correlation data.
 """
 function correlation_rows(results)
     hasproperty(results.derived, :correlation_classes) || return nothing
@@ -157,8 +184,6 @@ function correlation_rows(results)
     classes = results.derived.correlation_classes
     isempty(classes) && return nothing
     raw_avg, raw_err = results.primary[:correlation]
-    conn_avg = results.derived.correlation_connected
-    conn_err = results.derived.correlation_connected_err
 
     D = length(first(classes).displacement)
 
@@ -166,12 +191,14 @@ function correlation_rows(results)
     for k in 1:D
         df[!, Symbol("disp_$k")] = [c.displacement[k] for c in classes]
     end
-    df.orbital_i       = [c.orbitals[1] for c in classes]
-    df.orbital_j       = [c.orbitals[2] for c in classes]
-    df.raw_value       = raw_avg
-    df.raw_error       = raw_err
-    df.connected_value = conn_avg
-    df.connected_error = conn_err
+    df.orbital_i = [c.orbitals[1] for c in classes]
+    df.orbital_j = [c.orbitals[2] for c in classes]
+    df.raw_value = raw_avg
+    df.raw_error = raw_err
+    if hasproperty(results.derived, :correlation_connected)
+        df.connected_value = results.derived.correlation_connected
+        df.connected_error = results.derived.correlation_connected_err
+    end
 
     return df
 end
@@ -268,6 +295,55 @@ function save_structure_factor(dir, results)
 end
 
 """
+    magnetization_per_orbital_rows(results)
+
+Build a `DataFrame` of per-orbital magnetization data from `results`, or
+return `nothing` if `results` has no `:magnetization_per_orbital` data (i.e.
+the measurement was not requested, directly or via `:connected_correlation`).
+
+Each row is one (orbital, operator-component) entry of the per-orbital
+magnetization matrix (see [`magnetization_per_orbital_entry`](@ref)): the
+matrix's `(α, o)` entry is component `α` of the local operator averaged over
+the sites of orbital `o`. The matrix shape alone determines the labels, so no
+class labels are needed (unlike [`correlation_rows`](@ref)).
+
+# Returns
+
+A `DataFrame` with columns `orbital`, `component`, `value`, `error` (orbital
+index outermost), or `nothing` if `results` has no per-orbital magnetization
+data.
+"""
+function magnetization_per_orbital_rows(results)
+    haskey(results.primary, :magnetization_per_orbital) || return nothing
+
+    avg, err = results.primary[:magnetization_per_orbital]
+    n_comp, n_orb = size(avg)
+
+    df = DataFrame()
+    df.orbital   = [o for o in 1:n_orb for _ in 1:n_comp]
+    df.component = [α for o in 1:n_orb for α in 1:n_comp]
+    df.value     = [avg[α, o] for o in 1:n_orb for α in 1:n_comp]
+    df.error     = [err[α, o] for o in 1:n_orb for α in 1:n_comp]
+
+    return df
+end
+
+"""
+    save_magnetization_per_orbital(dir, results)
+
+Write `results`'s per-orbital magnetization data (via
+[`magnetization_per_orbital_rows`](@ref)) to
+`dir/magnetization_per_orbital_results.csv`. Does nothing if `results` has no
+such data.
+"""
+function save_magnetization_per_orbital(dir, results)
+    df = magnetization_per_orbital_rows(results)
+    df === nothing && return nothing
+    CSV.write(joinpath(dir, "magnetization_per_orbital_results.csv"), df)
+    return nothing
+end
+
+"""
     autocorrelation_rows(results)
 
 Build a `DataFrame` of integrated autocorrelation times from
@@ -314,12 +390,13 @@ end
 
 Save all output for a single-temperature run: create the run directory,
 write metadata, measurements, correlations (if any), the structure factor
-(if any), and autocorrelation times (if any).
+(if any), per-orbital magnetizations (if any), and autocorrelation times (if
+any).
 
 Combines [`results_dirname`](@ref), [`save_metadata`](@ref),
 [`save_measurements`](@ref), [`save_correlations`](@ref),
-[`save_structure_factor`](@ref), and [`save_autocorrelation`](@ref) into
-one call.
+[`save_structure_factor`](@ref), [`save_magnetization_per_orbital`](@ref),
+and [`save_autocorrelation`](@ref) into one call.
 
 # Arguments
 
@@ -346,6 +423,7 @@ function save_results(
     save_measurements(dir, results)
     save_correlations(dir, results)
     save_structure_factor(dir, results)
+    save_magnetization_per_orbital(dir, results)
     save_autocorrelation(dir, results)
     return dir
 end
@@ -360,7 +438,8 @@ system size `L` into the directory name.
 # Arguments
 
 - `model`: The model instance being simulated (only its type name is used).
-- `algorithm`: The algorithm instance being used (only its type name is used).
+- `algorithm`: The algorithm instance being used (see
+  [`algorithm_label`](@ref)).
 - `L`: System size, joined component-wise with `"x"`.
 - `root`: Base directory under which the sweep directory is created.
 
@@ -370,18 +449,20 @@ The path `root/ModelName_AlgorithmName_LWxH_sweep`, without creating it.
 """
 function sweep_dirname(model, algorithm, L; root::AbstractString = "results")
     model_name = string(nameof(typeof(model)))
-    alg_name   = string(nameof(typeof(algorithm)))
+    alg_name   = algorithm_label(algorithm)
     L_str      = join(L, "x")
     return joinpath(root, "$(model_name)_$(alg_name)_L$(L_str)_sweep")
 end
 
 """
     save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
-        seed = global_seed())
+        seed = global_seed(), n_runs = nothing, simulated_annealing = nothing,
+        measurements = nothing, time_series = nothing)
 
 Write a `metadata.txt` file in `dir` recording the model, algorithm, system
-size, the full list of temperatures `Ts`, the sweep's simulation
-parameters, and the RNG `seed` and Julia version needed to recreate it.
+size, the full list of temperatures `Ts`, the sweep's simulation parameters
+and run configuration, and the RNG `seed` and Julia version needed to
+recreate it.
 
 # Arguments
 
@@ -394,10 +475,22 @@ parameters, and the RNG `seed` and Julia version needed to recreate it.
   simulation parameters, recorded as-is.
 - `seed`: RNG seed of the sweep; defaults to the seed set with
   [`set_global_seed!`](@ref). Written as `unknown` when `nothing`.
+- `n_runs`: Number of independent runs per temperature; written as `unknown`
+  when `nothing`.
+- `simulated_annealing`: Whether runs carried their state between
+  temperatures; written as `unknown` when `nothing`.
+- `measurements`: The optional measurements enabled in each container;
+  written as `unknown` when `nothing`.
+- `time_series`: The time-series recording option; written as `unknown` when
+  `nothing`.
 """
 function save_sweep_metadata(
     dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
-    seed = global_seed()
+    seed = global_seed(),
+    n_runs = nothing,
+    simulated_annealing = nothing,
+    measurements = nothing,
+    time_series = nothing,
 )
     open(joinpath(dir, "metadata.txt"), "w") do io
         println(io, "model = ", model)
@@ -408,6 +501,10 @@ function save_sweep_metadata(
         println(io, "n_measurements = ", n_measurements)
         println(io, "n_unmeasured = ", n_unmeasured)
         println(io, "n_bins = ", n_bins)
+        println(io, "n_runs = ", something(n_runs, "unknown"))
+        println(io, "simulated_annealing = ", something(simulated_annealing, "unknown"))
+        println(io, "measurements = ", something(measurements, "unknown"))
+        println(io, "time_series = ", something(time_series, "unknown"))
         write_reproducibility_metadata(io, seed)
     end
     return nothing
@@ -461,7 +558,8 @@ end
 
 Save the combined output of a temperature sweep into a single directory:
 `measurement_results.csv`, `correlation_results.csv`,
-`structure_factor_results.csv`, and `autocorrelation_results.csv`, each
+`structure_factor_results.csv`, `magnetization_per_orbital_results.csv`, and
+`autocorrelation_results.csv`, each
 spanning all temperatures with a leading `temperature` column, plus sweep
 metadata.
 
@@ -484,6 +582,9 @@ written at all. Autocorrelation times are in units of measurements, i.e.
   simulation parameters, recorded in the metadata.
 - `root`: Base directory under which the sweep directory is created.
 - `seed`: RNG seed recorded in the metadata (see [`save_sweep_metadata`](@ref)).
+- `n_runs`, `simulated_annealing`, `measurements`, `time_series`: The sweep's
+  run configuration, recorded in the metadata (`unknown` for each if omitted).
+  [`sweep_Ts`](@ref) passes them automatically.
 
 # Throws
 
@@ -497,14 +598,19 @@ function save_sweep_results(
     sweep_results, Ts, model, algorithm, geometry,
     n_thermalization, n_measurements, n_unmeasured, n_bins;
     root::AbstractString = "results",
-    seed = global_seed()
+    seed = global_seed(),
+    n_runs = nothing,
+    simulated_annealing = nothing,
+    measurements = nothing,
+    time_series = nothing,
 )
     L = geometry.lattice.L
     if isempty(sweep_results) && isempty(Ts)
         dir = sweep_dirname(model, algorithm, L; root = root)
         mkpath(dir)
         save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
-            seed = seed)
+            seed = seed, n_runs = n_runs, simulated_annealing = simulated_annealing,
+            measurements = measurements, time_series = time_series)
         return dir
     end
 
@@ -514,12 +620,109 @@ function save_sweep_results(
     dir = sweep_dirname(model, algorithm, L; root = root)
     mkpath(dir)
     save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
-        seed = seed)
+        seed = seed, n_runs = n_runs, simulated_annealing = simulated_annealing,
+        measurements = measurements, time_series = time_series)
 
     _write_sweep_csv(dir, "measurement_results.csv", _measurement_frame, Ts, sweep_results)
     _write_sweep_csv(dir, "correlation_results.csv", correlation_rows, Ts, sweep_results)
     _write_sweep_csv(dir, "structure_factor_results.csv", structure_factor_rows, Ts, sweep_results)
+    _write_sweep_csv(dir, "magnetization_per_orbital_results.csv", magnetization_per_orbital_rows, Ts, sweep_results)
     _write_sweep_csv(dir, "autocorrelation_results.csv", autocorrelation_rows, Ts, sweep_results)
+
+    return dir
+end
+
+"""
+    tempering_dirname(model, algorithm, L; root = "results")
+
+Construct the output directory path for a [`tempering_sweep`](@ref) run,
+encoding the model type, algorithm type, and system size `L` into the
+directory name.
+
+# Arguments
+
+- `model`: The model instance being simulated (only its type name is used).
+- `algorithm`: The per-replica update algorithm (see [`algorithm_label`](@ref)).
+- `L`: System size, joined component-wise with `"x"`.
+- `root`: Base directory under which the sweep directory is created.
+
+# Returns
+
+The path `root/ModelName_AlgorithmName_LWxH_tempering`, without creating it.
+"""
+function tempering_dirname(model, algorithm, L; root::AbstractString = "results")
+    model_name = string(nameof(typeof(model)))
+    alg_name   = algorithm_label(algorithm)
+    L_str      = join(L, "x")
+    return joinpath(root, "$(model_name)_$(alg_name)_L$(L_str)_tempering")
+end
+
+"""
+    save_tempering_results(result, model, algorithm, geometry,
+        n_thermalization, n_measurements, n_unmeasured, n_bins;
+        root = "results", seed = global_seed(), swap_every = nothing,
+        measurements = nothing, time_series = nothing)
+
+Save the output of a [`tempering_sweep`](@ref): the per-temperature files of
+[`save_sweep_results`](@ref) (`measurement_results.csv`,
+`correlation_results.csv`, `structure_factor_results.csv`,
+`magnetization_per_orbital_results.csv`, and `autocorrelation_results.csv`,
+each spanning all temperatures with a leading `temperature` column), plus
+`swap_acceptance.csv` (columns `T_low`, `T_high`, `attempts`, `accepts`,
+`acceptance`, one row per adjacent temperature pair) and sweep metadata with
+a trailing `swap_every` line.
+
+# Arguments
+
+- `result`: The [`ParallelTemperingResult`](@ref) to save.
+- `model`, `algorithm`, `geometry`: Identify the run; the system size is
+  read from `geometry.lattice.L` to name the directory and record the
+  metadata.
+- `n_thermalization`, `n_measurements`, `n_unmeasured`, `n_bins`: The
+  sweep's simulation parameters, recorded in the metadata.
+- `root`: Base directory under which the sweep directory is created.
+- `seed`: RNG seed recorded in the metadata (see [`save_sweep_metadata`](@ref)).
+- `swap_every`, `measurements`, `time_series`: The sweep's run
+  configuration, recorded in the metadata (`unknown` for each if omitted).
+  [`tempering_sweep`](@ref) passes them automatically.
+
+# Returns
+
+The path to the created sweep directory (see [`tempering_dirname`](@ref)).
+"""
+function save_tempering_results(
+    result::ParallelTemperingResult, model, algorithm, geometry,
+    n_thermalization, n_measurements, n_unmeasured, n_bins;
+    root::AbstractString = "results",
+    seed = global_seed(),
+    swap_every = nothing,
+    measurements = nothing,
+    time_series = nothing,
+)
+    Ts = result.temperatures
+    L = geometry.lattice.L
+    dir = tempering_dirname(model, algorithm, L; root = root)
+    mkpath(dir)
+    save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
+        seed = seed, measurements = measurements, time_series = time_series)
+    open(joinpath(dir, "metadata.txt"), "a") do io
+        println(io, "swap_every = ", something(swap_every, "unknown"))
+    end
+
+    _write_sweep_csv(dir, "measurement_results.csv", _measurement_frame, Ts, result.results)
+    _write_sweep_csv(dir, "correlation_results.csv", correlation_rows, Ts, result.results)
+    _write_sweep_csv(dir, "structure_factor_results.csv", structure_factor_rows, Ts, result.results)
+    _write_sweep_csv(dir, "magnetization_per_orbital_results.csv", magnetization_per_orbital_rows, Ts, result.results)
+    _write_sweep_csv(dir, "autocorrelation_results.csv", autocorrelation_rows, Ts, result.results)
+
+    swap_df = DataFrame(
+        T_low = Ts[1:(end - 1)],
+        T_high = Ts[2:end],
+        attempts = result.swap_attempts,
+        accepts = result.swap_accepts,
+        acceptance = result.swap_acceptance,
+    )
+    CSV.write(joinpath(dir, "swap_acceptance.csv"), swap_df)
 
     return dir
 end

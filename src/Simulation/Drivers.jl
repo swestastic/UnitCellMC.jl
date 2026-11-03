@@ -193,14 +193,17 @@ merged container therefore pools all runs, and error estimates reflect the
 variance between independent runs as well as within them.
 
 The containers must record the same observables and diagnostics, keep
-the same unbinned time series, and use the same `bin_size` (e.g. built with
-identical `measurements`/`diagnostics`/`time_series` arguments and binning);
+the same unbinned time series, use the same `bin_size`, and compute the same
+derived quantities (e.g. built with identical
+`measurements`/`diagnostics`/`time_series` arguments and binning);
 an `ArgumentError` is thrown otherwise — pooling bins of different sizes
-would silently weight unequal-quality averages equally, while containers
-holding different *numbers* of equal-size bins (say, an already-merged
-container and a fresh run) merge fine, since equal-size bins stay
-equal-weight. The time series are concatenated too, with each run's
-length stored in `chain_lengths` so autocorrelations never straddle runs.
+would silently weight unequal-quality averages equally, and adopting the
+first container's derived set would silently gain or lose quantities in the
+pooled analysis. Containers holding different *numbers* of equal-size bins
+(say, an already-merged container and a fresh run) merge fine, since
+equal-size bins stay equal-weight. The time series are concatenated too,
+with each run's length stored in `chain_lengths` so autocorrelations never
+straddle runs.
 
 # Returns
 
@@ -215,6 +218,7 @@ function merge_containers(containers::Vector{<:MeasurementContainer})
     expected_names = keys(first_container.data)
     series_names = keys(first_container.time_series)
     expected_bin_size = first_container.bin_size
+    expected_derived = Set(d.names for d in first_container.derived)
     for container in containers
         keys(container.data) == expected_names ||
             throw(ArgumentError("All containers must record identical observables and diagnostics"))
@@ -223,6 +227,12 @@ function merge_containers(containers::Vector{<:MeasurementContainer})
         container.bin_size == expected_bin_size || throw(ArgumentError(
             "All containers must use the same bin size: got bin_size = " *
             "$(container.bin_size), expected $expected_bin_size"))
+        # Set comparison: the derived order only orders the output fields,
+        # so a different request order is not a mismatch.
+        container_derived = Set(d.names for d in container.derived)
+        container_derived == expected_derived || throw(ArgumentError(
+            "All containers must compute identical derived quantities; " *
+            "they differ by $(collect(symdiff(container_derived, expected_derived)))"))
     end
 
     # `reduce(vcat, (x,))` returns `x` itself, so a single-container merge

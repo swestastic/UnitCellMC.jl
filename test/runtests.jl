@@ -1601,6 +1601,32 @@ end
     @test err isa ArgumentError
     @test occursin("bin size", err.msg)
 
+    # the derived quantities must match too: identical raw data keys with a
+    # different derived set would silently gain/lose quantities in the pooled
+    # analysis (binder_cumulant adds a derived entry on top of the same raw
+    # magnetization_fourth observable)
+    plain = ucmc.MeasurementContainer(model, geometry, 8, 4; measurements = [:magnetization_fourth])
+    binder = ucmc.MeasurementContainer(model, geometry, 8, 4; measurements = [:binder_cumulant])
+    @test keys(plain.data) == keys(binder.data)  # the trap: raw keys match
+    err = try
+        ucmc.merge_containers([plain, binder])
+        nothing
+    catch err
+        err
+    end
+    @test err isa ArgumentError
+    @test occursin("derived", err.msg)
+    @test occursin("binder_cumulant", err.msg)
+    @test_throws ArgumentError ucmc.merge_containers([binder, plain])
+
+    # same for the correlation labels: raw + per-orbital magnetization has the
+    # same raw keys as connected_correlation but lacks its derived entries
+    raw_mpo = ucmc.MeasurementContainer(model, geometry, 8, 4;
+        measurements = [:raw_correlation, :magnetization_per_orbital])
+    connected = ucmc.MeasurementContainer(model, geometry, 8, 4;
+        measurements = [:connected_correlation])
+    @test_throws ArgumentError ucmc.merge_containers([raw_mpo, connected])
+
     # same bin size with different bin counts merges fine: equal-size bins
     # stay equal-weight in the pooled jackknife (this is how an
     # already-merged container pools with a fresh run)

@@ -17,6 +17,13 @@ UnitCellMC.MC_Sweep!
 UnitCellMC.run_simulation
 UnitCellMC.validate_run
 UnitCellMC.sweep_Ts
+UnitCellMC.tempering_sweep
+UnitCellMC.ParallelTemperingResult
+UnitCellMC.geometric_ladder
+UnitCellMC.swap_pass!
+UnitCellMC.SwapStats
+UnitCellMC.TemperingEnsemble
+UnitCellMC._tempering_round!
 UnitCellMC.merge_containers
 UnitCellMC.autotune_binning
 ```

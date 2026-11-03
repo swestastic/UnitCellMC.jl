@@ -631,3 +631,98 @@ function save_sweep_results(
 
     return dir
 end
+
+"""
+    tempering_dirname(model, algorithm, L; root = "results")
+
+Construct the output directory path for a [`tempering_sweep`](@ref) run,
+encoding the model type, algorithm type, and system size `L` into the
+directory name.
+
+# Arguments
+
+- `model`: The model instance being simulated (only its type name is used).
+- `algorithm`: The per-replica update algorithm (see [`algorithm_label`](@ref)).
+- `L`: System size, joined component-wise with `"x"`.
+- `root`: Base directory under which the sweep directory is created.
+
+# Returns
+
+The path `root/ModelName_AlgorithmName_LWxH_tempering`, without creating it.
+"""
+function tempering_dirname(model, algorithm, L; root::AbstractString = "results")
+    model_name = string(nameof(typeof(model)))
+    alg_name   = algorithm_label(algorithm)
+    L_str      = join(L, "x")
+    return joinpath(root, "$(model_name)_$(alg_name)_L$(L_str)_tempering")
+end
+
+"""
+    save_tempering_results(result, model, algorithm, geometry,
+        n_thermalization, n_measurements, n_unmeasured, n_bins;
+        root = "results", seed = global_seed(), swap_every = nothing,
+        measurements = nothing, time_series = nothing)
+
+Save the output of a [`tempering_sweep`](@ref): the per-temperature files of
+[`save_sweep_results`](@ref) (`measurement_results.csv`,
+`correlation_results.csv`, `structure_factor_results.csv`,
+`magnetization_per_orbital_results.csv`, and `autocorrelation_results.csv`,
+each spanning all temperatures with a leading `temperature` column), plus
+`swap_acceptance.csv` (columns `T_low`, `T_high`, `attempts`, `accepts`,
+`acceptance`, one row per adjacent temperature pair) and sweep metadata with
+a trailing `swap_every` line.
+
+# Arguments
+
+- `result`: The [`ParallelTemperingResult`](@ref) to save.
+- `model`, `algorithm`, `geometry`: Identify the run; the system size is
+  read from `geometry.lattice.L` to name the directory and record the
+  metadata.
+- `n_thermalization`, `n_measurements`, `n_unmeasured`, `n_bins`: The
+  sweep's simulation parameters, recorded in the metadata.
+- `root`: Base directory under which the sweep directory is created.
+- `seed`: RNG seed recorded in the metadata (see [`save_sweep_metadata`](@ref)).
+- `swap_every`, `measurements`, `time_series`: The sweep's run
+  configuration, recorded in the metadata (`unknown` for each if omitted).
+  [`tempering_sweep`](@ref) passes them automatically.
+
+# Returns
+
+The path to the created sweep directory (see [`tempering_dirname`](@ref)).
+"""
+function save_tempering_results(
+    result::ParallelTemperingResult, model, algorithm, geometry,
+    n_thermalization, n_measurements, n_unmeasured, n_bins;
+    root::AbstractString = "results",
+    seed = global_seed(),
+    swap_every = nothing,
+    measurements = nothing,
+    time_series = nothing,
+)
+    Ts = result.temperatures
+    L = geometry.lattice.L
+    dir = tempering_dirname(model, algorithm, L; root = root)
+    mkpath(dir)
+    save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
+        seed = seed, measurements = measurements, time_series = time_series)
+    open(joinpath(dir, "metadata.txt"), "a") do io
+        println(io, "swap_every = ", something(swap_every, "unknown"))
+    end
+
+    _write_sweep_csv(dir, "measurement_results.csv", _measurement_frame, Ts, result.results)
+    _write_sweep_csv(dir, "correlation_results.csv", correlation_rows, Ts, result.results)
+    _write_sweep_csv(dir, "structure_factor_results.csv", structure_factor_rows, Ts, result.results)
+    _write_sweep_csv(dir, "magnetization_per_orbital_results.csv", magnetization_per_orbital_rows, Ts, result.results)
+    _write_sweep_csv(dir, "autocorrelation_results.csv", autocorrelation_rows, Ts, result.results)
+
+    swap_df = DataFrame(
+        T_low = Ts[1:(end - 1)],
+        T_high = Ts[2:end],
+        attempts = result.swap_attempts,
+        accepts = result.swap_accepts,
+        acceptance = result.swap_acceptance,
+    )
+    CSV.write(joinpath(dir, "swap_acceptance.csv"), swap_df)
+
+    return dir
+end

@@ -15,6 +15,8 @@ UnitCellMC.save_measurements
 UnitCellMC.save_correlations
 UnitCellMC.structure_factor_rows
 UnitCellMC.save_structure_factor
+UnitCellMC.magnetization_per_orbital_rows
+UnitCellMC.save_magnetization_per_orbital
 UnitCellMC.autocorrelation_rows
 UnitCellMC.save_autocorrelation
 UnitCellMC.save_results

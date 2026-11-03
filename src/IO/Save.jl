@@ -103,9 +103,11 @@ observable names, values, and errors, suitable for building a `DataFrame`.
 Both `results.primary` (a collection of `(average, error)` pairs keyed by
 name) and `results.derived` (a `NamedTuple`-like collection of derived
 quantities, some paired with a `*_err` sibling) are scanned. Only scalar
-(`Real`) entries are included; vector- or struct-valued entries (e.g.
-`:correlation`, `correlation_classes`) are skipped, since those are handled
-separately by [`correlation_rows`](@ref). A derived value with no matching
+(`Real`) entries are included; vector-, matrix-, or struct-valued entries
+(e.g. `:correlation`, `:structure_factor`, `:magnetization_per_orbital`,
+`correlation_classes`) are skipped, since those are handled separately by
+[`correlation_rows`](@ref), [`structure_factor_rows`](@ref), and
+[`magnetization_per_orbital_rows`](@ref). A derived value with no matching
 `*_err` property gets `missing` for its error. Primary entries are emitted in
 sorted name order (`primary` is a `Dict`, whose iteration order varies
 between sessions), so the CSV output is deterministic.
@@ -293,6 +295,55 @@ function save_structure_factor(dir, results)
 end
 
 """
+    magnetization_per_orbital_rows(results)
+
+Build a `DataFrame` of per-orbital magnetization data from `results`, or
+return `nothing` if `results` has no `:magnetization_per_orbital` data (i.e.
+the measurement was not requested, directly or via `:connected_correlation`).
+
+Each row is one (orbital, operator-component) entry of the per-orbital
+magnetization matrix (see [`magnetization_per_orbital_entry`](@ref)): the
+matrix's `(α, o)` entry is component `α` of the local operator averaged over
+the sites of orbital `o`. The matrix shape alone determines the labels, so no
+class labels are needed (unlike [`correlation_rows`](@ref)).
+
+# Returns
+
+A `DataFrame` with columns `orbital`, `component`, `value`, `error` (orbital
+index outermost), or `nothing` if `results` has no per-orbital magnetization
+data.
+"""
+function magnetization_per_orbital_rows(results)
+    haskey(results.primary, :magnetization_per_orbital) || return nothing
+
+    avg, err = results.primary[:magnetization_per_orbital]
+    n_comp, n_orb = size(avg)
+
+    df = DataFrame()
+    df.orbital   = [o for o in 1:n_orb for _ in 1:n_comp]
+    df.component = [α for o in 1:n_orb for α in 1:n_comp]
+    df.value     = [avg[α, o] for o in 1:n_orb for α in 1:n_comp]
+    df.error     = [err[α, o] for o in 1:n_orb for α in 1:n_comp]
+
+    return df
+end
+
+"""
+    save_magnetization_per_orbital(dir, results)
+
+Write `results`'s per-orbital magnetization data (via
+[`magnetization_per_orbital_rows`](@ref)) to
+`dir/magnetization_per_orbital_results.csv`. Does nothing if `results` has no
+such data.
+"""
+function save_magnetization_per_orbital(dir, results)
+    df = magnetization_per_orbital_rows(results)
+    df === nothing && return nothing
+    CSV.write(joinpath(dir, "magnetization_per_orbital_results.csv"), df)
+    return nothing
+end
+
+"""
     autocorrelation_rows(results)
 
 Build a `DataFrame` of integrated autocorrelation times from
@@ -339,12 +390,13 @@ end
 
 Save all output for a single-temperature run: create the run directory,
 write metadata, measurements, correlations (if any), the structure factor
-(if any), and autocorrelation times (if any).
+(if any), per-orbital magnetizations (if any), and autocorrelation times (if
+any).
 
 Combines [`results_dirname`](@ref), [`save_metadata`](@ref),
 [`save_measurements`](@ref), [`save_correlations`](@ref),
-[`save_structure_factor`](@ref), and [`save_autocorrelation`](@ref) into
-one call.
+[`save_structure_factor`](@ref), [`save_magnetization_per_orbital`](@ref),
+and [`save_autocorrelation`](@ref) into one call.
 
 # Arguments
 
@@ -371,6 +423,7 @@ function save_results(
     save_measurements(dir, results)
     save_correlations(dir, results)
     save_structure_factor(dir, results)
+    save_magnetization_per_orbital(dir, results)
     save_autocorrelation(dir, results)
     return dir
 end
@@ -505,7 +558,8 @@ end
 
 Save the combined output of a temperature sweep into a single directory:
 `measurement_results.csv`, `correlation_results.csv`,
-`structure_factor_results.csv`, and `autocorrelation_results.csv`, each
+`structure_factor_results.csv`, `magnetization_per_orbital_results.csv`, and
+`autocorrelation_results.csv`, each
 spanning all temperatures with a leading `temperature` column, plus sweep
 metadata.
 
@@ -572,6 +626,7 @@ function save_sweep_results(
     _write_sweep_csv(dir, "measurement_results.csv", _measurement_frame, Ts, sweep_results)
     _write_sweep_csv(dir, "correlation_results.csv", correlation_rows, Ts, sweep_results)
     _write_sweep_csv(dir, "structure_factor_results.csv", structure_factor_rows, Ts, sweep_results)
+    _write_sweep_csv(dir, "magnetization_per_orbital_results.csv", magnetization_per_orbital_rows, Ts, sweep_results)
     _write_sweep_csv(dir, "autocorrelation_results.csv", autocorrelation_rows, Ts, sweep_results)
 
     return dir

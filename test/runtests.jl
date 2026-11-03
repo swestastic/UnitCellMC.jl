@@ -2145,6 +2145,57 @@ end
     @test count(d -> :correlation_classes in d.names, container.derived) == 1
 end
 
+@testset "magnetization_per_orbital results are saved" begin
+    geometry = two_orbital_geometry(2)
+    model = ucmc.IsingModel([1.0, 2.0], [0.5, -0.25])
+    rng = Xoshiro(5)
+    state = ucmc.initialize_state(model, geometry; rng = rng)
+    parameters = ucmc.SimulationParameters(2.0, 5, 20, 1, 4)
+
+    container = ucmc.MeasurementContainer(model, geometry, 20, 4;
+                                          measurements = [:magnetization_per_orbital])
+    ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state,
+                        container, parameters; rng = rng)
+    results = ucmc.analyze(container, 2.0, geometry.n_sites)
+
+    # the matrix-valued observable is analyzed but used to be dropped on the
+    # save path; the rows unroll it with one row per (orbital, component)
+    @test haskey(results.primary, :magnetization_per_orbital)
+    df = ucmc.magnetization_per_orbital_rows(results)
+    @test df !== nothing
+    @test propertynames(df) == [:orbital, :component, :value, :error]
+    avg, err = results.primary[:magnetization_per_orbital]
+    n_comp, n_orb = size(avg)
+    @test (n_comp, n_orb) == (1, 2)  # Ising on the two-orbital geometry
+    @test size(df, 1) == n_comp * n_orb
+    @test df.orbital == [1, 2]
+    @test df.component == [1, 1]
+    @test df.value == vec(permutedims(avg, (2, 1)))
+    @test df.error == vec(permutedims(err, (2, 1)))
+
+    # written to disk on the single-run path...
+    root = mktempdir()
+    dir = ucmc.save_results(model, ucmc.MetropolisAlgorithm(), geometry, 2.0,
+                            results, parameters; root = root)
+    path = joinpath(dir, "magnetization_per_orbital_results.csv")
+    @test isfile(path)
+    csv = read(path, String)
+    @test occursin("orbital,component,value,error", csv)
+    @test length(split(chomp(csv), "\n")) == 1 + n_comp * n_orb
+
+    # ...and on the sweep path, including via :connected_correlation's
+    # implicit inclusion of :magnetization_per_orbital
+    sroot = mktempdir()
+    ucmc.sweep_Ts(ucmc.MetropolisAlgorithm(), model, geometry,
+                  ucmc.initialize_state(model, geometry), 2, 8, 0, 2, [2.0];
+                  measurements = [:connected_correlation], time_series = :none, root = sroot)
+    sdir = ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L; root = sroot)
+    @test isfile(joinpath(sdir, "magnetization_per_orbital_results.csv"))
+
+    # no measurement, no frame
+    @test ucmc.magnetization_per_orbital_rows((primary = Dict(),)) === nothing
+end
+
 @testset "autotune_binning" begin
     Random.seed!(11)
     geometry = square_geometry(6)

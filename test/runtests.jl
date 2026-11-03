@@ -2163,10 +2163,20 @@ end
     results_grown = ucmc.analyze(grown, 2.0, geometry.n_sites)
     @test all(r -> r.n == 81, values(results_grown.autocorrelation))
 
+    # a partially filled bin must be completed before another run_simulation
+    # picks the container up (a stale partial bin from an aborted run would
+    # otherwise mix into the new run's first bin)
+    @test_throws ArgumentError ucmc.run_simulation(
+        ucmc.MetropolisAlgorithm(), model, geometry, state, grown, parameters)
+    for _ in 1:9
+        ucmc.measure!(grown, state; diagnostics = (acceptance_ratio = 1.0,))
+    end
+    @test grown.bin_count == 0
+
     # the same holds through a full run_simulation into the merged container
     ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state, grown, parameters)
     results_rerun = ucmc.analyze(grown, 2.0, geometry.n_sites)
-    @test all(r -> r.n == 81 + 40, values(results_rerun.autocorrelation))
+    @test all(r -> r.n == 81 + 9 + 40, values(results_rerun.autocorrelation))
 
     # the helper itself: exact, tail, empty, and inconsistent cases
     @test ucmc.chain_lengths_with_tail(Int[], 5) === nothing

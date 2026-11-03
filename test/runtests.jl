@@ -1869,6 +1869,15 @@ ar1_tau(phi) = (1 + phi) / (2 * (1 - phi))
     @test_throws ArgumentError ucmc.autocorrelation_function(fill(2.0, 10))
     @test_throws ArgumentError ucmc.autocorrelation(x; window = 0)
 
+    # max_lag < 1 is an error (it used to be silently clamped to 1), while an
+    # oversized max_lag is clamped to the longest chain minus one — the same
+    # behavior as the windowed autocorrelation's _resolve_max_lag
+    @test_throws ArgumentError ucmc.autocorrelation_function(x; max_lag = 0)
+    @test_throws ArgumentError ucmc.autocorrelation_function(x; max_lag = -2)
+    @test first(ucmc.autocorrelation_function(x; max_lag = 10^6)) == 0:(length(x) - 1)
+    @test first(ucmc.autocorrelation_function(randn(200); max_lag = 10^6,
+                                              chain_lengths = [100, 100])) == 0:99
+
     # vector-valued series: the slowest non-constant component is reported
     slow = ar1_series(0.8, 50_000)
     fast = randn(50_000)

@@ -33,6 +33,32 @@ function average_and_error(values::Vector{<:Real})
 end
 
 """
+    average_and_error(values::Vector{<:Complex})
+
+Complex counterpart of the scalar method, for observables such as
+`⟨e^{iθ}⟩`: the average is complex, and the error is the real standard error
+`sqrt(Σ|x−μ|² / ((n−1) n))` of the magnitude fluctuations.
+
+# Throws
+
+`ArgumentError` if fewer than two bins are given.
+
+# Returns
+
+A `(average, error)` tuple with a complex average and a real error.
+"""
+function average_and_error(values::Vector{<:Complex})
+    n_bins = length(values)
+    n_bins > 1 || throw(ArgumentError("At least two bins are required"))
+
+    average = Statistics.mean(values)
+    variance = sum(abs2(value - average) for value in values) / (n_bins - 1)
+    error = sqrt(variance / n_bins)
+
+    return average, error
+end
+
+"""
     average_and_error(values::Vector{<:Vector{<:Real}})
 
 Compute the elementwise bin average and standard error of the mean for a

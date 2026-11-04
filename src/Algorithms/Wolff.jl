@@ -33,8 +33,10 @@ cluster_seed(rng::AbstractRNG, ::AbstractModel, geometry, ::AbstractState) = ran
     validate_cluster_model(model, geometry, state, T)
 
 Check that `model` can be updated by the cluster algorithms
-([`WolffAlgorithm`](@ref), [`SwendsenWangAlgorithm`](@ref)), called once at
-the start of every cluster [`step!`](@ref).
+([`WolffAlgorithm`](@ref), [`SwendsenWangAlgorithm`](@ref)). [`step!`](@ref)
+runs it once per [`ClusterWorkspace`](@ref) — i.e. once per run, since
+drivers allocate one workspace per run — rather than before every step; a
+[`step!`](@ref) call without a workspace validates on every call.
 
 The default enforces the cluster updates' core requirement — non-negative
 (ferromagnetic) couplings, so the bond-activation probabilities stay in
@@ -98,7 +100,11 @@ function step!(
     workspace::Union{Nothing, ClusterWorkspace} = nothing
 )
     T > 0 || throw(ArgumentError("Temperature must be positive, got $T"))
-    validate_cluster_model(model, geometry, state, T)
+    ws = workspace === nothing ? ClusterWorkspace() : workspace
+    if !ws.validated
+        validate_cluster_model(model, geometry, state, T)
+        ws.validated = true
+    end
     context = cluster_context(rng, model, geometry, state, T)
 
     seed = cluster_seed(rng, model, geometry, state)
@@ -106,7 +112,6 @@ function step!(
         "cluster_seed returned site $seed outside 1:$(geometry.n_sites)"
     ))
 
-    ws = workspace === nothing ? ClusterWorkspace() : workspace
     in_cluster = _resize_buffer!(ws.in_cluster, geometry.n_sites)
     fill!(in_cluster, false)
     cluster = empty!(ws.cluster)

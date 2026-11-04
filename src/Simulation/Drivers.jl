@@ -26,7 +26,7 @@ model/algorithm pairs with a fused fast path (single-orbital
 - `container`: A [`MeasurementContainer`](@ref); only its `diagnostics` field
   is used to select which diagnostics to accumulate.
 - `T`: Temperature passed to [`step!`](@ref).
-- `stats`: Vector of [`UpdateStatistic`](@ref)s, one per entry in
+- `stats`: Tuple of [`UpdateStatistic`](@ref)s, one per entry in
   `container.diagnostics`. Reset at the start of the sweep.
 - `rng`: Random number generator passed to every [`step!`](@ref).
 - `workspace`: Per-run scratch space passed to [`step!`](@ref) (see
@@ -147,12 +147,15 @@ Check that `container` can record the run described by `parameters` with
 The container's bin size must equal
 `parameters.n_measurements ÷ parameters.n_bins`; otherwise measurements
 would be grouped into a different number of bins than requested, and a
-trailing partial bin would be silently dropped. Every diagnostic the
-container records must be among [`available_diagnostics`](@ref)`(algorithm)`.
+trailing partial bin would be silently dropped. The container must not hold
+a partially filled bin from an earlier (aborted) run — its stale partial sum
+would otherwise mix into this run's first bin. Every diagnostic the
+container records must be among
+[`available_diagnostics`](@ref)`(algorithm)`.
 
 # Throws
 
-`ArgumentError` if either condition fails.
+`ArgumentError` if any of these conditions fails.
 
 # Returns
 
@@ -163,6 +166,10 @@ function validate_run(
     container::MeasurementContainer,
     parameters::SimulationParameters
 )
+    container.bin_count == 0 || throw(ArgumentError(
+        "MeasurementContainer holds a partially filled bin ($(container.bin_count) of " *
+        "$(container.bin_size) measurements), likely from an aborted run; measuring " *
+        "further would mix the stale partial bin into this run. Use a fresh container."))
     expected_bin_size = parameters.n_measurements ÷ parameters.n_bins
     container.bin_size == expected_bin_size || throw(ArgumentError(
         "MeasurementContainer has bin_size = $(container.bin_size), but parameters " *
@@ -202,7 +209,10 @@ would silently weight unequal-quality averages equally, and adopting the
 first container's derived set would silently gain or lose quantities in the
 pooled analysis. Containers holding different *numbers* of equal-size bins
 (say, an already-merged container and a fresh run) merge fine, since
-equal-size bins stay equal-weight. The time series are concatenated too,
+equal-size bins stay equal-weight. A container holding a partially filled
+bin (e.g. from an aborted run) is rejected with an `ArgumentError`, since
+the incomplete bin cannot be pooled and would otherwise be silently dropped.
+The time series are concatenated too,
 with each run's length stored in `chain_lengths` so autocorrelations never
 straddle runs. Measuring further into the merged container keeps working:
 the new samples count as one more chain (see [`chain_lengths_with_tail`](@ref)).
@@ -224,6 +234,11 @@ function merge_containers(containers::Vector{<:MeasurementContainer})
     expected_bin_size = first_container.bin_size
     expected_derived = Set(d.names for d in first_container.derived)
     for container in containers
+        container.bin_count == 0 || throw(ArgumentError(
+            "Cannot merge a container with a partially filled bin " *
+            "($(container.bin_count) of $(container.bin_size) measurements); the " *
+            "incomplete bin would be silently dropped. Finish or discard the run " *
+            "first."))
         # Set comparisons: key order (from the measurement request order) is
         # not significant; the merged container keeps the first container's
         # layout either way.
@@ -307,7 +322,11 @@ so only the `n_runs` runs at a temperature execute in parallel. With
 `simulated_annealing = false` the `(temperature, run)` pairs are fully
 independent, so all `length(Ts) * n_runs` simulations form a single
 parallel pool — temperatures are parallelized too, which keeps all threads
-busy even when `n_runs` is smaller than the thread count.
+busy even when `n_runs` is smaller than the thread count. The trade-off is
+that every run's [`MeasurementContainer`](@ref) (including its unbinned time
+series) is allocated up front and stays alive until the pool finishes, so
+peak memory scales with `length(Ts) * n_runs`; with annealing, only `n_runs`
+containers are alive at a time.
 
 # Reproducibility
 
@@ -324,8 +343,8 @@ count. To reproduce a sweep, call
 including the initial `state`, the same. The seed is written to the sweep's
 `metadata.txt` (as `unknown` if the global RNG was seeded some other way,
 e.g. with `Random.seed!`), alongside `n_runs`, `simulated_annealing`,
-`measurements`, and `time_series`, so every results folder records how to
-recreate it. An explicit generator such as `rng = Random.Xoshiro(seed)` works too;
+`measurements`, `diagnostics`, and `time_series`, so every results folder
+records how to recreate it. An explicit generator such as `rng = Random.Xoshiro(seed)` works too;
 pass `seed` alongside it to have it recorded.
 
 A new [`SimulationParameters`](@ref) is created for every temperature
@@ -396,8 +415,8 @@ function sweep_Ts(
     Ts;
     simulated_annealing::Bool = true,
     n_runs::Int = 1,
-    measurements::Vector{Symbol} = Symbol[],
-    diagnostics::Vector{Symbol} = Symbol[],
+    measurements = Symbol[],
+    diagnostics = Symbol[],
     time_series = :scalars,
     root::AbstractString = "results",
     save::Bool = true,
@@ -405,6 +424,10 @@ function sweep_Ts(
     seed = recorded_seed(rng)
 )
     n_runs >= 1 || throw(ArgumentError("n_runs must be >= 1, got $n_runs"))
+    # `Ts` is iterated several times (validation, the sweep, saving), so
+    # collect one-shot iterators up front instead of failing on the second
+    # pass.
+    Ts = collect(Ts)
     # `state` seeds run 1 when annealing; catch a model/state mismatch here, on
     # the calling task, rather than inside a thread. It is unused otherwise.
     simulated_annealing && validate_model_state(model, state)
@@ -489,7 +512,7 @@ function sweep_Ts(
         n_thermalization, n_measurements, n_unmeasured, n_bins;
         root = root, seed = seed,
         n_runs = n_runs, simulated_annealing = simulated_annealing,
-        measurements = measurements, time_series = time_series
+        measurements = measurements, diagnostics = diagnostics, time_series = time_series
     )
 
     return sweep_results

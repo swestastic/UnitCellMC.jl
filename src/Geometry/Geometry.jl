@@ -59,8 +59,10 @@ concrete bonds and neighbors over `unit_cell` and `lattice`.
 For each bond template, a neighbor table is built independently and the
 results are concatenated, so `bond_id_to_template` records which template
 each resulting bond came from and `neighbor_table` aggregates neighbors
-across all templates per site. If `bonds` is empty, every site gets an empty
-`NeighborInfo` and `bond_id_to_template` is empty.
+across all templates per site. If `bonds` is empty — or every template
+generates zero concrete bonds, e.g. on an open lattice smaller than every
+displacement — every site gets an empty `NeighborInfo` and
+`bond_id_to_template` is empty.
 
 # Arguments
 
@@ -95,6 +97,13 @@ function Geometry(
         vcat,
         [fill(i, size(nt, 2)) for (i, nt) in enumerate(per_template_tables)]
     )
+
+    # Every template may fall outside the lattice (e.g. an open lattice too
+    # small for any displacement); that degenerates to the empty-bonds case.
+    if isempty(bond_id_to_template)
+        neighbor_table = [(bonds=Int[], templates=Int[], neighbors=Int[]) for i in 1:n_sites]
+        return Geometry(unit_cell, lattice, bonds, bond_id_to_template, neighbor_table, n_sites)
+    end
 
     neighbor_table_matrix = reduce(hcat, per_template_tables)
     neighbor_table_dict = LatticeUtilities.map_neighbor_table(neighbor_table_matrix)

@@ -113,7 +113,7 @@ given `bond_template`, the index of the bond's template in `geometry.bonds`
 (taken from `neighbor_table[site].templates`). Only equal neighboring spins
 can join the cluster.
 
-The coupling signs are checked once per update by
+The coupling signs are checked once per run by
 [`validate_cluster_model`](@ref) (cluster updates require non-negative,
 ferromagnetic couplings), not per bond visit.
 """
@@ -371,7 +371,7 @@ function _ising_metropolis_sweep!(
     ))
     T64 = Float64(T)
 
-    for _ in 1:n
+    for _ in 1:steps_per_sweep(alg, geometry)
         site = rand(rng, 1:n)
         @inbounds s = spins[site]
         @inbounds info = table[site]

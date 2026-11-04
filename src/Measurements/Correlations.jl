@@ -151,6 +151,16 @@ components) from the `:magnetization_per_orbital` observable (see
 `⟨m⟩²`, which is only correct when the sublattices are equivalent. The
 result also includes the [`CorrelationClass`](@ref) list labeling each entry.
 
+The connected subtraction is exact only on fully periodic lattices: each
+class's raw average runs over its valid starting cells, and the whole-lattice
+per-orbital magnetization product matches the corresponding valid-cell
+average only when translation invariance makes per-orbital magnetizations
+uniform. With open dimensions, boundary sites magnetize differently from
+bulk sites and the subtraction is inexact — exact enumeration on a small
+open lattice shows discrepancies large enough to flip signs. Requesting
+`:connected_correlation` for a lattice with any open dimension therefore
+throws an `ArgumentError` at container construction.
+
 # Arguments
 
 - `model`: The model to measure correlations for.
@@ -254,6 +264,16 @@ function optional_observables(model, geometry, ::Val{:raw_correlation})
 end
 
 function optional_observables(model, geometry, ::Val{:connected_correlation})
+    # The connected subtraction is exact only under full translation
+    # invariance (see `correlation_entry`), so refuse open boundaries instead
+    # of returning silently inexact values.
+    all(geometry.lattice.periodic) || throw(ArgumentError(
+        ":connected_correlation is exact only for fully periodic lattices; " *
+        "with open dimensions the whole-lattice magnetization subtraction is " *
+        "inexact because boundary sites magnetize differently from bulk sites. " *
+        "Use :raw_correlation (exact either way) or periodic boundary " *
+        "conditions."
+    ))
     observable, labels, connected = correlation_entry(model, geometry)
     orbital_obs, _ = magnetization_per_orbital_entry(model, geometry)
     return [observable; orbital_obs], [labels, connected]

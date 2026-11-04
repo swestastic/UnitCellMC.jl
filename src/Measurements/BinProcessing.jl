@@ -33,6 +33,32 @@ function average_and_error(values::Vector{<:Real})
 end
 
 """
+    average_and_error(values::Vector{<:Complex})
+
+Complex counterpart of the scalar method, for observables such as
+`⟨e^{iθ}⟩`: the average is complex, and the error is the real standard error
+`sqrt(Σ|x−μ|² / ((n−1) n))` of the magnitude fluctuations.
+
+# Throws
+
+`ArgumentError` if fewer than two bins are given.
+
+# Returns
+
+A `(average, error)` tuple with a complex average and a real error.
+"""
+function average_and_error(values::Vector{<:Complex})
+    n_bins = length(values)
+    n_bins > 1 || throw(ArgumentError("At least two bins are required"))
+
+    average = Statistics.mean(values)
+    variance = sum(abs2(value - average) for value in values) / (n_bins - 1)
+    error = sqrt(variance / n_bins)
+
+    return average, error
+end
+
+"""
     average_and_error(values::Vector{<:Vector{<:Real}})
 
 Compute the elementwise bin average and standard error of the mean for a
@@ -273,6 +299,14 @@ A named tuple `(primary = ..., derived = ..., autocorrelation = ...)`:
 function analyze(container::MeasurementContainer, T, N)
     bin_means = container.data
 
+    # Name the observable on too-few-bins failures (e.g. analyzing a
+    # never-filled container), which average_and_error cannot do.
+    for (name, means) in pairs(bin_means)
+        length(means) >= 2 || throw(ArgumentError(
+            "Observable :$name has $(length(means)) completed bin(s); at least two " *
+            "are required. Was the container filled by a run (see `run_simulation`)?"
+        ))
+    end
     primary = Dict(name => average_and_error(means) for (name, means) in pairs(bin_means))
     jk      = Dict(name => jackknife_samples(means) for (name, means) in pairs(bin_means))
 

@@ -1354,6 +1354,35 @@ end
     @test haskey(connected_container.data, :magnetization_per_orbital)
 end
 
+@testset "Connected correlation requires periodic boundaries" begin
+    # The connected subtraction uses whole-lattice per-orbital magnetization
+    # products, which match the exact per-class valid-cell subtraction only
+    # under full translation invariance; open lattices must be refused rather
+    # than silently inexact (confirmed by exact enumeration on an open 3×3
+    # two-orbital Ising lattice, where the error flips signs).
+    unit_cell = lu.UnitCell(
+        lattice_vecs = [[1.0, 0.0], [0.0, 1.0]],
+        basis_vecs = [[0.0, 0.0]],
+    )
+    bonds = [lu.Bond(orbitals = (1, 1), displacement = [1, 0]),
+             lu.Bond(orbitals = (1, 1), displacement = [0, 1])]
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    for periodic in ([false, false], [true, false])
+        open_geometry = ucmc.Geometry(
+            unit_cell, lu.Lattice(L = [3, 3], periodic = periodic), bonds)
+        @test_throws ArgumentError ucmc.MeasurementContainer(
+            model, open_geometry, 4, 2; measurements = [:connected_correlation])
+        # the raw correlation is exact either way and stays available
+        raw = ucmc.MeasurementContainer(
+            model, open_geometry, 4, 2; measurements = [:raw_correlation])
+        @test :correlation in keys(raw.data)
+    end
+    # fully periodic lattices are unaffected
+    periodic_container = ucmc.MeasurementContainer(
+        model, square_geometry(2), 4, 2; measurements = [:connected_correlation])
+    @test :correlation in keys(periodic_container.data)
+end
+
 @testset "Connected correlation is per-orbital" begin
     # Two decoupled sublattices under opposite fields have inequivalent
     # sublattice magnetizations, so the per-orbital subtraction differs from
@@ -2134,10 +2163,20 @@ end
     results_grown = ucmc.analyze(grown, 2.0, geometry.n_sites)
     @test all(r -> r.n == 81, values(results_grown.autocorrelation))
 
+    # a partially filled bin must be completed before another run_simulation
+    # picks the container up (a stale partial bin from an aborted run would
+    # otherwise mix into the new run's first bin)
+    @test_throws ArgumentError ucmc.run_simulation(
+        ucmc.MetropolisAlgorithm(), model, geometry, state, grown, parameters)
+    for _ in 1:9
+        ucmc.measure!(grown, state; diagnostics = (acceptance_ratio = 1.0,))
+    end
+    @test grown.bin_count == 0
+
     # the same holds through a full run_simulation into the merged container
     ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state, grown, parameters)
     results_rerun = ucmc.analyze(grown, 2.0, geometry.n_sites)
-    @test all(r -> r.n == 81 + 40, values(results_rerun.autocorrelation))
+    @test all(r -> r.n == 81 + 9 + 40, values(results_rerun.autocorrelation))
 
     # the helper itself: exact, tail, empty, and inconsistent cases
     @test ucmc.chain_lengths_with_tail(Int[], 5) === nothing

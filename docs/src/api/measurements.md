@@ -7,6 +7,13 @@ UnitCellMC.jackknife_stats
 UnitCellMC.analyze
 ```
 
+## Reweighting
+
+```@docs
+UnitCellMC.ReweightingResult
+UnitCellMC.reweight
+```
+
 ## Autocorrelation
 
 ```@docs

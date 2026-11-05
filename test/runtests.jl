@@ -3257,3 +3257,98 @@ end
         @test abs(e - exact_e) < 4 * e_err
     end
 end
+
+@testset "reweight" begin
+    # Reweighting to the simulated temperature reproduces the direct analysis
+    geometry = square_geometry(3)
+    N = geometry.n_sites
+    T = 2.5
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+
+    rng = Xoshiro(99)
+    state = ucmc.initialize_state(model, geometry; rng = rng)
+    parameters = ucmc.SimulationParameters(T, 1_000, 20_000, 0, 40)
+    container = ucmc.MeasurementContainer(model, geometry, 20_000, 40)
+    ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state, container, parameters; rng = rng)
+    analysis = ucmc.analyze(container, T, N)
+
+    rw = ucmc.reweight(container, T, [T], N)
+    @test rw isa ucmc.ReweightingResult
+    @test rw.T_sim == T
+    @test rw.temperatures == [T]
+    @test rw.n_sites == N
+    @test rw.energy[1] ≈ analysis.primary[:energy][1]
+    @test rw.energy_err[1] ≈ analysis.primary[:energy][2]
+    @test rw.specific_heat[1] ≈ analysis.derived.specific_heat
+    @test rw.specific_heat_err[1] ≈ analysis.derived.specific_heat_err
+    @test rw.magnetization[1] ≈ analysis.primary[:magnetization][1]
+    @test rw.magnetization_err[1] ≈ analysis.primary[:magnetization][2]
+    @test rw.susceptibility[1] ≈ analysis.derived.susceptibility
+    @test rw.susceptibility_err[1] ≈ analysis.derived.susceptibility_err
+    @test rw.n_eff[1] == 20_000  # uniform weights: every sample counts
+
+    # magnetization = nothing skips the magnetic quantities
+    rw_e = ucmc.reweight(container, T, [2.4, T, 2.6], N; magnetization = nothing)
+    @test rw_e.magnetization === nothing
+    @test rw_e.magnetization_err === nothing
+    @test rw_e.susceptibility === nothing
+    @test rw_e.susceptibility_err === nothing
+    @test length(rw_e.energy) == 3
+    @test rw_e.n_eff[2] == 20_000
+    @test 1 < rw_e.n_eff[1] < 20_000
+
+    # input validation
+    @test_throws ArgumentError ucmc.reweight(container, 0.0, [T], N)
+    @test_throws ArgumentError ucmc.reweight(container, T, Float64[], N)
+    @test_throws ArgumentError ucmc.reweight(container, T, [2.0, -1.0], N)
+    @test_throws ArgumentError ucmc.reweight(container, T, [T], 0)
+    @test_throws ArgumentError ucmc.reweight(container, T, [T], N; magnetization = :bogus)
+
+    empty_series = ucmc.MeasurementContainer(model, geometry, 4, 2; time_series = :none)
+    @test_throws ArgumentError ucmc.reweight(empty_series, T, [T], N)
+
+    partial = ucmc.MeasurementContainer(model, geometry, 4, 2)
+    ucmc.measure!(partial, ucmc.initialize_state(model, geometry))
+    @test_throws ArgumentError ucmc.reweight(partial, T, [T], N)
+end
+
+@testset "reweight matches exact enumeration" begin
+    # 2x2 Ising at h = 0: exact moments by enumeration over the 16
+    # configurations, compared with reweighting from one simulation at T_sim
+    geometry = square_geometry(2)
+    N = geometry.n_sites
+    T_sim = 2.0
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    Ts = [1.6, 2.0, 2.4]
+
+    exact = map(Ts) do T
+        Z = E = E2 = M2 = 0.0
+        for c in 0:(2^N - 1)
+            spins = 1 .- 2 .* digits(c; base = 2, pad = N)
+            en = spin_energy(model, geometry, spins)
+            w = exp(-en / T)
+            Z += w
+            E += w * en
+            E2 += w * en^2
+            M2 += w * sum(spins)^2
+        end
+        e = E / (Z * N)
+        c_v = (E2 / Z - (E / Z)^2) / (N * T^2)
+        χ = M2 / (Z * N * T)  # ⟨m⟩ = 0 at h = 0
+        (e, c_v, χ)
+    end
+
+    rng = Xoshiro(2024)
+    state = ucmc.initialize_state(model, geometry; rng = rng)
+    parameters = ucmc.SimulationParameters(T_sim, 1_000, 100_000, 0, 50)
+    container = ucmc.MeasurementContainer(model, geometry, 100_000, 50)
+    ucmc.run_simulation(ucmc.MetropolisAlgorithm(), model, geometry, state, container, parameters; rng = rng)
+
+    rw = ucmc.reweight(container, T_sim, Ts, N)
+    for (i, T) in enumerate(Ts)
+        @test abs(rw.energy[i] - exact[i][1]) < 5 * rw.energy_err[i]
+        @test abs(rw.specific_heat[i] - exact[i][2]) < 5 * rw.specific_heat_err[i]
+        @test abs(rw.susceptibility[i] - exact[i][3]) < 5 * rw.susceptibility_err[i]
+    end
+    @test all(rw.n_eff .> 10_000)  # well inside the histogram-overlap window
+end

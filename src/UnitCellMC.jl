@@ -26,5 +26,6 @@ export save_results, save_sweep_results, save_tempering_results
 export available_measurements, available_diagnostics
 export AutocorrelationResult, autocorrelation, autocorrelation_function
 export integrated_autocorrelation_time, tau_lower_bound, recommended_binning
+export ReweightingResult, reweight
 
 end

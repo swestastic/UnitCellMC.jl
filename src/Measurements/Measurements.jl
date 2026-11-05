@@ -7,6 +7,7 @@ include("Optional.jl")
 include("BinProcessing.jl")
 include("Autocorrelation.jl")
 include("Reweighting.jl")
+include("HelicityModulus.jl")
 
 """
     measure!(measurements::MeasurementContainer, state; diagnostics)

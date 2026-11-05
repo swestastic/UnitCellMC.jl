@@ -70,6 +70,7 @@ UnitCellMC.optional_observables
 UnitCellMC.abs_magnetization_entry
 UnitCellMC.binder_cumulant_entry
 UnitCellMC.clock_order_parameter_entry
+UnitCellMC.helicity_modulus_entry
 ```
 
 ```@docs

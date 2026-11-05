@@ -375,14 +375,14 @@ const _COMMON_MEASUREMENTS = (
 Return a tuple of additional optional measurement names specific to a model,
 beyond the common set available to every model (see
 [`available_measurements`](@ref)). The default is empty; for example
-`extra_measurements(::Type{<:ClockModel}) = (:clock_order_parameter,)`.
+`extra_measurements(::Type{<:ClockModel}) = (:clock_order_parameter, :helicity_modulus)`.
 
 A model extending this must also provide the corresponding
 `optional_observables(model, geometry, Val(name))` method, or requesting the
 name fails at container construction.
 """
 extra_measurements(::Type{<:AbstractModel}) = ()
-extra_measurements(::Type{<:ClockModel}) = (:clock_order_parameter,)
+extra_measurements(::Type{<:ClockModel}) = (:clock_order_parameter, :helicity_modulus)
 
 """
     available_measurements(model::AbstractModel)

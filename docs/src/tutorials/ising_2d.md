@@ -1,6 +1,6 @@
 # Ising Model 2D Square Lattice
 
-Download this example as a complete [Julia script](https://github.com/swestastic/UnitCellMC.jl/blob/main/examples/ising_square.jl).
+A complete standalone script using autotuned binning and parallel independent runs is available at [`examples/ising_square.jl`](https://github.com/swestastic/UnitCellMC.jl/blob/main/examples/ising_square.jl).
 
 In this example we will simulate the Ising model with nearest-neighbor interactions on a square lattice. The Hamiltonian for the Ising model is given by
 
@@ -123,8 +123,11 @@ parameters = ucmc.SimulationParameters(T, n_thermalization, n_measurements, n_un
 The package provides the simulation drivers used in this tutorial. The first, `MC_Sweep!`, performs one Monte Carlo sweep: `n_sites` single-site `step!` updates for a local-update algorithm like Metropolis, or a single cluster update for the Wolff and Swendsen-Wang cluster algorithms, since one cluster update already moves a macroscopic fraction of the lattice. This convention is defined by `steps_per_sweep`, which you can extend for custom algorithms. During the sweep, per-update diagnostics (e.g. the acceptance ratio for Metropolis) are accumulated into `UpdateStatistic`s.
 
 ```julia
+stats = (ucmc.UpdateStatistic(:acceptance_ratio),) # one per requested diagnostic
 ucmc.MC_Sweep!(algorithm, model, geometry, state, container, parameters.T, stats)
 ```
+
+(`container` is the measurement container constructed below; `MC_Sweep!` reads only which diagnostics it requests.)
 
 The second, `run_simulation`, handles the different kinds of sweeps (warmup, measurement, decorrelation) and the measurements themselves. It returns the filled measurement container.
 
@@ -140,8 +143,8 @@ If your only interest is in gathering data for a single temperature, you'll need
 
 ```julia
 container = ucmc.MeasurementContainer(model, geometry, n_measurements, n_bins;
-    measurements = Symbol[], # Alternatively, set measurements = [:raw_correlation] or [:connected_correlation]
-    diagnostics = [:acceptance_ratio] # to calculate 2-site correlation functions as well.
+    measurements = Symbol[], # set to [:raw_correlation] or [:connected_correlation] for 2-site correlation functions
+    diagnostics = [:acceptance_ratio]
 )
 container = ucmc.run_simulation(algorithm, model, geometry, state, container, parameters)
 ```

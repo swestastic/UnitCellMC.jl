@@ -13,7 +13,8 @@ have one entry per bond template in `geometry.bonds`, and a field vector
 `model.h` must have one entry per unit-cell orbital. (The template ids in
 `geometry.bond_id_to_template` are valid by construction, so only lengths
 need checking.) Models with `J` and `h` fields ([`IsingModel`](@ref),
-[`XYModel`](@ref), [`ClockModel`](@ref)) need no method of their own.
+[`XYModel`](@ref), [`ClockModel`](@ref), [`HeisenbergModel`](@ref)) need no
+method of their own.
 
 Models that store couplings or fields differently override
 [`couplings`](@ref)/[`fields`](@ref) and should extend this method with their
@@ -21,7 +22,8 @@ own checks.
 
 # Throws
 
-`ArgumentError` naming the mismatched lengths or out-of-bounds template id.
+`ArgumentError` if `length(model.J)` or `length(model.h)` does not match the
+geometry.
 
 # Returns
 
@@ -72,11 +74,9 @@ Return the coupling strength `J` for the bond identified by `bond_id`, looked
 up via the bond's template in `geometry` and the model's
 [`couplings`](@ref).
 
-This is the checked convenience lookup, intended for setup and analysis code.
-Performance-critical inner loops should instead iterate a site's
-[`NeighborInfo`](@ref) and index `couplings(model)[template]` directly: the
-per-site `templates` vector is parallel to `neighbors`, so neither the bounds
-check here nor the `bond_id_to_template` indirection is needed there.
+This is the checked convenience lookup, intended for setup and analysis code;
+hot loops should index `couplings(model)[template]` from the neighbor table
+instead (see [`NeighborInfo`](@ref)).
 
 # Arguments
 
@@ -123,8 +123,9 @@ end
 Return the denominator of the fourth-order Binder cumulant,
 `1 - ⟨m⁴⟩ / (binder_denominator * ⟨m²⟩²)`, for `model`'s order parameter:
 `3` for a one-component (Ising) order parameter, `2` for a two-component
-(XY, or clock with `q >= 3`) one — the high-temperature Gaussian cumulant
-ratio. Required by the `:binder_cumulant` optional measurement.
+(XY, or clock with `q >= 3`) one, `5/3` for a three-component (Heisenberg)
+one — the high-temperature Gaussian cumulant ratio. Required by the
+`:binder_cumulant` optional measurement.
 
 # Throws
 

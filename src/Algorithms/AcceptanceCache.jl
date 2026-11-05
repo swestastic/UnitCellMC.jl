@@ -5,8 +5,7 @@ Maximum number of memoized `ΔE → exp(-ΔE / T)` entries held by an
 [`AcceptanceCache`](@ref), so the memo table is bounded and its scan stays
 short. The typical models selected by [`tabulate_acceptance`](@ref) have far
 fewer distinct `ΔE` values than this; a wider spectrum keeps the first
-entries (the commonest, since they are met first) and computes further
-values directly.
+entries it meets and computes further values directly.
 """
 const ACCEPTANCE_CACHE_CAPACITY = 64
 
@@ -24,10 +23,9 @@ Entries are keyed by the exact `Float64` value of each computed `ΔE`, so a
 hit reproduces a direct `exp(-ΔE / T)` evaluation bit for bit. The table is
 cleared when `T` changes between updates (the drivers use a fixed `T` per
 run, so this happens at most once) and holds at most
-[`ACCEPTANCE_CACHE_CAPACITY`](@ref) entries; a wider spectrum (say a
-large-`q` [`ClockModel`](@ref)) simply stops memoizing new values once full,
-while already-memoized values are still served — the commonest `ΔE`s are met
-first, so they are the ones retained. Like [`ClusterWorkspace`](@ref), it
+[`ACCEPTANCE_CACHE_CAPACITY`](@ref) entries; once full, new values are
+computed directly while already-memoized values are still served. Like
+[`ClusterWorkspace`](@ref), it
 carries mutable per-run state and must not be shared between concurrent runs.
 """
 mutable struct AcceptanceCache

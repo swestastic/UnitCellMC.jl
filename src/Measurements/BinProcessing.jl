@@ -281,6 +281,11 @@ one or more primary observables via jackknife resampling.
 - `N`: System size (or other size parameter), passed through to each derived
   quantity's `compute`.
 
+# Throws
+
+`ArgumentError` if any observable has fewer than two completed bins (e.g. a
+container that was never filled by a run).
+
 # Returns
 
 A named tuple `(primary = ..., derived = ..., autocorrelation = ...)`:

@@ -1,6 +1,6 @@
 """
     MC_Sweep!(algorithm, model, geometry, state, container, T, stats;
-        rng = Random.default_rng())
+        rng = Random.default_rng(), workspace = nothing)
 
 Perform one Monte Carlo sweep on `state` at temperature `T`, accumulating
 per-update algorithm diagnostics into `stats`.
@@ -8,10 +8,10 @@ per-update algorithm diagnostics into `stats`.
 The number of [`step!`](@ref) calls per sweep is determined by
 [`steps_per_sweep`](@ref): `geometry.n_sites` for local-update algorithms,
 one cluster update for cluster algorithms. After each update,
-`diagnostic_values` is evaluated and the values matching
-`container.diagnostics` are recorded into the corresponding
-[`UpdateStatistic`](@ref)s in `stats`, which must be one per diagnostic (see
-[`run_simulation`](@ref)). The per-update loop is delegated to
+`diagnostic_values` is evaluated and the values matching the container's
+diagnostic names (its `D` type parameter) are recorded into the
+corresponding [`UpdateStatistic`](@ref)s in `stats`, which must be one per
+diagnostic (see [`run_simulation`](@ref)). The per-update loop is delegated to
 [`sweep_steps!`](@ref), whose default method calls [`step!`](@ref);
 model/algorithm pairs with a fused fast path (single-orbital
 [`IsingModel`](@ref) under [`MetropolisAlgorithm`](@ref) with
@@ -23,11 +23,11 @@ model/algorithm pairs with a fused fast path (single-orbital
 - `model`: The model defining couplings/energetics.
 - `geometry`: The lattice geometry.
 - `state`: The current configuration, mutated in place.
-- `container`: A [`MeasurementContainer`](@ref); only its `diagnostics` field
-  is used to select which diagnostics to accumulate.
+- `container`: A [`MeasurementContainer`](@ref); only its diagnostic names
+  are used to select which diagnostics to accumulate.
 - `T`: Temperature passed to [`step!`](@ref).
-- `stats`: Tuple of [`UpdateStatistic`](@ref)s, one per entry in
-  `container.diagnostics`. Reset at the start of the sweep.
+- `stats`: Tuple of [`UpdateStatistic`](@ref)s, one per requested
+  diagnostic. Reset at the start of the sweep.
 - `rng`: Random number generator passed to every [`step!`](@ref).
 - `workspace`: Per-run scratch space passed to [`step!`](@ref) (see
   [`algorithm_workspace`](@ref)); `nothing` lets `step!` allocate its own.
@@ -52,7 +52,7 @@ end
 
 """
     run_simulation(algorithm, model, geometry, state, container, parameters;
-        rng = Random.default_rng())
+        rng = Random.default_rng(), shared = shared_workspace(algorithm, model, geometry))
 
 Run a Monte Carlo simulation and return `container` filled with the binned
 measurements described by `parameters`.
@@ -66,10 +66,8 @@ The sequence of sweeps is:
 3. `parameters.n_unmeasured` decorrelation sweeps after each measurement to
    reduce autocorrelation.
 
-One sweep consists of [`steps_per_sweep`](@ref) calls to [`step!`](@ref):
-`geometry.n_sites` single-site updates for `MetropolisAlgorithm` and
-`GlauberAlgorithm`, or a single
-cluster update for `WolffAlgorithm` and `SwendsenWangAlgorithm`.
+One sweep consists of [`steps_per_sweep`](@ref) calls to [`step!`](@ref)
+(see [`MC_Sweep!`](@ref)).
 
 # Arguments
 
@@ -219,8 +217,9 @@ the new samples count as one more chain (see [`chain_lengths_with_tail`](@ref)).
 
 # Returns
 
-A new `MeasurementContainer` with `length(containers) * n_bins` completed
-bins, ready for [`analyze`](@ref). Its vectors are freshly allocated (a
+A new `MeasurementContainer` holding the concatenation of all input bins
+(`length(containers) * n_bins` when each input holds `n_bins` bins), ready
+for [`analyze`](@ref). Its vectors are freshly allocated (a
 single-container merge copies rather than aliases its input), so measuring
 further into an input container never mutates the merged one, or vice versa.
 """

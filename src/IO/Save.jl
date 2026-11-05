@@ -361,7 +361,8 @@ autocorrelation data.
 
 Columns: `observable`, `tau`, `tau_err`, `window`, `n_samples`, `status`.
 `tau` is in units of measurements (`n_unmeasured + 1` sweeps) and is `NaN`
-unless `status == "resolved"`; see [`AutocorrelationResult`](@ref).
+unless `status` is `"resolved"` or `"anticorrelated"`; see
+[`AutocorrelationResult`](@ref).
 """
 function autocorrelation_rows(results)
     hasproperty(results, :autocorrelation) || return nothing
@@ -394,16 +395,13 @@ end
     save_results(model, algorithm, geometry, T, results, parameters;
         root = "results", seed = global_seed())
 
-Save all output for a single-temperature run: create the run directory,
-write metadata, measurements, correlations (if any), the structure factor
-(if any), per-orbital magnetizations (if any), and autocorrelation times (if
-any). Optional-data files the new results lack are removed, so re-running
-into a directory that held a richer run never leaves stale files behind.
-
-Combines [`results_dirname`](@ref), [`save_metadata`](@ref),
+Save all output for a single-temperature run, combining
+[`results_dirname`](@ref), [`save_metadata`](@ref),
 [`save_measurements`](@ref), [`save_correlations`](@ref),
 [`save_structure_factor`](@ref), [`save_magnetization_per_orbital`](@ref),
-and [`save_autocorrelation`](@ref) into one call.
+and [`save_autocorrelation`](@ref) into one call. Optional-data files the
+new results lack are removed, so re-running into a directory that held a
+richer run never leaves stale files behind.
 
 # Arguments
 
@@ -565,7 +563,9 @@ end
 """
     save_sweep_results(sweep_results, Ts, model, algorithm, geometry,
                         n_thermalization, n_measurements, n_unmeasured, n_bins;
-                        root = "results", seed = global_seed())
+                        root = "results", seed = global_seed(), n_runs = nothing,
+                        simulated_annealing = nothing, measurements = nothing,
+                        diagnostics = nothing, time_series = nothing)
 
 Save the combined output of a temperature sweep into a single directory:
 `measurement_results.csv`, `correlation_results.csv`,
@@ -576,8 +576,8 @@ metadata.
 
 `sweep_results[i]` must correspond to `Ts[i]`; per-temperature rows are built
 with [`measurement_rows`](@ref), [`correlation_rows`](@ref),
-[`structure_factor_rows`](@ref), and [`autocorrelation_rows`](@ref) and
-concatenated across all temperatures.
+[`structure_factor_rows`](@ref), [`magnetization_per_orbital_rows`](@ref), and
+[`autocorrelation_rows`](@ref) and concatenated across all temperatures.
 Temperatures with no correlation (structure-factor, autocorrelation) data are simply
 omitted from the corresponding file; if none have such data, that file is not
 written at all, and a stale file from an earlier save into the same directory

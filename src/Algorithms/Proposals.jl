@@ -77,12 +77,11 @@ Same-color sites share no bond, so the updates within each color block do not
 interact directly, and each single-site update satisfies detailed balance, so
 the completed sweep leaves the Boltzmann distribution invariant.
 
-The coloring is a saturation-first greedy (DSATUR) with randomized
-restarts; see [`color_lattice`](@ref). Exact coloring is NP-hard in general,
-so if no attempt manages with `k` colors an `ArgumentError` is thrown when
-the workspace is built — even where a `k`-coloring exists. DSATUR is exact
-on bipartite graphs, but for `k = 2` prefer [`CheckerboardProposal`](@ref),
-whose coloring is cheaper and needs no restarts.
+The coloring is a saturation-first greedy (DSATUR) with randomized restarts
+(see [`color_lattice`](@ref)); if no attempt manages with `k` colors, an
+`ArgumentError` is thrown when the workspace is built — even where a
+`k`-coloring exists. For `k = 2` prefer [`CheckerboardProposal`](@ref), whose
+coloring is cheaper and needs no restarts.
 
 The visiting order and cursor are per-run state held in a
 [`ColoredProposalWorkspace`](@ref), built once per run by
@@ -143,8 +142,7 @@ end
 2-color the bond graph of `geometry`: return a `Vector{Int}` with one entry
 per site, 0 or 1, such that the two endpoints of every bond have opposite
 colors. On a square lattice this is the parity `mod(x + y, 2)` of the unit
-cell coordinates. The neighbor table lists each bond from both endpoints, so
-every bond constrains the coloring exactly once per direction.
+cell coordinates.
 
 # Throws
 
@@ -370,7 +368,7 @@ For the colored schemes, `order` reuses a precomputed
 [`visiting_order`](@ref) instead of re-coloring `geometry`; it must be
 exactly `visiting_order(scheme, geometry)` (the coloring is deterministic) —
 [`sweep_Ts`](@ref) shares one coloring across its runs this way. `nothing`
-(the default, and the only value stateless schemes accept) recomputes it.
+(the default) recomputes it; stateless schemes ignore any `order`.
 An `order` a scheme has no specific three-argument method for is discarded
 and the workspace rebuilt, so a custom scheme that exposes
 [`visiting_order`](@ref) keeps working without one — define the

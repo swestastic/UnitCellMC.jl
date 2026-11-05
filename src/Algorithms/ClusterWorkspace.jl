@@ -19,7 +19,7 @@ shared between concurrent runs.
 
 - `in_cluster::BitVector`: Wolff cluster-membership mask.
 - `cluster::Vector{Int}`: Wolff cluster member list.
-- `frontier::Vector{Int}`: Wolff breadth-first stack.
+- `frontier::Vector{Int}`: Wolff depth-first traversal stack.
 - `parents::Vector{Int}`: Swendsen-Wang union-find parent of each site, then
   each ghost site.
 - `ranks::Vector{UInt8}`: Swendsen-Wang union-find ranks.

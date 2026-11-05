@@ -200,8 +200,7 @@ each reflected site contributes `ΔE = 2 * h * cos(φ) * p_i`,
 `ΔM_x = -2 * cos(φ) * p_i`, and `ΔM_y = -2 * sin(φ) * p_i`. The reflection
 itself is the linear map `v ↦ v - 2 (v·r̂) r̂`.
 
-This explicit form allocates a membership mask per call and serves as the
-readable reference implementation (exercised by the tests); the Wolff driver
+This form allocates a membership mask per call; the Wolff driver instead
 passes down the mask it already built.
 """
 function apply_cluster!(
@@ -277,10 +276,8 @@ end
 
 Explicit-partition form of [`apply_clusters!`](@ref): reflect each cluster in
 `clusters` about `reflection_axis` independently with probability 1/2.
-Allocates its own label map; the Swendsen-Wang driver uses the allocation-free
-workspace form below. This
-explicit form is the readable reference implementation exercised by the
-tests.
+Allocates its own label map; the Swendsen-Wang driver uses the workspace
+form below.
 """
 function apply_clusters!(
     rng::AbstractRNG,

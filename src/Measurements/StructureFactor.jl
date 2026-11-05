@@ -121,9 +121,9 @@ without an FFT dependency.
 
 # Throws
 
-`ArgumentError` if `W`'s second dimension does not match `size(A, d)` — the
-contraction is unchecked (`@inbounds`) below, so the shapes are validated
-here.
+`ArgumentError` if `d` is out of range for `ndims(A)`, or if `W`'s second
+dimension does not match `size(A, d)` — the contraction is unchecked
+(`@inbounds`) below, so the shapes are validated here.
 """
 function fourier_transform_dim(A::Array{T}, W::AbstractMatrix, d::Int) where T
     sz = size(A)

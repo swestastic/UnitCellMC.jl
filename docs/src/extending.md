@@ -234,6 +234,7 @@ has more constraints). The model supplies the physics through these hooks:
 
 ```julia
 cluster_context(rng, model, geometry, state, T)          # per-update scratch (e.g. a reflection axis); `nothing` if unused
+cluster_seed(rng, model, geometry, state)                # optional: defaults to a uniformly random site
 cluster_bond_probability(model, geometry, state, site, neighbor, bond_template, T, context)
 cluster_ghost_count(model, geometry, state, context)     # 2 for a +/- external field, 0 for no field coupling
 cluster_ghost_probability(model, geometry, state, site, ghost, T, context)

@@ -183,9 +183,9 @@ end
 Draw a uniformly distributed unit vector in ``\\mathbb{R}^3`` (a random point
 on the unit sphere): with `z` uniform on `[-1, 1]` and `φ` uniform on
 `[0, 2π)`, the vector `(√(1 - z²) cos φ, √(1 - z²) sin φ, z)` is uniform on
-the sphere. Shared by [`initialize_state`](@ref) and the Metropolis
-[`propose`](@ref) of the [`HeisenbergModel`](@ref), so both consume the same
-two draws per vector from `rng`.
+the sphere. Shared by [`initialize_state`](@ref), the Metropolis
+[`propose`](@ref), and the cluster context of the [`HeisenbergModel`](@ref),
+so all consume the same two draws per vector from `rng`.
 
 # Returns
 

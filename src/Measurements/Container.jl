@@ -9,11 +9,8 @@ tuples of `Symbol`s, and `O` is the concretely typed tuple of
 [`Observable`](@ref)s, so that [`measure!`](@ref) is type-stable: observable
 values are sampled, named, and accumulated without dynamic dispatch.
 
-Raw measurements are accumulated into `bin_sums` as they're taken and
-flushed into `data` once every `bin_size` measurements. `bin_count` tracks
-the measurements accumulated in the current bin (see the
-accumulation/flushing functions that operate on this container elsewhere in
-the codebase).
+Raw measurements are accumulated into `bin_sums` and flushed into `data`
+once every `bin_size` measurements.
 
 # Fields
 
@@ -150,8 +147,8 @@ observable's initial `data` and `bin_sums` entries are built from its
 [`validate_binning`](@ref) (`n_measurements` not positive, `n_bins` less
 than 2, or `n_measurements` not a multiple of `n_bins`), if `measurements`
 contains a name not available for `model` (see
-[`available_measurements`](@ref)), if any name in `diagnostics` duplicates a
-raw observable name, if a requested derived quantity depends on an
+[`available_measurements`](@ref)), if `diagnostics` repeats a name or
+duplicates a raw observable name, if a requested derived quantity depends on an
 observable that isn't being measured (via [`validate_dependencies`](@ref)),
 or if `time_series` is not a recognized option or names an observable that
 isn't being measured.

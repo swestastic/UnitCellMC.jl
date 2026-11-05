@@ -175,8 +175,7 @@ a boundary bond `(i, j)` with `i` in the cluster contributes
 `ΔE = 2 * J * spins[i] * spins[j]`, and each flipped site contributes a field
 term `ΔE = 2 * h * spins[i]` and `ΔM = -2 * spins[i]`.
 
-This explicit form allocates a membership mask per call and serves as the
-readable reference implementation (exercised by the tests); the Wolff driver
+This form allocates a membership mask per call; the Wolff driver instead
 passes down the mask it already built.
 """
 function apply_cluster!(
@@ -242,9 +241,7 @@ end
 
 Explicit-partition form of [`apply_clusters!`](@ref): flip each cluster in
 `clusters` independently with probability 1/2. Allocates its own label map;
-the Swendsen-Wang driver uses the allocation-free workspace form below. This
-explicit form is the readable reference implementation exercised by the
-tests.
+the Swendsen-Wang driver uses the workspace form below.
 """
 function apply_clusters!(
     rng::AbstractRNG,

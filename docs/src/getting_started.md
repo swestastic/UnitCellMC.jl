@@ -12,7 +12,7 @@ Pkg.add(url="https://github.com/swestastic/UnitCellMC.jl")
 The main user-facing types and functions are exported, so
 `using UnitCellMC` is enough for a standard run. Lattice types
 (`UnitCell`, `Lattice`, `Bond`) are provided by LatticeUtilities, which
-must be loaded separately. The examples alias the modules for brevity
+must be loaded separately. The tutorials alias the modules for brevity
 and use qualified names:
 
 ```julia

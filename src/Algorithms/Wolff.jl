@@ -2,8 +2,9 @@
     WolffAlgorithm
 
 Marker type selecting a single-cluster Wolff update. The cluster traversal is
-model-independent; models provide `cluster_seed`, `cluster_bond_probability`,
-and `apply_cluster!` methods.
+model-independent; models provide `cluster_bond_probability` and
+`apply_cluster!` methods (`cluster_seed` defaults to a uniformly random site
+and can be overridden).
 
 With an external field, clusters that attach to a ghost site are never
 flipped, and for β|h| ≳ 1 most clusters attach — acceptance collapses and the

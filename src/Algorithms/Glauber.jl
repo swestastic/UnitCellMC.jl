@@ -73,7 +73,7 @@ algorithm_workspace(alg::GlauberAlgorithm, model, geometry, state,
     LocalUpdateWorkspace(alg.proposal, model, geometry, order)
 
 """
-    step!(alg::GlauberAlgorithm, model, geometry, state, T; rng = Random.default_rng())
+    step!(alg::GlauberAlgorithm, model, geometry, state, T; rng = Random.default_rng(), workspace = nothing)
 
 Attempt one Glauber update on `state` at temperature `T`, and apply it if
 accepted.

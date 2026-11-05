@@ -64,7 +64,7 @@ algorithm_workspace(alg::MetropolisAlgorithm, model, geometry, state,
     LocalUpdateWorkspace(alg.proposal, model, geometry, order)
 
 """
-    step!(alg, model, geometry, state, T; rng = Random.default_rng())
+    step!(alg, model, geometry, state, T; rng = Random.default_rng(), workspace = nothing)
 
 Attempt one Monte Carlo update on `state` using `alg`, and apply it if
 accepted according to the Metropolis criterion at temperature `T`.

@@ -11,9 +11,8 @@ and the neighboring site reached by each bond (`neighbors`). `bonds[k]`,
 so the three vectors always have equal length.
 
 `templates[k]` is `bond_id_to_template[bonds[k]]`: the id of the bond
-template (in `bonds`) that generated bond `bonds[k]`. It is stored per site
-as a per-bond payload index, so that inner loops can use it directly — for
-example to index a model's coupling vector — instead of going through
+template (in `bonds`) that generated bond `bonds[k]`. It is stored per site so
+inner loops can index a model's coupling vector directly instead of calling
 `bond_id_to_template` on every neighbor visit.
 """
 const NeighborInfo = NamedTuple{
@@ -129,7 +128,8 @@ not need that function's calling convention.
 
 # Returns
 
-The site index (an `Int`).
+The site index (an `Int`), or `0` if `loc` is invalid under the lattice's
+boundary conditions.
 """
 site_at(geometry::Geometry, loc, orbital) =
     LatticeUtilities.loc_to_site(loc, orbital, geometry.unit_cell, geometry.lattice)

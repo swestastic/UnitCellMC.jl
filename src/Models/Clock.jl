@@ -138,6 +138,19 @@ function propose(rng::AbstractRNG, ::MetropolisAlgorithm, model::ClockModel, geo
     )
 end
 
+"""
+    energy_difference(model::ClockModel, geometry, state, proposal)
+
+Compute the change in total energy `ΔE` from changing the clock index at
+`proposal.site` to `proposal.new_value`: with `θ_n = 2πn/q`, this is
+`-Σ_j J_ij (cos(θ_new - θ_j) - cos(θ_old - θ_j))` over the site's
+neighbors, plus the field term `-h (cos θ_new - cos θ_old)` (the field points
+along the x direction).
+
+# Returns
+
+The energy difference `ΔE` between the proposed and current configurations.
+"""
 function energy_difference(
     model::ClockModel,
     geometry::Geometry,
@@ -248,9 +261,8 @@ Reflect a Wolff cluster across clock mirror `mirror`
 (`n ↦ mod(mirror - n, q)`, see [`ClockClusterContext`](@ref)) and update the
 cached clock observables incrementally via
 [`_reflect_clock_sites!`](@ref).
-This explicit form allocates a membership mask per call and is the
-readable reference implementation exercised by the tests; the Wolff
-driver passes down the mask it already built.
+This form allocates a membership mask per call; the Wolff driver
+instead passes down the mask it already built.
 """
 function apply_cluster!(
     model::ClockModel,

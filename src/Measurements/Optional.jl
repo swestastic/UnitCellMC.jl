@@ -22,9 +22,9 @@ end
 Build the optional fourth-order Binder cumulant for a model.
 
 The routine adds the raw observable `:magnetization_fourth` and the derived
-quantity `:binder_cumulant`, computed from the jackknife samples of
-`(:magnetization_squared, :magnetization_fourth)` using the standard Binder
-cumulant formula, with a zero-second-moment guard to avoid division by zero.
+quantities `:binder_cumulant`/`:binder_cumulant_err`, computed from the
+jackknife samples of `(:magnetization_squared, :magnetization_fourth)` with
+the standard Binder cumulant formula and a zero-second-moment guard.
 """
 function binder_cumulant_entry(model, geometry)
     denominator = binder_denominator(model)

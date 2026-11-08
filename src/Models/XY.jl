@@ -103,6 +103,63 @@ function energy_difference(
 end
 
 """
+    heatbath_draw(rng, model::XYModel, geometry, state, site, T, cache)
+
+Draw the new spin at `site` from its single-site conditional distribution at
+temperature `T`: with the local field `H = (C + h, S)` assembled from the
+bond sums `C = Σ J cos(θ_j)`, `S = Σ J sin(θ_j)`, the conditional angle
+distribution is the von Mises law `p(θ) ∝ exp(κ cos(θ - φ))` with
+concentration `κ = |H| / T` about the local-field direction `φ`.
+
+The angle is drawn as `θ = δ + φ` with `δ` from [`rand_von_mises`](@ref), and
+the rotation by `φ` is applied through `cos φ = (C + h) / |H|`,
+`sin φ = S / |H|`, so no `atan` call is needed and the result is a unit
+vector by construction. A vanishing local field (`|H| = 0`, e.g. no bonds
+and no field) gives a uniform angle. `cache` goes unused: the draw does not
+reduce to a memoized Boltzmann factor.
+
+# Returns
+
+A [`SpinUpdate`](@ref) carrying the drawn components `(cos θ, sin θ)` as
+`new_value` and their change from the current components as
+`magnetization_change`.
+"""
+function heatbath_draw(
+    rng::AbstractRNG,
+    model::XYModel,
+    geometry::Geometry,
+    state::XYState,
+    site::Int,
+    T::Real,
+    cache,
+)
+    info = geometry.neighbor_table[site]
+    J = couplings(model)
+    Hx = Float64(field_strength(model, geometry, site))
+    Hy = zero(Hx)
+    for (template, neighbor) in zip(info.templates, info.neighbors)
+        neighbor == site && continue
+        Hx += J[template] * state.cosines[neighbor]
+        Hy += J[template] * state.sines[neighbor]
+    end
+
+    R = hypot(Hx, Hy)
+    sin_δ, cos_δ = sincos(rand_von_mises(rng, R / T))
+    if R == 0
+        c_new, s_new = cos_δ, sin_δ
+    else
+        ux, uy = Hx / R, Hy / R
+        c_new = cos_δ * ux - sin_δ * uy
+        s_new = sin_δ * ux + cos_δ * uy
+    end
+
+    return SpinUpdate(
+        site, (c_new, s_new),
+        (c_new - state.cosines[site], s_new - state.sines[site]),
+    )
+end
+
+"""
     XYClusterContext
 
 Per-update state of an XY cluster move (Wolff or Swendsen-Wang): the random

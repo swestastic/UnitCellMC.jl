@@ -16,7 +16,7 @@ include("IO/IO.jl")
 
 export Geometry, initialize_state
 export IsingModel, XYModel, ClockModel, HeisenbergModel
-export MetropolisAlgorithm, GlauberAlgorithm, WolffAlgorithm, SwendsenWangAlgorithm
+export MetropolisAlgorithm, GlauberAlgorithm, HeatbathAlgorithm, WolffAlgorithm, SwendsenWangAlgorithm
 export RandomProposal, SequentialProposal, CheckerboardProposal, ColoredProposal
 export SimulationParameters, MeasurementContainer
 export MC_Sweep!, run_simulation, sweep_Ts, merge_containers, analyze, autotune_binning

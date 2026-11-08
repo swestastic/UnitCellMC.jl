@@ -13,7 +13,7 @@ site-selection schemes do not overwrite each other. The default
 """
 algorithm_label(algorithm) = string(nameof(typeof(algorithm)))
 
-algorithm_label(alg::Union{MetropolisAlgorithm, GlauberAlgorithm}) =
+algorithm_label(alg::Union{MetropolisAlgorithm, GlauberAlgorithm, HeatbathAlgorithm}) =
     algorithm_label(nameof(typeof(alg)), alg.proposal)
 
 algorithm_label(name, ::RandomProposal) = string(name)

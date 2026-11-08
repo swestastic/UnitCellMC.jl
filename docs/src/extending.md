@@ -197,7 +197,11 @@ end
 
 That is all the Metropolis algorithm needs; **Glauber works automatically**
 (a generic fallback forwards [`propose`](@ref UnitCellMC.propose) to the Metropolis proposal —
-override it if you want a different Glauber proposal). In the inner loop,
+override it if you want a different Glauber proposal). **Heatbath requires one
+more hook**, [`heatbath_draw`](@ref UnitCellMC.heatbath_draw): draw the site's new value from its
+single-site conditional distribution and return it as a `SpinUpdate` (the
+`cache` argument is the run's [`AcceptanceCache`](@ref UnitCellMC.AcceptanceCache) when
+`tabulate_acceptance(model)` is true, `nothing` otherwise). In the inner loop,
 hoist `J = couplings(model)` once and index `J[template]`; the per-site
 `templates` vector exists precisely for this.
 
@@ -265,24 +269,24 @@ label). Look at `Models/XY.jl` for a complete example.
 
 An algorithm is a marker struct plus `step!`, and it lives in
 `src/Algorithms/MyAlgorithm.jl` (included from `src/Algorithms/Algorithms.jl`).
-Worked skeleton: a heat-bath algorithm.
+Worked skeleton:
 
 ```julia
-struct HeatbathAlgorithm <: AbstractAlgorithm end
+struct MyAlgorithm <: AbstractAlgorithm end
 
-struct HeatbathUpdateResult <: AbstractUpdateResult
+struct MyUpdateResult <: AbstractUpdateResult
     accepted::Bool     # whatever describes one update
 end
 
-function step!(::HeatbathAlgorithm, model::AbstractModel, geometry::Geometry,
+function step!(::MyAlgorithm, model::AbstractModel, geometry::Geometry,
                state::AbstractState, T::Real; rng::AbstractRNG = Random.default_rng())
     T > 0 || throw(ArgumentError("Temperature must be positive, got $T"))
     ...
-    return HeatbathUpdateResult(...)
+    return MyUpdateResult(...)
 end
 
-diagnostic_values(::HeatbathAlgorithm, result) = (acceptance_ratio = ...,)
-available_diagnostics(::Type{<:HeatbathAlgorithm}) = [:acceptance_ratio]
+diagnostic_values(::MyAlgorithm, result) = (acceptance_ratio = ...,)
+available_diagnostics(::Type{<:MyAlgorithm}) = [:acceptance_ratio]
 ```
 
 Rules of the road:

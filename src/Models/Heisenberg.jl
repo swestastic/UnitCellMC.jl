@@ -131,6 +131,109 @@ function energy_difference(
 end
 
 """
+    heatbath_draw(rng, model::HeisenbergModel, geometry, state, site, T, cache)
+
+Draw the new spin at `site` from its single-site conditional distribution at
+temperature `T`: with the local field `H = (h, 0, 0) + Σ J v_j` assembled
+from the bond sums, the conditional is the Fisher (Langevin) distribution
+`p(v) ∝ exp(κ û · v)` on the unit sphere, with concentration `κ = |H| / T`
+about the local-field direction `û = H / |H|`.
+
+The draw is exact: the polar component `cos θ = v · û` has density
+`∝ exp(κ cos θ)` on `[-1, 1]`, sampled by inversion of its cumulative
+distribution (see [`_heatbath_cos_theta`](@ref)); the azimuth about `û` is
+uniform; and the two are combined in an orthonormal triad around `û` (see
+[`_orthonormal_basis`](@ref)). A vanishing local field (`|H| = 0`) gives a
+uniform unit vector. `cache` goes unused: the draw does not reduce to a
+memoized Boltzmann factor.
+
+# Returns
+
+A [`SpinUpdate`](@ref) carrying the drawn components `(x, y, z)` as
+`new_value` and their change from the current components as
+`magnetization_change`.
+"""
+function heatbath_draw(
+    rng::AbstractRNG,
+    model::HeisenbergModel,
+    geometry::Geometry,
+    state::HeisenbergState,
+    site::Int,
+    T::Real,
+    cache,
+)
+    info = geometry.neighbor_table[site]
+    J = couplings(model)
+    Hx = Float64(field_strength(model, geometry, site))
+    Hy = zero(Hx)
+    Hz = zero(Hx)
+    for (template, neighbor) in zip(info.templates, info.neighbors)
+        neighbor == site && continue
+        Hx += J[template] * state.xs[neighbor]
+        Hy += J[template] * state.ys[neighbor]
+        Hz += J[template] * state.zs[neighbor]
+    end
+
+    R = hypot(Hx, Hy, Hz)
+    new = if R == 0
+        random_unit_vector(rng)
+    else
+        cos_θ = _heatbath_cos_theta(rng, R / T)
+        sin_θ = sqrt((1 - cos_θ) * (1 + cos_θ))
+        sin_φ, cos_φ = sincos(2π * rand(rng))
+        u = (Hx / R, Hy / R, Hz / R)
+        e1, e2 = _orthonormal_basis(u)
+        ntuple(3) do α
+            cos_θ * u[α] + sin_θ * (cos_φ * e1[α] + sin_φ * e2[α])
+        end
+    end
+
+    return SpinUpdate(
+        site, new,
+        (new[1] - state.xs[site], new[2] - state.ys[site], new[3] - state.zs[site]),
+    )
+end
+
+"""
+    _heatbath_cos_theta(rng, κ)
+
+Draw `cos θ ∈ [-1, 1]` from `p(c) ∝ exp(κ c)`, the polar-angle density of the
+Fisher distribution, by inversion of the cumulative distribution:
+`c = 1 + log(u + (1 - u) exp(-2κ)) / κ` for `u` uniform on `[0, 1)`. The
+written form factors out `exp(κ)`, so it neither overflows nor loses range at
+large `κ`. For `κ < 1e-8` the density is uniform to `O(κ)`, so `c = 2u - 1`
+avoids the `0 / 0` limit.
+"""
+function _heatbath_cos_theta(rng::AbstractRNG, κ::Real)
+    u = rand(rng)
+    κ < 1e-8 && return 2u - 1
+    return 1 + log(u + (1 - u) * exp(-2κ)) / κ
+end
+
+"""
+    _orthonormal_basis(u)
+
+Return unit vectors `e1, e2` perpendicular to the unit vector `u` and to each
+other: `e1` is the normalized cross product of `u` with the coordinate axis
+least aligned with it (the largest such cross product, so the normalization
+cannot degenerate), and `e2 = u × e1`.
+"""
+function _orthonormal_basis(u::NTuple{3,Real})
+    ax = if abs(u[1]) <= abs(u[2]) && abs(u[1]) <= abs(u[3])
+        (1.0, 0.0, 0.0)
+    elseif abs(u[2]) <= abs(u[3])
+        (0.0, 1.0, 0.0)
+    else
+        (0.0, 0.0, 1.0)
+    end
+    e1 = (u[2] * ax[3] - u[3] * ax[2], u[3] * ax[1] - u[1] * ax[3], u[1] * ax[2] - u[2] * ax[1])
+    n = hypot(e1[1], e1[2], e1[3])
+    e1 = (e1[1] / n, e1[2] / n, e1[3] / n)
+    e2 = (u[2] * e1[3] - u[3] * e1[2], u[3] * e1[1] - u[1] * e1[3], u[1] * e1[2] - u[2] * e1[1])
+    return e1, e2
+end
+
+"""
     HeisenbergClusterContext
 
 Per-update state of a Heisenberg cluster move (Wolff or Swendsen-Wang): the

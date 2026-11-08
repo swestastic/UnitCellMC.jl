@@ -31,7 +31,8 @@ abstract type AbstractState end
     AbstractProposalScheme
 
 Abstract supertype for the site-selection schemes of local-update algorithms
-([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref)).
+([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
+[`HeatbathAlgorithm`](@ref)).
 
 A scheme decides which site each [`step!`](@ref) update visits —
 [`RandomProposal`](@ref) draws uniformly at random,

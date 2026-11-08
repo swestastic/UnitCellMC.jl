@@ -35,13 +35,33 @@ struct GlauberUpdateResult <: AbstractUpdateResult
 end
 
 """
+    HeatbathUpdateResult
+
+Result of one heatbath update, recording whether the redrawn value of the
+visited site differs from its previous value.
+
+A heatbath update has no acceptance test — the new value is drawn from the
+site's exact conditional distribution (see [`HeatbathAlgorithm`](@ref)) — so
+the only way a step can leave the site unchanged is by drawing its current
+value, which for discrete models happens with nonzero probability.
+
+# Fields
+
+- `changed::Bool`: Whether the site's value after the update differs from
+  the one before.
+"""
+struct HeatbathUpdateResult <: AbstractUpdateResult
+    changed::Bool
+end
+
+"""
     steps_per_sweep(algorithm, geometry)
 
 Return the number of [`step!`](@ref) updates that constitute one Monte Carlo
 sweep for `algorithm` on `geometry`.
 
 For local-update algorithms (the default, e.g. [`MetropolisAlgorithm`](@ref)
-and [`GlauberAlgorithm`](@ref))
+[`GlauberAlgorithm`](@ref), and [`HeatbathAlgorithm`](@ref))
 a sweep is `geometry.n_sites` single-site updates, so that on average every
 site is updated once per sweep — exactly once with
 [`SequentialProposal`](@ref), which visits the sites in order. For cluster
@@ -58,6 +78,7 @@ include("Proposals.jl")
 include("AcceptanceCache.jl")
 include("Metropolis.jl")
 include("Glauber.jl")
+include("Heatbath.jl")
 include("ClusterWorkspace.jl")
 include("Wolff.jl")
 include("SwendsenWang.jl")

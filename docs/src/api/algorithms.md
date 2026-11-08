@@ -10,6 +10,10 @@ UnitCellMC.MetropolisUpdateResult
 UnitCellMC.GlauberAlgorithm
 UnitCellMC.GlauberUpdateResult
 UnitCellMC.glauber_probability
+UnitCellMC.HeatbathAlgorithm
+UnitCellMC.HeatbathUpdateResult
+UnitCellMC.heatbath_draw
+UnitCellMC.rand_von_mises
 UnitCellMC.WolffAlgorithm
 UnitCellMC.WolffUpdateResult
 UnitCellMC.SwendsenWangAlgorithm

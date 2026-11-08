@@ -65,6 +65,36 @@ certainty; a move with $\Delta E = 0$ is accepted with probability $1/2$. For
 the Ising model a Glauber spin flip is equivalent to a heat-bath update of the
 chosen spin.
 
+## Heatbath
+
+The heatbath algorithm is a single-site update with no acceptance test at
+all: the visited site is assigned a new value drawn directly from its
+single-site conditional distribution — the Boltzmann distribution of the
+site's degree of freedom in the local field
+$\mathbf{H}_i = \sum_j J_{ij} s_j + \mathbf{h}_i$ of its frozen neighbors:
+
+- **Ising model**: $P(s_i = +1) = \frac{e^{H_i/T}}{2\cosh(H_i/T)}$. For a
+  two-state spin this is exactly the Glauber transition kernel, so heatbath
+  and Glauber updates coincide for the Ising model.
+- **Clock model**: the $q$ Boltzmann weights
+  $w_n = \exp\!\big[\big(A\cos\theta_n + B\sin\theta_n\big)/T\big]$, with
+  $A = h_i + \sum_j J_{ij}\cos\theta_j$ and $B = \sum_j J_{ij}\sin\theta_j$,
+  are enumerated and sampled directly.
+- **XY model**: the conditional angle distribution is the von Mises law
+  $p(\theta_i) \propto e^{\kappa\cos(\theta_i - \phi_i)}$ with concentration
+  $\kappa = |\mathbf{H}_i|/T$ about the local-field direction $\phi_i$,
+  sampled by the Best–Fisher rejection algorithm.
+- **Heisenberg model**: the conditional is the Fisher (Langevin)
+  distribution $p(s_i) \propto e^{\kappa\, \hat{H}_i \cdot s_i}$ on the unit
+  sphere, sampled exactly by inverting the polar-angle cumulative
+  distribution.
+
+Since the draw is the exact conditional, every update leaves the Boltzmann
+distribution invariant regardless of the site's previous value. There is no
+acceptance ratio; the per-update diagnostic is the *change ratio*, the
+fraction of updates that actually changed the site's value (only discrete
+models can redraw the current value).
+
 ## Wolff Cluster
 
 The Wolff algorithm grows and flips one connected cluster at a time. For the

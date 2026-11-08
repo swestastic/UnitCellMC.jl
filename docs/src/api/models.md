@@ -39,4 +39,6 @@ UnitCellMC._reflect_heisenberg_clusters!
 UnitCellMC._flip_ising_clusters!
 UnitCellMC._reflect_clock_sites!
 UnitCellMC._reflect_clock_clusters!
+UnitCellMC._heatbath_cos_theta
+UnitCellMC._orthonormal_basis
 ```

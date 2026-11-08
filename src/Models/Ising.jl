@@ -106,6 +106,56 @@ function energy_difference(
 end
 
 """
+    heatbath_draw(rng, model::IsingModel, geometry, state, site, T, cache)
+
+Draw the new spin at `site` from its single-site conditional distribution at
+temperature `T`: with the local field `H = h + sum(J * neighbor_spin)`, the
+conditional probability of spin up is
+`p = exp(H / T) / (2 cosh(H / T)) = 1 / (1 + exp(-2H / T))`.
+
+For a two-state spin this is exactly the [`GlauberAlgorithm`](@ref)
+transition kernel — `glauber_probability(ΔE, T)` evaluated at the energy
+change `ΔE = -2H` of the down-to-up move — so heatbath and Glauber updates
+coincide for the Ising model; the probability is computed by
+[`glauber_probability`](@ref), or read off the memoized Boltzmann factor
+`u = exp(-ΔE / T)` with the same overflow-safe branch as the Glauber
+[`step!`](@ref) when `cache` is an [`AcceptanceCache`](@ref).
+
+# Returns
+
+A `SpinUpdate` for the site and its drawn spin.
+"""
+function heatbath_draw(
+    rng::AbstractRNG,
+    model::IsingModel,
+    geometry::Geometry,
+    state::IsingState,
+    site::Int,
+    T::Real,
+    cache,
+)
+    s = state.spins[site]
+    info = geometry.neighbor_table[site]
+
+    J = couplings(model)
+    weighted_sum = zero(promote_type(eltype(state.spins), eltype(J)))
+    for (template, neighbor) in zip(info.templates, info.neighbors)
+        neighbor == site && continue
+        weighted_sum += J[template] * state.spins[neighbor]
+    end
+    H = weighted_sum + field_strength(model, geometry, site)
+
+    p_up = if cache === nothing
+        glauber_probability(-2H, T)
+    else
+        u = cached_boltzmann_factor(cache, -2H, Float64(T))
+        H < 0 ? u / (1 + u) : 1 / (1 + 1 / u)
+    end
+    s_new = rand(rng) < p_up ? one(s) : -one(s)
+    return SpinUpdate(site, s_new, s_new - s)
+end
+
+"""
     cluster_bond_probability(model, geometry, state, site, neighbor, bond_template, T)
 
 Return the Wolff bond-activation probability for a ferromagnetic Ising bond,

@@ -173,6 +173,79 @@ function energy_difference(
 end
 
 """
+    heatbath_draw(rng, model::ClockModel, geometry, state, site, T, cache)
+
+Draw the new clock index at `site` from its single-site conditional
+distribution at temperature `T`: with `θ_n = 2πn/q` and the local field sums
+`A = h + Σ_j J cos(θ_j)`, `B = Σ_j J sin(θ_j)` over the site's bonds, state
+`n` is drawn with probability proportional to the Boltzmann weight
+`exp((A cos θ_n + B sin θ_n) / T)`.
+
+The `q` weights are enumerated twice from the lookup tables — once for their
+maximum and total, once to locate the draw in the cumulative sum — so no
+`q`-sized scratch array is needed. Subtracting the maximum exponent keeps the
+weights finite at any temperature; a weight that underflows to zero is never
+selected, as it should be. `cache` goes unused: the draw does not reduce to a
+memoized Boltzmann factor.
+
+# Returns
+
+A [`SpinUpdate`](@ref) for the site and its drawn clock index, carrying the
+magnetization change from the lookup tables.
+"""
+function heatbath_draw(
+    rng::AbstractRNG,
+    model::ClockModel,
+    geometry::Geometry,
+    state::ClockState,
+    site::Int,
+    T::Real,
+    cache,
+)
+    old = state.spins[site]
+    info = geometry.neighbor_table[site]
+    J = couplings(model)
+    A = Float64(field_strength(model, geometry, site))
+    B = zero(A)
+    for (template, neighbor) in zip(info.templates, info.neighbors)
+        neighbor == site && continue
+        A += J[template] * clock_cos(model, state.spins[neighbor])
+        B += J[template] * clock_sin(model, state.spins[neighbor])
+    end
+    βA = A / T
+    βB = B / T
+    q = model.q
+    cosines = model.cosines
+    sines = model.sines
+
+    a_max = -Inf
+    for n in 1:q
+        a = βA * cosines[n] + βB * sines[n]
+        a > a_max && (a_max = a)
+    end
+    total = 0.0
+    for n in 1:q
+        total += exp(βA * cosines[n] + βB * sines[n] - a_max)
+    end
+    r = rand(rng) * total
+    cumulated = 0.0
+    new = q - 1
+    for n in 1:q
+        cumulated += exp(βA * cosines[n] + βB * sines[n] - a_max)
+        if cumulated >= r
+            new = n - 1
+            break
+        end
+    end
+
+    return SpinUpdate(
+        site, new,
+        (clock_cos(model, new) - clock_cos(model, old),
+            clock_sin(model, new) - clock_sin(model, old)),
+    )
+end
+
+"""
     ClockClusterContext
 
 Per-update state of a clock-model cluster move (Wolff or Swendsen-Wang).

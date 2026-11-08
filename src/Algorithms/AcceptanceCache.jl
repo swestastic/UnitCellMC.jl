@@ -16,7 +16,8 @@ Per-run memo table of Boltzmann factors `u = exp(-ΔE / T)` for the
 local-update acceptance tests, built by [`algorithm_workspace`](@ref) as part
 of a [`LocalUpdateWorkspace`](@ref) when [`tabulate_acceptance`](@ref) is
 true for the model. The Metropolis test `rand(rng) < exp(-ΔE / T)` and the
-Glauber acceptance probability both become table lookups once an entry is
+Glauber acceptance probability (equivalently the Ising heatbath conditional
+probability, see [`heatbath_draw`](@ref)) both become table lookups once an entry is
 memoized.
 
 Entries are keyed by the exact `Float64` value of each computed `ΔE`, so a
@@ -83,7 +84,8 @@ end
 
 Return `true` if the model's single-site [`energy_difference`](@ref) takes
 values from a small discrete set, so that local-update algorithms
-([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref)) benefit from
+([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
+[`HeatbathAlgorithm`](@ref)) benefit from
 memoizing Boltzmann factors per temperature in an [`AcceptanceCache`](@ref).
 Memoization is exact whenever the spectrum is discrete, since computed `ΔE`
 values repeat bit for bit.
@@ -101,7 +103,8 @@ tabulate_acceptance(::AbstractModel) = false
     LocalUpdateWorkspace
 
 Per-run workspace for the local-update algorithms
-([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref)), built by
+([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
+[`HeatbathAlgorithm`](@ref)), built by
 [`algorithm_workspace`](@ref) and threaded through [`MC_Sweep!`](@ref) into
 [`step!`](@ref). Bundles the site-selection scheme's per-run state with the
 acceptance-probability memo table.

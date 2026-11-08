@@ -10,7 +10,8 @@ With an external field, clusters that attach to a ghost site are never
 flipped, and for β|h| ≳ 1 most clusters attach — acceptance collapses and the
 cluster sizes stay small (the [`WolffUpdateResult`](@ref) `cluster_size`
 reports zero for those frozen steps). Prefer a local-update algorithm
-([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref)) in strong fields.
+([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
+[`HeatbathAlgorithm`](@ref)) in strong fields.
 """
 struct WolffAlgorithm <: AbstractAlgorithm end
 

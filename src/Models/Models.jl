@@ -8,40 +8,37 @@ include("Heisenberg.jl")
 
 Validate the compatibility between a model's coupling/field data and the
 lattice geometry. The generic method enforces the package-wide layout
-conventions for models that carry them: a bond-coupling vector `model.J` must
-have one entry per bond template in `geometry.bonds`, and a field vector
-`model.h` must have one entry per unit-cell orbital. (The template ids in
-`geometry.bond_id_to_template` are valid by construction, so only lengths
-need checking.) Models with `J` and `h` fields ([`IsingModel`](@ref),
-[`XYModel`](@ref), [`ClockModel`](@ref), [`HeisenbergModel`](@ref)) need no
-method of their own.
-
-Models that store couplings or fields differently override
-[`couplings`](@ref)/[`fields`](@ref) and should extend this method with their
-own checks.
+contract (see [`AbstractModel`](@ref)) through the accessors, so a model with
+a different storage layout is checked on the values it actually serves: the
+[`couplings`](@ref) vector must have one entry per bond template in
+`geometry.bonds`, and the [`fields`](@ref) vector must have one entry per
+unit-cell orbital. (The template ids in `geometry.bond_id_to_template` are
+valid by construction, so only lengths need checking.) Models with `J` and
+`h` fields ([`IsingModel`](@ref), [`XYModel`](@ref), [`ClockModel`](@ref),
+[`HeisenbergModel`](@ref)) need no method of their own; a model that exposes
+neither the fields nor the accessors fails here instead of passing
+unvalidated.
 
 # Throws
 
-`ArgumentError` if `length(model.J)` or `length(model.h)` does not match the
-geometry.
+`ArgumentError` if `length(couplings(model))` or `length(fields(model))` does
+not match the geometry.
 
 # Returns
 
 `nothing`.
 """
 function validate_model_geometry(model::AbstractModel, geometry::Geometry)
-    if hasproperty(model, :J)
-        length(model.J) == length(geometry.bonds) || throw(ArgumentError(
-            "length(model.J) = $(length(model.J)) does not match length(geometry.bonds) = $(length(geometry.bonds))"
-        ))
-    end
+    J = couplings(model)
+    length(J) == length(geometry.bonds) || throw(ArgumentError(
+        "length(couplings(model)) = $(length(J)) does not match length(geometry.bonds) = $(length(geometry.bonds))"
+    ))
 
-    if hasproperty(model, :h)
-        n_orbitals = LatticeUtilities.norbits(geometry.unit_cell)
-        length(model.h) == n_orbitals || throw(ArgumentError(
-            "length(model.h) = $(length(model.h)) does not match the number of sites in the unit cell = $n_orbitals"
-        ))
-    end
+    h = fields(model)
+    n_orbitals = LatticeUtilities.norbits(geometry.unit_cell)
+    length(h) == n_orbitals || throw(ArgumentError(
+        "length(fields(model)) = $(length(h)) does not match the number of sites in the unit cell = $n_orbitals"
+    ))
     return nothing
 end
 

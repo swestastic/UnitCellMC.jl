@@ -42,9 +42,11 @@ drivers allocate one workspace per run — rather than before every step; a
 
 The default enforces the cluster updates' core requirement — non-negative
 (ferromagnetic) couplings, so the bond-activation probabilities stay in
-`[0, 1]` — for models with the default coupling layout (see
-[`couplings`](@ref)); a model without a `J` field passes. Models with extra
-structure extend this method with their own checks.
+`[0, 1]` — reading the couplings through the [`couplings`](@ref) accessor
+(see the layout contract under [`AbstractModel`](@ref)), so a model with a
+custom storage layout is checked on the values it actually serves rather
+than passing unvalidated. Models with extra structure extend this method
+with their own checks.
 
 # Throws
 
@@ -55,9 +57,9 @@ structure extend this method with their own checks.
 `nothing`.
 """
 function validate_cluster_model(model::AbstractModel, geometry, state::AbstractState, ::Real)
-    hasproperty(model, :J) || return nothing
-    all(>=(0), couplings(model)) || throw(ArgumentError(
-        "Cluster algorithms require non-negative couplings; got J = $(couplings(model))"
+    J = couplings(model)
+    all(>=(0), J) || throw(ArgumentError(
+        "Cluster algorithms require non-negative couplings; got J = $J"
     ))
     return nothing
 end

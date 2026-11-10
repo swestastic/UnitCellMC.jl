@@ -134,6 +134,15 @@ end
     # Degenerate bond sets leave the source list empty.
     empty_geometry = ucmc.Geometry(geometry.unit_cell, geometry.lattice, lu.Bond{2}[])
     @test isempty(empty_geometry.bond_sources)
+
+    # Self-bond templates (same orbital, zero displacement) are rejected at
+    # construction; a zero-displacement bond between different orbitals is a
+    # legitimate on-site coupling.
+    self_bond = lu.Bond(orbitals = (1, 1), displacement = [0, 0])
+    @test_throws ArgumentError ucmc.Geometry(geometry.unit_cell, geometry.lattice, [self_bond])
+    uc2 = two_orbital_geometry(2).unit_cell
+    onsite = ucmc.Geometry(uc2, geometry.lattice, [lu.Bond(orbitals = (1, 2), displacement = [0, 0])])
+    @test !isempty(onsite.bond_id_to_template)
 end
 
 @testset "Geometry tag distinguishes same-size lattices" begin

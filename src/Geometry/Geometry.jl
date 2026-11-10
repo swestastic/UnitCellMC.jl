@@ -74,6 +74,14 @@ displacement — every site gets an empty `NeighborInfo` and
 - `lattice`: The lattice defining system size and boundary conditions.
 - `bonds`: Bond templates to expand into the full neighbor table.
 
+# Throws
+
+`ArgumentError` if a bond template connects a site to itself (equal orbitals,
+zero displacement). A self-bond's energy is a constant offset for
+fixed-length spins, and every update path skips self-bonds
+(`neighbor == site`) while from-scratch energy sums would include them, so
+they are rejected here instead of being silently inconsistent.
+
 # Returns
 
 A `Geometry{D,T,N}` with `n_sites` set from `unit_cell` and `lattice`.
@@ -85,6 +93,14 @@ function Geometry(
 ) where {D,T}
 
     n_sites = LatticeUtilities.nsites(unit_cell, lattice)
+
+    for bond in bonds
+        (bond.orbitals[1] == bond.orbitals[2] && iszero(bond.displacement)) &&
+            throw(ArgumentError(
+                "Self-bond template (orbitals $(bond.orbitals), zero displacement): a bond " *
+                "from a site to itself is a constant energy offset and is not supported"
+            ))
+    end
 
     if isempty(bonds)
         bond_id_to_template = Int[]

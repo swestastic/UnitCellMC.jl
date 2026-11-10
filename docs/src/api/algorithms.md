@@ -50,6 +50,7 @@ UnitCellMC.algorithm_workspace
 UnitCellMC.shared_workspace
 UnitCellMC.ghost_site
 UnitCellMC.draw_cluster_flips!
+UnitCellMC._cluster_labels
 UnitCellMC.UpdateStatistic
 UnitCellMC.available_diagnostics
 UnitCellMC.diagnostic_values

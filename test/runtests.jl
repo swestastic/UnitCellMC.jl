@@ -136,6 +136,19 @@ end
     @test isempty(empty_geometry.bond_sources)
 end
 
+@testset "Geometry tag distinguishes same-size lattices" begin
+    square = square_geometry(3)
+    two_orbital = two_orbital_geometry(3)
+    @test ucmc.geometry_tag(square) != ucmc.geometry_tag(two_orbital)
+    @test ucmc.geometry_tag(square) == ucmc.geometry_tag(square_geometry(4))
+
+    # same model type, algorithm, and size, different unit cell: the results
+    # directories still differ
+    model = ucmc.IsingModel([1.0, 1.0], [0.0])
+    @test ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), square) !=
+          ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), two_orbital)
+end
+
 @testset "Site-resolved Ising fields" begin
     geometry = two_orbital_geometry(2)
     model = ucmc.IsingModel([1.0, 2.0], [0.5, -0.25])
@@ -1500,15 +1513,15 @@ end
     end
 
     # sweeps with different schemes write to different results directories
-    @test ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L) !=
+    @test ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry) !=
         ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(ucmc.SequentialProposal()),
-                           geometry.lattice.L)
-    @test ucmc.sweep_dirname(model, ucmc.HeatbathAlgorithm(), geometry.lattice.L) !=
+                           geometry)
+    @test ucmc.sweep_dirname(model, ucmc.HeatbathAlgorithm(), geometry) !=
         ucmc.sweep_dirname(model, ucmc.HeatbathAlgorithm(ucmc.SequentialProposal()),
-                           geometry.lattice.L)
-    @test ucmc.sweep_dirname(model, ucmc.OverrelaxationAlgorithm(), geometry.lattice.L) !=
+                           geometry)
+    @test ucmc.sweep_dirname(model, ucmc.OverrelaxationAlgorithm(), geometry) !=
         ucmc.sweep_dirname(model, ucmc.OverrelaxationAlgorithm(ucmc.SequentialProposal()),
-                           geometry.lattice.L)
+                           geometry)
 end
 
 @testset "Checkerboard proposal" begin
@@ -1590,8 +1603,8 @@ end
 
     # sweeps with different schemes write to different results directories
     @test ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(ucmc.CheckerboardProposal()),
-                             geometry.lattice.L) !=
-        ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L)
+                             geometry) !=
+        ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry)
 end
 
 @testset "Colored proposal" begin
@@ -1681,11 +1694,10 @@ end
     end
 
     # results directories distinguish colorings by count as well as name
-    L = triangular.lattice.L
-    @test ucmc.sweep_dirname(tri_model, ucmc.MetropolisAlgorithm(ucmc.ColoredProposal(2)), L) !=
-        ucmc.sweep_dirname(tri_model, ucmc.MetropolisAlgorithm(ucmc.ColoredProposal(3)), L)
-    @test ucmc.sweep_dirname(tri_model, ucmc.MetropolisAlgorithm(ucmc.ColoredProposal(2)), L) !=
-        ucmc.sweep_dirname(tri_model, ucmc.MetropolisAlgorithm(ucmc.CheckerboardProposal()), L)
+    @test ucmc.sweep_dirname(tri_model, ucmc.MetropolisAlgorithm(ucmc.ColoredProposal(2)), triangular) !=
+        ucmc.sweep_dirname(tri_model, ucmc.MetropolisAlgorithm(ucmc.ColoredProposal(3)), triangular)
+    @test ucmc.sweep_dirname(tri_model, ucmc.MetropolisAlgorithm(ucmc.ColoredProposal(2)), triangular) !=
+        ucmc.sweep_dirname(tri_model, ucmc.MetropolisAlgorithm(ucmc.CheckerboardProposal()), triangular)
 end
 
 @testset "Shared visiting order" begin
@@ -2041,7 +2053,7 @@ end
     # default (save = true) writes the sweep directory
     ucmc.sweep_Ts(ucmc.MetropolisAlgorithm(), model, geometry, state,
         1, 4, 0, 2, [2.0]; root = root)
-    dir = ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L; root = root)
+    dir = ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry; root = root)
     @test isfile(joinpath(dir, "measurement_results.csv"))
 end
 
@@ -2188,7 +2200,7 @@ end
     @test all(r -> haskey(r.primary, :energy), sweep_results)
     @test all(r -> haskey(r.primary, :cluster_size), sweep_results)
 
-    dir = ucmc.sweep_dirname(model, ucmc.WolffAlgorithm(), geometry.lattice.L; root = root)
+    dir = ucmc.sweep_dirname(model, ucmc.WolffAlgorithm(), geometry; root = root)
     @test isdir(dir)
     @test isfile(joinpath(dir, "measurement_results.csv"))
 end
@@ -2332,7 +2344,7 @@ end
     @test all(r -> haskey(r.primary, :energy), sweep_results)
     @test all(r -> haskey(r.primary, :acceptance_ratio), sweep_results)
 
-    dir = ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L; root = root)
+    dir = ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry; root = root)
     @test isfile(joinpath(dir, "measurement_results.csv"))
 
     @test_throws ArgumentError ucmc.sweep_Ts(
@@ -2436,7 +2448,7 @@ end
     geometry = square_geometry(2)
     model = ucmc.IsingModel([1.0, 1.0], [0.0])
     metadata(dir) = readlines(joinpath(dir, "metadata.txt"))
-    sweep_dir(root) = ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L; root = root)
+    sweep_dir(root) = ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry; root = root)
     sweep(root; kwargs...) = ucmc.sweep_Ts(
         ucmc.MetropolisAlgorithm(), model, geometry, ucmc.initialize_state(model, geometry),
         2, 4, 0, 2, [2.0]; n_runs = 2, time_series = :none, root = root, kwargs...
@@ -2758,7 +2770,7 @@ end
     sweep = ucmc.sweep_Ts(ucmc.WolffAlgorithm(), model, geometry, ucmc.initialize_state(model, geometry),
         2, 8, 0, 2, [2.0]; n_runs = 2, measurements = [:raw_correlation], time_series = :none, root = root)
     @test isempty(sweep[1].autocorrelation)
-    dir = ucmc.sweep_dirname(model, ucmc.WolffAlgorithm(), geometry.lattice.L; root = root)
+    dir = ucmc.sweep_dirname(model, ucmc.WolffAlgorithm(), geometry; root = root)
     @test isfile(joinpath(dir, "measurement_results.csv"))
     @test isfile(joinpath(dir, "correlation_results.csv"))  # raw correlation data must reach disk
     @test !isfile(joinpath(dir, "autocorrelation_results.csv"))
@@ -2868,7 +2880,7 @@ end
     ucmc.sweep_Ts(ucmc.MetropolisAlgorithm(), model, geometry,
                   ucmc.initialize_state(model, geometry), 2, 8, 0, 2, [2.0];
                   measurements = [:connected_correlation], time_series = :none, root = sroot)
-    sdir = ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L; root = sroot)
+    sdir = ucmc.sweep_dirname(model, ucmc.MetropolisAlgorithm(), geometry; root = sroot)
     @test isfile(joinpath(sdir, "magnetization_per_orbital_results.csv"))
 
     # no measurement, no frame
@@ -2958,7 +2970,7 @@ end
     @test all(r -> haskey(r.autocorrelation, :energy), sweep_results)
     @test all(r -> r.autocorrelation[:energy].n == 80, sweep_results)
 
-    dir = ucmc.sweep_dirname(model, ucmc.WolffAlgorithm(), geometry.lattice.L; root = root)
+    dir = ucmc.sweep_dirname(model, ucmc.WolffAlgorithm(), geometry; root = root)
     path = joinpath(dir, "autocorrelation_results.csv")
     @test isfile(path)
     lines = readlines(path)
@@ -3241,7 +3253,7 @@ end
     )
     @test all(r -> haskey(r.primary, :structure_factor), sweep_results)
 
-    dir = ucmc.sweep_dirname(model, ucmc.WolffAlgorithm(), geometry.lattice.L; root = root)
+    dir = ucmc.sweep_dirname(model, ucmc.WolffAlgorithm(), geometry; root = root)
     path = joinpath(dir, "structure_factor_results.csv")
     @test isfile(path)
     lines = readlines(path)
@@ -3494,7 +3506,7 @@ end
     @test length(results) == length(Ts)
     @test all(r -> haskey(r.primary, :cluster_size), results)
 
-    dir = ucmc.sweep_dirname(model, ucmc.WolffAlgorithm(), geometry.lattice.L; root = root)
+    dir = ucmc.sweep_dirname(model, ucmc.WolffAlgorithm(), geometry; root = root)
     @test occursin("ClockModel_WolffAlgorithm", dir)
     for file in ("measurement_results.csv", "correlation_results.csv",
                  "structure_factor_results.csv")
@@ -3584,7 +3596,7 @@ end
     ucmc.sweep_Ts(ucmc.SwendsenWangAlgorithm(), model, geometry,
         ucmc.initialize_state(model, geometry), 2, 4, 0, 2, [1.0];
         measurements = [:clock_order_parameter], root = root)
-    dir = ucmc.sweep_dirname(model, ucmc.SwendsenWangAlgorithm(), geometry.lattice.L; root = root)
+    dir = ucmc.sweep_dirname(model, ucmc.SwendsenWangAlgorithm(), geometry; root = root)
     saved = [split(line, ",")[2] for line in readlines(joinpath(dir, "measurement_results.csv"))[2:end]]
     @test "clock_order_parameter" in saved
 end
@@ -3718,7 +3730,7 @@ end
     @test sum(result.swap_attempts) == 21
     @test result.swap_attempts == [11, 10]
 
-    dir = ucmc.tempering_dirname(model, ucmc.MetropolisAlgorithm(), geometry.lattice.L; root = root)
+    dir = ucmc.tempering_dirname(model, ucmc.MetropolisAlgorithm(), geometry; root = root)
     @test isfile(joinpath(dir, "measurement_results.csv"))
     @test isfile(joinpath(dir, "swap_acceptance.csv"))
     @test isfile(joinpath(dir, "metadata.txt"))

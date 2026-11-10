@@ -35,6 +35,8 @@ UnitCellMC.ColoredProposalWorkspace
 UnitCellMC.checkerboard_colors
 UnitCellMC.color_lattice
 UnitCellMC.propose_site
+UnitCellMC.proposal_label
+UnitCellMC.proposal_scheme
 UnitCellMC.proposal_workspace
 UnitCellMC.visiting_order
 UnitCellMC.LocalUpdateWorkspace

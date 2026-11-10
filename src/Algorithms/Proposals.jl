@@ -107,6 +107,20 @@ struct ColoredProposal <: AbstractProposalScheme
 end
 
 """
+    proposal_label(scheme)
+
+Return the string appended to an algorithm's type name in results directory
+names to distinguish runs using different site-selection schemes (see
+[`algorithm_label`](@ref)): `""` for the default [`RandomProposal`](@ref),
+`"-"` plus the type name for the other schemes, with the color count appended
+for [`ColoredProposal`](@ref) (e.g. `"-ColoredProposal3"`). Define a method
+for a custom scheme whose parameters matter for identifying a run.
+"""
+proposal_label(::RandomProposal) = ""
+proposal_label(proposal::AbstractProposalScheme) = "-" * string(nameof(typeof(proposal)))
+proposal_label(proposal::ColoredProposal) = "-" * string(nameof(typeof(proposal))) * string(proposal.ncolors)
+
+"""
     SequentialProposalWorkspace
 
 Per-run cursor for the [`SequentialProposal`](@ref) scheme: `next` is the

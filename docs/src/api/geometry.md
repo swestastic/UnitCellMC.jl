@@ -14,5 +14,6 @@ UnitCellMC.NeighborInfo
 UnitCellMC.Geometry
 UnitCellMC.site_at
 UnitCellMC.bond_displacement
+UnitCellMC.geometry_tag
 UnitCellMC._cluster_labels
 ```

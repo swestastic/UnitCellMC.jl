@@ -331,6 +331,12 @@ Rules of the road:
 - The diagnostic keys returned by [`diagnostic_values`](@ref UnitCellMC.diagnostic_values) must be exactly
   [`available_diagnostics`](@ref UnitCellMC.available_diagnostics)`(MyAlgorithm)`; the container validates
   this up front ([`validate_run`](@ref UnitCellMC.validate_run)).
+- **Results labels.** The IO layer labels results directories with the
+  algorithm's type name plus its proposal scheme, read through
+  [`proposal_scheme`](@ref UnitCellMC.proposal_scheme) and rendered by
+  [`proposal_label`](@ref UnitCellMC.proposal_label); storing the scheme in a
+  `proposal` field makes both automatic, so runs with different schemes never
+  share a directory.
 - The per-sweep loop is [`sweep_steps!`](@ref UnitCellMC.sweep_steps!), whose default method calls `step!`
   per update. A model/algorithm pair may override it with a fused fast path
   in `src/Algorithms/FastPaths.jl` (see the Ising/Metropolis example there),

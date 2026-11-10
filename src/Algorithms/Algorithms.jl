@@ -85,6 +85,20 @@ Extend this function to change the sweep size for a custom algorithm.
 """
 steps_per_sweep(::AbstractAlgorithm, geometry::Geometry) = geometry.n_sites
 
+"""
+    proposal_scheme(algorithm)
+
+Return the [`AbstractProposalScheme`](@ref) `algorithm` selects its update
+sites with, or `nothing` for algorithms without one (the cluster
+algorithms). The default reads a `proposal` field when the algorithm has
+one, so custom local-update algorithms are covered without defining a
+method; override it for an algorithm that stores its scheme differently.
+The IO layer uses this to label results directories (see
+[`algorithm_label`](@ref)).
+"""
+proposal_scheme(alg::AbstractAlgorithm) =
+    hasproperty(alg, :proposal) ? getproperty(alg, :proposal) : nothing
+
 include("Proposals.jl")
 include("AcceptanceCache.jl")
 include("Metropolis.jl")

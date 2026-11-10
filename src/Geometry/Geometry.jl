@@ -167,6 +167,22 @@ bond_displacement(geometry::Geometry, template::Int) =
     LatticeUtilities.bond_to_vec(geometry.bonds[template], geometry.unit_cell)
 
 """
+    geometry_tag(geometry)
+
+Return a short string identifying the geometry's connectivity — its unit
+cell, bond templates, and per-dimension boundary conditions, but not its
+size — as eight hexadecimal digits. Results directory names include it (see
+[`results_dirname`](@ref)) so that two different geometries of the same size
+(say a square and a triangular lattice with the same `L`) never share an
+output directory. The tag is stable across sessions for the same defining
+data, but may change across Julia versions.
+"""
+function geometry_tag(geometry::Geometry)
+    data = (geometry.unit_cell, geometry.bonds, geometry.lattice.periodic)
+    return lpad(string(hash(repr(data)) & 0xffffffff, base = 16), 8, '0')
+end
+
+"""
     _cluster_labels(geometry, clusters::Vector{Vector{Int}})
 
 Translate an explicit partition of sites into per-site cluster labels: a

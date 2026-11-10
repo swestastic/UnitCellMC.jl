@@ -3941,6 +3941,21 @@ end
     obs_h, _ = ucmc.optional_observables(heisenberg, geometry, Val(:helicity_modulus))
     @test Dict(o.name => o.value(heisenberg_state) for o in obs_h)[:helicity_stiffness] ≈ [1.0, 1.0]
 
+    # Heisenberg stiffness factor is u_i · u_j - (u_i · ẑ)(u_j · ẑ): spins
+    # aligned with the twist axis contribute nothing (a twist about z leaves
+    # them invariant), and a state tilted by θ off the z axis carries sin²θ.
+    fill!(heisenberg_state.xs, 0.0)
+    fill!(heisenberg_state.zs, 1.0)
+    samples_z = Dict(o.name => o.value(heisenberg_state) for o in obs_h)
+    @test samples_z[:helicity_stiffness] ≈ [0.0, 0.0] atol = 1e-14
+    @test samples_z[:helicity_current] ≈ [0.0, 0.0] atol = 1e-14
+    s, c = 0.8, 0.6
+    fill!(heisenberg_state.xs, s)
+    fill!(heisenberg_state.zs, c)
+    samples_tilted = Dict(o.name => o.value(heisenberg_state) for o in obs_h)
+    @test samples_tilted[:helicity_stiffness] ≈ [s^2, s^2]
+    @test samples_tilted[:helicity_current] ≈ [0.0, 0.0] atol = 1e-14
+
     # The derived quantity of an aligned state is exactly the stiffness
     container = ucmc.MeasurementContainer(xy, geometry, 4, 2; measurements = [:helicity_modulus])
     for _ in 1:4

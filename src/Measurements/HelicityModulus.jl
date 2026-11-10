@@ -1,4 +1,28 @@
 """
+    helicity_stiffness_product(model, a, b)
+
+Return the per-bond spin factor of the helicity-modulus stiffness sum — the
+second derivative of the bond energy under a uniform twist about the
+spin-space ``z`` axis, divided by the coupling — given the local operator
+values `a` and `b` of the bond's endpoints (see
+[`helicity_modulus_entry`](@ref)). For a vector-spin model with bond energy
+``-J_{ij} \\, \\mathbf{u}_i \\cdot \\mathbf{u}_j``, rotating one endpoint of
+a bond by an infinitesimal angle about ``\\hat{z}`` gives
+
+```math
+\\mathbf{u}_i \\cdot \\mathbf{u}_j -
+(\\mathbf{u}_i \\cdot \\hat{z}) (\\mathbf{u}_j \\cdot \\hat{z}).
+```
+
+The default returns [`operator_product`](@ref) (the plain dot product),
+which is exact for models whose spins have no component along the twist
+axis, such as the planar [`XYModel`](@ref) and [`ClockModel`](@ref). Models
+whose spins leave the ``xy`` plane must specialize it, as
+[`HeisenbergModel`](@ref) does.
+"""
+helicity_stiffness_product(model, a, b) = operator_product(model, a, b)
+
+"""
     helicity_modulus_entry(model, geometry)
 
 Build the optional helicity-modulus (spin-stiffness) measurement for a
@@ -10,7 +34,8 @@ uniform twist of the spins along spatial direction `d`,
 
 ```math
 \\Upsilon_d = \\frac{1}{N} \\left\\langle \\sum_{\\langle ij \\rangle}
-J_{ij} (\\Delta r_{ij})_d^2 \\, \\mathbf{u}_i \\cdot \\mathbf{u}_j
+J_{ij} (\\Delta r_{ij})_d^2 \\big[ \\mathbf{u}_i \\cdot \\mathbf{u}_j -
+(\\mathbf{u}_i \\cdot \\hat{z}) (\\mathbf{u}_j \\cdot \\hat{z}) \\big]
 \\right\\rangle - \\frac{\\beta}{N} \\left( \\langle I_d^2 \\rangle -
 \\langle I_d \\rangle^2 \\right), \\quad
 I_d = \\sum_{\\langle ij \\rangle} J_{ij} (\\Delta r_{ij})_d
@@ -21,10 +46,13 @@ where `u_i` is the unit spin vector of site `i`, the sums run over unique
 bonds, and `Δr_ij` is the real-space displacement vector of a bond (see
 [`bond_displacement`](@ref)). The twist is taken about the spin-space z
 axis; for the two-component models (XY, clock) this is the only choice, and
-for the Heisenberg model every axis is equivalent at zero field. In the
-XY/clock models a nonzero `Υ` signals the quasi-ordered phase, and the
-Berezinskii-Kosterlitz-Thouless transition is located by the universal jump
-`Υ(T_BKT) = 2 T_BKT / π`.
+for the Heisenberg model every axis is equivalent at zero field. The
+stiffness factor in brackets is the second twist derivative of the bond
+energy, [`helicity_stiffness_product`](@ref); its `(u · ẑ)(u · ẑ)` term
+vanishes identically for the planar XY/clock spins and matters only for the
+Heisenberg model. In the XY/clock models a nonzero `Υ` signals the
+quasi-ordered phase, and the Berezinskii-Kosterlitz-Thouless transition is
+located by the universal jump `Υ(T_BKT) = 2 T_BKT / π`.
 
 The estimator is intended for zero external field: a uniform twist also
 rotates the spins relative to the field axis, a contribution that is not
@@ -101,7 +129,7 @@ function helicity_modulus_entry(model, geometry::Geometry{D}) where {D}
             info = geometry.neighbor_table[i]
             c2 = C2[i]
             for p in eachindex(info.neighbors)
-                dot = operator_product(model, oi, local_operator(state, info.neighbors[p]))
+                dot = helicity_stiffness_product(model, oi, local_operator(state, info.neighbors[p]))
                 for d in 1:D
                     A[d] += c2[p, d] * dot
                 end

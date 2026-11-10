@@ -70,6 +70,21 @@ n_operator_components(::HeisenbergModel) = 3
 operator_components(::HeisenbergModel, v::NTuple{3,Real}) = v
 
 """
+    helicity_stiffness_product(::HeisenbergModel, a, b)
+
+The Heisenberg specialization of [`helicity_stiffness_product`](@ref), the
+per-bond spin factor of the helicity-modulus stiffness sum. With the twist
+taken about the spin-space `z` axis, the second twist derivative of the bond
+energy ``-J \\, \\mathbf{u}_i \\cdot \\mathbf{u}_j`` carries the factor
+``\\mathbf{u}_i \\cdot \\mathbf{u}_j - (\\mathbf{u}_i \\cdot \\hat{z})
+(\\mathbf{u}_j \\cdot \\hat{z})``, so the `z` components drop out:
+`a[1] * b[1] + a[2] * b[2]`. Spins aligned with the twist axis contribute
+no stiffness, as rotations about `z` leave them invariant.
+"""
+helicity_stiffness_product(::HeisenbergModel, a::NTuple{3,Real}, b::NTuple{3,Real}) =
+    a[1] * b[1] + a[2] * b[2]
+
+"""
     random_unit_vector(rng)
 
 Draw a uniformly distributed unit vector in ``\\mathbb{R}^3`` (a random point

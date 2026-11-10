@@ -15,6 +15,7 @@ UnitCellMC.ClockClusterContext
 UnitCellMC.XYClusterContext
 UnitCellMC.HeisenbergClusterContext
 UnitCellMC.rand_von_mises
+UnitCellMC.random_unit_vector
 UnitCellMC.couplings
 UnitCellMC.fields
 UnitCellMC.bond_strength

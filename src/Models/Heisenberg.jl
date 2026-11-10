@@ -70,6 +70,27 @@ n_operator_components(::HeisenbergModel) = 3
 operator_components(::HeisenbergModel, v::NTuple{3,Real}) = v
 
 """
+    random_unit_vector(rng)
+
+Draw a uniformly distributed unit vector in ``\\mathbb{R}^3`` (a random point
+on the unit sphere): with `z` uniform on `[-1, 1]` and `φ` uniform on
+`[0, 2π)`, the vector `(√(1 - z²) cos φ, √(1 - z²) sin φ, z)` is uniform on
+the sphere. Shared by [`initialize_state`](@ref), [`propose_value`](@ref),
+and the cluster context of the [`HeisenbergModel`](@ref), so all consume the
+same two draws per vector from `rng`.
+
+# Returns
+
+A `(x, y, z)` tuple with `x² + y² + z² == 1` to rounding.
+"""
+function random_unit_vector(rng::AbstractRNG)
+    z = 1 - 2 * rand(rng)
+    s, c = sincos(2π * rand(rng))
+    r = sqrt(1 - z^2)
+    return (r * c, r * s, z)
+end
+
+"""
     propose_value(rng, model::HeisenbergModel, geometry, state, site)
 
 Propose the new value at `site` (chosen by the algorithm's

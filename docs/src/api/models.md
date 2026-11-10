@@ -14,6 +14,7 @@ UnitCellMC.clock_cos
 UnitCellMC.ClockClusterContext
 UnitCellMC.XYClusterContext
 UnitCellMC.HeisenbergClusterContext
+UnitCellMC.rand_von_mises
 UnitCellMC.couplings
 UnitCellMC.fields
 UnitCellMC.bond_strength

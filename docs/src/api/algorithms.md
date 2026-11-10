@@ -10,6 +10,7 @@ UnitCellMC.MetropolisUpdateResult
 UnitCellMC.GlauberAlgorithm
 UnitCellMC.GlauberUpdateResult
 UnitCellMC.glauber_probability
+UnitCellMC.metropolis_accept
 UnitCellMC.HeatbathAlgorithm
 UnitCellMC.HeatbathUpdateResult
 UnitCellMC.heatbath_draw

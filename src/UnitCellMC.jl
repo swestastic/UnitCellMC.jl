@@ -9,6 +9,9 @@ include("Geometry/Geometry.jl")
 include("State/State.jl")
 include("Algorithms/Algorithms.jl")
 include("Models/Models.jl")
+# Fused model/algorithm fast paths (algorithm mechanics that name concrete
+# model types) come after the models they specialize.
+include("Algorithms/FastPaths.jl")
 include("State/Initialization.jl")
 include("Measurements/Measurements.jl")
 include("Simulation/Simulation.jl")

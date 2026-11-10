@@ -53,6 +53,7 @@ src/
   State/                      # Updates.jl, IsingState.jl, ..., Initialization.jl
   Algorithms/                 # Algorithms.jl (marker includes), Metropolis.jl, ...
   Models/                     # Models.jl (includes + shared accessors), Ising.jl, ...
+  Algorithms/FastPaths.jl     # fused model/algorithm fast paths; included *after* Models
   State/Initialization.jl     # included *after* Models (see below)
   Measurements/
   Simulation/
@@ -326,9 +327,12 @@ Rules of the road:
   this up front ([`validate_run`](@ref UnitCellMC.validate_run)).
 - The per-sweep loop is [`sweep_steps!`](@ref UnitCellMC.sweep_steps!), whose default method calls `step!`
   per update. A model/algorithm pair may override it with a fused fast path
-  (see `Models/Ising.jl`), but the override must visit sites and draw from
-  `rng` exactly as the generic loop, keep the state's running totals exact,
-  and record identical diagnostics.
+  in `src/Algorithms/FastPaths.jl` (see the Ising/Metropolis example there),
+  but the override must visit sites and draw from `rng` exactly as the
+  generic loop, keep the state's running totals exact, record identical
+  diagnostics, and use the algorithm's shared acceptance kernel (e.g.
+  [`metropolis_accept`](@ref UnitCellMC.metropolis_accept)) so the two paths
+  cannot drift apart.
 
 Registration checklist:
 

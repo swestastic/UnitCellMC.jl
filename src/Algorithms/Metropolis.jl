@@ -64,6 +64,39 @@ algorithm_workspace(alg::MetropolisAlgorithm, model, geometry, state,
     LocalUpdateWorkspace(alg.proposal, model, geometry, order)
 
 """
+    metropolis_accept(rng, ΔE, T, cache)
+
+The Metropolis acceptance decision for a proposed move with energy change
+`ΔE` at temperature `T`: accept unconditionally when `ΔE <= 0`, otherwise
+accept with probability `exp(-ΔE / T)`. The single site draw of the
+acceptance test is consumed from `rng` only when `ΔE > 0`.
+
+`cache` is the [`AcceptanceCache`](@ref) of the run's
+[`LocalUpdateWorkspace`](@ref), or `nothing`. With a cache the Boltzmann
+factor `exp(-ΔE / T)` is memoized per temperature (see
+[`cached_boltzmann_factor`](@ref)) and the test reads
+`rand(rng) < exp(-ΔE / T)`; without one it is the mathematically identical
+`log(rand(rng)) < -ΔE / T`, though borderline accept/reject decisions can
+differ in the last floating-point bit between the two forms.
+
+This is the one place the Metropolis criterion is evaluated: [`step!`](@ref)
+uses it, and fused fast paths (see [`sweep_steps!`](@ref)) must use it too so
+that both paths evaluate the same acceptance test and draw from `rng` in the
+same way.
+
+# Returns
+
+`true` if the move is accepted.
+"""
+@inline function metropolis_accept(rng::AbstractRNG, ΔE::Real, T::Real, cache)
+    ΔE <= 0.0 && return true
+    if cache === nothing
+        return log(rand(rng)) < -ΔE / T
+    end
+    return rand(rng) < cached_boltzmann_factor(cache, ΔE, Float64(T))
+end
+
+"""
     step!(alg, model, geometry, state, T; rng = Random.default_rng(), workspace = nothing)
 
 Attempt one Monte Carlo update on `state` using `alg`, and apply it if
@@ -72,14 +105,8 @@ accepted according to the Metropolis criterion at temperature `T`.
 A trial move is generated with [`propose`](@ref), its energy change is
 computed with [`energy_difference`](@ref), and it is accepted unconditionally
 if `ΔE <= 0`, or with probability `exp(-ΔE / T)` otherwise. Accepted moves are
-applied in place via [`apply_update!`](@ref).
-
-When `workspace` carries an [`AcceptanceCache`](@ref) — the case for models
-with a discrete `ΔE` spectrum, see [`tabulate_acceptance`](@ref) — the
-Boltzmann factor is memoized per temperature and the test reads `rand(rng) <
-exp(-ΔE / T)` with the memoized factor. That is mathematically identical to
-the uncached `log(rand(rng)) < -ΔE / T` comparison, but borderline
-accept/reject decisions can differ in the last floating-point bit.
+applied in place via [`apply_update!`](@ref). The acceptance decision is
+evaluated by [`metropolis_accept`](@ref), which fused fast paths also use.
 
 # Arguments
 
@@ -119,18 +146,7 @@ function step!(
     proposal = propose(rng, alg, model, geometry, state; workspace = workspace)
     ΔE = energy_difference(model, geometry, state, proposal)
 
-    if ΔE <= 0.0
-        apply_update!(state, proposal, ΔE)
-        return MetropolisUpdateResult(true)
-    end
-
-    cache = _acceptance_cache(workspace)
-    accepted = if cache === nothing
-        log(rand(rng)) < - ΔE / T
-    else
-        rand(rng) < cached_boltzmann_factor(cache, ΔE, Float64(T))
-    end
-
+    accepted = metropolis_accept(rng, ΔE, T, _acceptance_cache(workspace))
     if accepted
         apply_update!(state, proposal, ΔE)
         return MetropolisUpdateResult(true)

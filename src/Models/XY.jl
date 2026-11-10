@@ -521,8 +521,8 @@ end
 function _planar_observables(geometry)
     n_sites = geometry.n_sites
     [
-        Observable(:energy, state -> state.energy / n_sites),
-        Observable(:energy_squared, state -> (state.energy / n_sites)^2),
+        Observable(:energy, state -> total_energy(state) / n_sites),
+        Observable(:energy_squared, state -> (total_energy(state) / n_sites)^2),
         Observable(:magnetization_x, state -> state.magnetization_x / n_sites),
         Observable(:magnetization_x_squared, state -> (state.magnetization_x / n_sites)^2),
         Observable(:magnetization_y, state -> state.magnetization_y / n_sites),

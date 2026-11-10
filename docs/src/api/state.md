@@ -13,4 +13,5 @@ UnitCellMC.initialize_state
 UnitCellMC.random_unit_vector
 UnitCellMC.SpinUpdate
 UnitCellMC.apply_update!
+UnitCellMC.total_energy
 ```

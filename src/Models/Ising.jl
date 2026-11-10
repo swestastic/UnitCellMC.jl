@@ -402,8 +402,8 @@ A `Vector{Observable}` with four entries: `:energy`, `:energy_squared`,
 observables(::IsingModel, geometry) = begin
     n_sites = geometry.n_sites
     [
-        Observable(:energy, state -> state.energy / n_sites),
-        Observable(:energy_squared, state -> (state.energy / n_sites)^2),
+        Observable(:energy, state -> total_energy(state) / n_sites),
+        Observable(:energy_squared, state -> (total_energy(state) / n_sites)^2),
         Observable(:magnetization, state -> state.magnetization / n_sites),
         Observable(:magnetization_squared, state -> (state.magnetization / n_sites)^2),
     ]

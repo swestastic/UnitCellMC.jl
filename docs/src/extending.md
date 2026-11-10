@@ -111,7 +111,11 @@ end
 ```
 
 Include it from `src/State/State.jl`. The running totals are the contract:
-any function that mutates `spins` must update them in the same step.
+any function that mutates `spins` must update them in the same step. Generic
+code reads them through the [`total_energy`](@ref UnitCellMC.total_energy)
+and [`magnetization_value`](@ref UnitCellMC.magnetization_value) accessors,
+so a state that stores them differently overrides those rather than every
+read site.
 
 ### 2. The update application — in the same state file
 

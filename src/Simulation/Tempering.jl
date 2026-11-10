@@ -90,7 +90,7 @@ function swap_pass!(states, betas, stats::SwapStats, pass::Int, rng::AbstractRNG
     start = isodd(pass) ? 1 : 2
     for i in start:2:(length(states) - 1)
         j = i + 1
-        x = (betas[i] - betas[j]) * (states[i].energy - states[j].energy)
+        x = (betas[i] - betas[j]) * (total_energy(states[i]) - total_energy(states[j]))
         stats.attempts[i] += 1
         if log(rand(rng)) < x
             states[i], states[j] = states[j], states[i]

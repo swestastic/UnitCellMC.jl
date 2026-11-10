@@ -78,6 +78,17 @@ function magnetization_value(state::AbstractState)
     ))
 end
 
+"""
+    total_energy(state)
+
+Return the total energy of `state`: the running total every state type
+caches and every update keeps exactly consistent with the configuration.
+The default reads the `energy` field; a state that stores or computes its
+energy differently overrides this accessor rather than every read site
+([`swap_pass!`](@ref) and the per-model energy observables read through it).
+"""
+total_energy(state::AbstractState) = state.energy
+
 # The per-model `initialize_state` methods live in `Initialization.jl`, which
 # `src/UnitCellMC.jl` includes after `Models/`: the state structs must exist
 # before the model files (their signatures name the state types), while the

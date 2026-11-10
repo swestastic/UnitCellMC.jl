@@ -55,6 +55,7 @@ diagnostic_values(::GlauberAlgorithm, result::GlauberUpdateResult) =
     (acceptance_ratio = result.accepted ? 1.0 : 0.0,)
 diagnostic_values(::HeatbathAlgorithm, result::HeatbathUpdateResult) =
     (change_ratio = result.changed ? 1.0 : 0.0,)
+diagnostic_values(::OverrelaxationAlgorithm, ::OverrelaxationUpdateResult) = NamedTuple()
 diagnostic_values(::WolffAlgorithm, result::WolffUpdateResult) =
     (cluster_size = result.cluster_size,)
 diagnostic_values(::SwendsenWangAlgorithm, result::SwendsenWangUpdateResult) = (
@@ -73,12 +74,15 @@ when constructing a [`MeasurementContainer`](@ref).
 - `MetropolisAlgorithm` → `[:acceptance_ratio]`
 - `GlauberAlgorithm` → `[:acceptance_ratio]`
 - `HeatbathAlgorithm` → `[:change_ratio]`
+- `OverrelaxationAlgorithm` → `Symbol[]` (the update is deterministic, so
+  there are no diagnostics)
 - `WolffAlgorithm` → `[:cluster_size]`
 - `SwendsenWangAlgorithm` → `[:cluster_count, :largest_cluster_fraction]`
 """
 available_diagnostics(::Type{<:MetropolisAlgorithm})   = [:acceptance_ratio]
 available_diagnostics(::Type{<:GlauberAlgorithm})      = [:acceptance_ratio]
 available_diagnostics(::Type{<:HeatbathAlgorithm})     = [:change_ratio]
+available_diagnostics(::Type{<:OverrelaxationAlgorithm}) = Symbol[]
 available_diagnostics(::Type{<:WolffAlgorithm})        = [:cluster_size]
 available_diagnostics(::Type{<:SwendsenWangAlgorithm}) = [:cluster_count, :largest_cluster_fraction]
 

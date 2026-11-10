@@ -222,6 +222,10 @@ Optional hooks enable optional features:
 - [`operator_product`](@ref UnitCellMC.operator_product) — the two-body product, needed by the direct
   correlation path (open boundaries).
 - [`binder_denominator`](@ref UnitCellMC.binder_denominator) — enables `:binder_cumulant`.
+- [`overrelax`](@ref UnitCellMC.overrelax) — the microcanonical reflection about the site's
+  local field, enabling [`OverrelaxationAlgorithm`](@ref UnitCellMC.OverrelaxationAlgorithm)
+  for continuous-spin models (implemented for [`XYModel`](@ref UnitCellMC.XYModel) and
+  [`HeisenbergModel`](@ref UnitCellMC.HeisenbergModel)).
 - [`tabulate_acceptance`](@ref UnitCellMC.tabulate_acceptance) — return `true` when the single-site
   `energy_difference` takes values from a small discrete set, so local-update
   algorithms memoize Boltzmann factors per temperature in an

@@ -55,13 +55,24 @@ struct HeatbathUpdateResult <: AbstractUpdateResult
 end
 
 """
+    OverrelaxationUpdateResult
+
+Result of one overrelaxation update. The microcanonical reflection is
+deterministic and always applied (see [`OverrelaxationAlgorithm`](@ref)), so
+there is nothing to record; the type exists so every [`step!`](@ref) returns
+an [`AbstractUpdateResult`](@ref).
+"""
+struct OverrelaxationUpdateResult <: AbstractUpdateResult end
+
+"""
     steps_per_sweep(algorithm, geometry)
 
 Return the number of [`step!`](@ref) updates that constitute one Monte Carlo
 sweep for `algorithm` on `geometry`.
 
 For local-update algorithms (the default, e.g. [`MetropolisAlgorithm`](@ref)
-[`GlauberAlgorithm`](@ref), and [`HeatbathAlgorithm`](@ref))
+[`GlauberAlgorithm`](@ref), [`HeatbathAlgorithm`](@ref), and
+[`OverrelaxationAlgorithm`](@ref))
 a sweep is `geometry.n_sites` single-site updates, so that on average every
 site is updated once per sweep — exactly once with
 [`SequentialProposal`](@ref), which visits the sites in order. For cluster
@@ -79,6 +90,7 @@ include("AcceptanceCache.jl")
 include("Metropolis.jl")
 include("Glauber.jl")
 include("Heatbath.jl")
+include("Overrelaxation.jl")
 include("ClusterWorkspace.jl")
 include("Wolff.jl")
 include("SwendsenWang.jl")

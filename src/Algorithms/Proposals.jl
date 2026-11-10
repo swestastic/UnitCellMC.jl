@@ -3,7 +3,7 @@
 
 Site-selection scheme for local-update algorithms
 ([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
-[`HeatbathAlgorithm`](@ref)): every
+[`HeatbathAlgorithm`](@ref), [`OverrelaxationAlgorithm`](@ref)): every
 [`step!`](@ref) update draws a site uniformly at random from `rng`. This is
 the default scheme.
 """
@@ -14,7 +14,7 @@ struct RandomProposal <: AbstractProposalScheme end
 
 Site-selection scheme for local-update algorithms
 ([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
-[`HeatbathAlgorithm`](@ref)): [`step!`](@ref)
+[`HeatbathAlgorithm`](@ref), [`OverrelaxationAlgorithm`](@ref)): [`step!`](@ref)
 updates visit the sites in site-index order, so one sweep
 ([`steps_per_sweep`](@ref) updates) attempts every site exactly once instead
 of `n_sites` random draws.
@@ -42,7 +42,7 @@ struct SequentialProposal <: AbstractProposalScheme end
 
 Site-selection scheme for local-update algorithms
 ([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
-[`HeatbathAlgorithm`](@ref)) on bipartite
+[`HeatbathAlgorithm`](@ref), [`OverrelaxationAlgorithm`](@ref)) on bipartite
 lattices: the sites are 2-colored so that no bond connects same-color sites
 (see [`checkerboard_colors`](@ref)), and each sweep first updates all sites
 of one color, then all sites of the other. Within a color, sites are visited
@@ -70,7 +70,7 @@ struct CheckerboardProposal <: AbstractProposalScheme end
 
 Site-selection scheme for local-update algorithms
 ([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
-[`HeatbathAlgorithm`](@ref)): the sites are
+[`HeatbathAlgorithm`](@ref), [`OverrelaxationAlgorithm`](@ref)): the sites are
 colored with at most `k` colors so that no bond connects same-color sites
 (see [`color_lattice`](@ref)), and each sweep updates all sites of one color
 class, then the next — e.g. `ColoredProposal(3)` for the tripartite

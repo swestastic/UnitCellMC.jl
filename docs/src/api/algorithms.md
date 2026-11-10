@@ -14,6 +14,9 @@ UnitCellMC.HeatbathAlgorithm
 UnitCellMC.HeatbathUpdateResult
 UnitCellMC.heatbath_draw
 UnitCellMC.rand_von_mises
+UnitCellMC.OverrelaxationAlgorithm
+UnitCellMC.OverrelaxationUpdateResult
+UnitCellMC.overrelax
 UnitCellMC.WolffAlgorithm
 UnitCellMC.WolffUpdateResult
 UnitCellMC.SwendsenWangAlgorithm

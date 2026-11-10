@@ -943,6 +943,175 @@ end
     @test abs(mx - exact_mx) < 4 * mx_err
 end
 
+@testset "Overrelaxation keeps invariants and conserves energy" begin
+    geometry = two_orbital_geometry(2)
+    algorithm = ucmc.OverrelaxationAlgorithm()
+    @test ucmc.available_diagnostics(algorithm) == Symbol[]
+
+    # XY: the reflection conserves the energy (microcanonical) and keeps the
+    # running totals exact
+    xy = ucmc.XYModel([1.0, 2.0], [0.5, -0.25])
+    rng = Xoshiro(21)
+    state = ucmc.initialize_state(xy, geometry; rng = rng)
+    E0 = state.energy
+    for _ in 1:100
+        result = ucmc.step!(algorithm, xy, geometry, state, 2.0; rng = rng)
+        @test result isa ucmc.OverrelaxationUpdateResult
+        @test ucmc.diagnostic_values(algorithm, result) == NamedTuple()
+        @test all(i -> hypot(state.cosines[i], state.sines[i]) ≈ 1.0,
+                  1:geometry.n_sites)
+        @test state.energy ≈ E0
+        @test state.energy ≈ xy_energy(xy, geometry, state)
+        @test state.magnetization_x ≈ sum(state.cosines)
+        @test state.magnetization_y ≈ sum(state.sines)
+    end
+
+    # the reflection is v' = 2 (v·H) H / |H|² - v about the local field, and
+    # an involution: the site's own move leaves its local field unchanged
+    state = ucmc.initialize_state(xy, geometry; rng = Xoshiro(22))
+    site = 1
+    info = geometry.neighbor_table[site]
+    Hx = ucmc.field_strength(xy, geometry, site)
+    Hy = 0.0
+    for (t, j) in zip(info.templates, info.neighbors)
+        j == site && continue
+        Hx += xy.J[t] * state.cosines[j]
+        Hy += xy.J[t] * state.sines[j]
+    end
+    v = (state.cosines[site], state.sines[site])
+    projection = (v[1] * Hx + v[2] * Hy) / (Hx^2 + Hy^2)
+    proposal = ucmc.overrelax(xy, geometry, state, site)
+    @test collect(proposal.new_value) ≈ [2 * projection * Hx - v[1], 2 * projection * Hy - v[2]]
+    @test collect(proposal.magnetization_change) ≈ collect(proposal.new_value .- v)
+    ucmc.apply_update!(state, proposal, ucmc.energy_difference(xy, geometry, state, proposal))
+    @test collect(ucmc.overrelax(xy, geometry, state, site).new_value) ≈ collect(v)
+
+    # Heisenberg: the same invariants on the sphere
+    heisenberg = ucmc.HeisenbergModel([1.0, 2.0], [0.5, -0.25])
+    rng = Xoshiro(23)
+    hstate = ucmc.initialize_state(heisenberg, geometry; rng = rng)
+    E0 = hstate.energy
+    for _ in 1:100
+        ucmc.step!(algorithm, heisenberg, geometry, hstate, 2.0; rng = rng)
+        @test all(i -> hypot(hstate.xs[i], hstate.ys[i], hstate.zs[i]) ≈ 1.0,
+                  1:geometry.n_sites)
+        @test hstate.energy ≈ E0
+        @test hstate.energy ≈ heisenberg_energy(heisenberg, geometry, hstate)
+        @test hstate.magnetization_x ≈ sum(hstate.xs)
+        @test hstate.magnetization_y ≈ sum(hstate.ys)
+        @test hstate.magnetization_z ≈ sum(hstate.zs)
+    end
+
+    # discrete models have no reflection update
+    ising = ucmc.IsingModel([1.0, 2.0], [0.0, 0.0])
+    ising_state = ucmc.initialize_state(ising, geometry; rng = Xoshiro(24))
+    @test_throws ArgumentError ucmc.step!(algorithm, ising, geometry, ising_state, 1.0)
+    clock = ucmc.ClockModel(3, [1.0, 2.0], [0.0, 0.0])
+    clock_state = ucmc.initialize_state(clock, geometry; rng = Xoshiro(24))
+    @test_throws ArgumentError ucmc.step!(algorithm, clock, geometry, clock_state, 1.0)
+
+    # a vanishing local field (J = h = 0) leaves the spin unchanged
+    free = ucmc.XYModel([0.0, 0.0], [0.0, 0.0])
+    free_state = ucmc.initialize_state(free, geometry; rng = Xoshiro(25))
+    before = (copy(free_state.cosines), copy(free_state.sines))
+    rng = Xoshiro(26)
+    for _ in 1:geometry.n_sites
+        ucmc.step!(algorithm, free, geometry, free_state, 1.0; rng = rng)
+    end
+    @test free_state.cosines == before[1]
+    @test free_state.sines == before[2]
+
+    # a stateful scheme without its workspace is an explicit error, and
+    # sequential overrelaxation sweeps still conserve the energy
+    sequential = ucmc.OverrelaxationAlgorithm(ucmc.SequentialProposal())
+    @test_throws ArgumentError ucmc.step!(sequential, xy, geometry, state, 2.0)
+    rng = Xoshiro(27)
+    seq_state = ucmc.initialize_state(xy, geometry; rng = rng)
+    seq_workspace = ucmc.algorithm_workspace(sequential, xy, geometry, seq_state)
+    E0 = seq_state.energy
+    for _ in 1:(3 * geometry.n_sites)
+        ucmc.step!(sequential, xy, geometry, seq_state, 2.0;
+                   rng = rng, workspace = seq_workspace)
+        @test seq_state.energy ≈ E0
+        @test seq_state.energy ≈ xy_energy(xy, geometry, seq_state)
+    end
+
+    # run_simulation works with the empty diagnostics list, and requesting a
+    # diagnostic fails up front
+    parameters = ucmc.SimulationParameters(2.0, 2, 4, 0, 2)
+    container = ucmc.MeasurementContainer(xy, geometry, 4, 2)
+    ucmc.run_simulation(algorithm, xy, geometry,
+                        ucmc.initialize_state(xy, geometry; rng = rng),
+                        container, parameters; rng = rng)
+    @test all(isfinite, container.data[:energy])
+    @test_throws ArgumentError ucmc.run_simulation(
+        algorithm, xy, geometry, ucmc.initialize_state(xy, geometry; rng = rng),
+        ucmc.MeasurementContainer(xy, geometry, 4, 2; diagnostics = [:acceptance_ratio]),
+        parameters; rng = rng)
+
+    # seeded runs are reproducible
+    containers = map(1:2) do _
+        rng = Xoshiro(2024)
+        ucmc.run_simulation(algorithm, xy, geometry,
+                            ucmc.initialize_state(xy, geometry; rng = rng),
+                            ucmc.MeasurementContainer(xy, geometry, 20, 4),
+                            ucmc.SimulationParameters(2.0, 5, 20, 1, 4); rng = rng)
+    end
+    @test isequal(containers[1].data, containers[2].data)
+end
+
+@testset "Heatbath + overrelaxation reproduces the canonical ensemble" begin
+    # XY on a periodic two-site chain, exact moments by quadrature (the
+    # trapezoidal rule is spectrally accurate for periodic integrands)
+    chain = ucmc.Geometry(
+        lu.UnitCell(lattice_vecs = [[1.0]], basis_vecs = [[0.0]]),
+        lu.Lattice(L = [2], periodic = [true]),
+        [lu.Bond(orbitals = (1, 1), displacement = [1])],
+    )
+    xy = ucmc.XYModel([1.0], [0.4])
+    T = 0.8
+    n_grid = 400
+    θs = (2π / n_grid) .* (0:(n_grid - 1))
+    Z = E = Mx = 0.0
+    for a in θs, b in θs
+        e = xy_energy(xy, chain, cos.([a, b]), sin.([a, b]))
+        w = exp(-e / T)
+        Z += w
+        E += w * e
+        Mx += w * (cos(a) + cos(b))
+    end
+    exact_e, exact_mx = E / (2Z), Mx / (2Z)
+
+    # one heatbath sweep followed by three overrelaxation sweeps per
+    # measurement — overrelaxation alone is not ergodic, the mixture is
+    rng = Xoshiro(2024)
+    state = ucmc.initialize_state(xy, chain; rng = rng)
+    container = ucmc.MeasurementContainer(xy, chain, 20_000, 20)
+    heatbath = ucmc.HeatbathAlgorithm()
+    overrelax = ucmc.OverrelaxationAlgorithm()
+    heatbath_workspace = ucmc.algorithm_workspace(heatbath, xy, chain, state)
+    overrelax_workspace = ucmc.algorithm_workspace(overrelax, xy, chain, state)
+    stats = ()
+    for _ in 1:200
+        ucmc.MC_Sweep!(heatbath, xy, chain, state, container, T, stats;
+                       rng = rng, workspace = heatbath_workspace)
+    end
+    for _ in 1:20_000
+        ucmc.MC_Sweep!(heatbath, xy, chain, state, container, T, stats;
+                       rng = rng, workspace = heatbath_workspace)
+        for _ in 1:3
+            ucmc.MC_Sweep!(overrelax, xy, chain, state, container, T, stats;
+                           rng = rng, workspace = overrelax_workspace)
+        end
+        ucmc.measure!(container, state)
+    end
+    result = ucmc.analyze(container, T, chain.n_sites)
+    e, e_err = result.primary[:energy]
+    mx, mx_err = result.primary[:magnetization_x]
+    @test abs(e - exact_e) < 4 * e_err
+    @test abs(mx - exact_mx) < 4 * mx_err
+end
+
 @testset "Wolff updates keep invariants" begin
     geometry = square_geometry(2)
     model = ucmc.IsingModel([1.0, 1.0], [0.0])
@@ -1144,6 +1313,7 @@ struct PairingTestState <: ucmc.AbstractState end
     ising_state = ucmc.initialize_state(ising, geometry)
     @test_throws ArgumentError ucmc.heatbath_draw(Xoshiro(1), PairingTestModel(),
                                                   geometry, ising_state, 1, 1.0)
+    @test_throws ArgumentError ucmc.overrelax(PairingTestModel(), geometry, ising_state, 1)
 
     xy_state = ucmc.initialize_state(xy, geometry)
     heisenberg_state = ucmc.initialize_state(heisenberg, geometry)
@@ -1236,6 +1406,7 @@ end
     @test ucmc.MetropolisAlgorithm().proposal isa ucmc.RandomProposal
     @test ucmc.GlauberAlgorithm().proposal isa ucmc.RandomProposal
     @test ucmc.HeatbathAlgorithm().proposal isa ucmc.RandomProposal
+    @test ucmc.OverrelaxationAlgorithm().proposal isa ucmc.RandomProposal
     @test ucmc.MetropolisAlgorithm(ucmc.SequentialProposal()).proposal isa
         ucmc.SequentialProposal
     @test ucmc.GlauberAlgorithm(ucmc.SequentialProposal()).proposal isa
@@ -1304,6 +1475,9 @@ end
                            geometry.lattice.L)
     @test ucmc.sweep_dirname(model, ucmc.HeatbathAlgorithm(), geometry.lattice.L) !=
         ucmc.sweep_dirname(model, ucmc.HeatbathAlgorithm(ucmc.SequentialProposal()),
+                           geometry.lattice.L)
+    @test ucmc.sweep_dirname(model, ucmc.OverrelaxationAlgorithm(), geometry.lattice.L) !=
+        ucmc.sweep_dirname(model, ucmc.OverrelaxationAlgorithm(ucmc.SequentialProposal()),
                            geometry.lattice.L)
 end
 
@@ -1845,6 +2019,7 @@ end
     @test ucmc.steps_per_sweep(ucmc.MetropolisAlgorithm(), geometry) == geometry.n_sites
     @test ucmc.steps_per_sweep(ucmc.GlauberAlgorithm(), geometry) == geometry.n_sites
     @test ucmc.steps_per_sweep(ucmc.HeatbathAlgorithm(), geometry) == geometry.n_sites
+    @test ucmc.steps_per_sweep(ucmc.OverrelaxationAlgorithm(), geometry) == geometry.n_sites
     @test ucmc.steps_per_sweep(ucmc.WolffAlgorithm(), geometry) == 1
     @test ucmc.steps_per_sweep(ucmc.SwendsenWangAlgorithm(), geometry) == 1
 end
@@ -1889,7 +2064,8 @@ end
     state = ucmc.initialize_state(model, geometry)
 
     for alg in (ucmc.MetropolisAlgorithm(), ucmc.GlauberAlgorithm(), ucmc.WolffAlgorithm(),
-                ucmc.HeatbathAlgorithm(), ucmc.SwendsenWangAlgorithm())
+                ucmc.HeatbathAlgorithm(), ucmc.OverrelaxationAlgorithm(),
+                ucmc.SwendsenWangAlgorithm())
         for T in (0.0, -1.0, -Inf)
             @test_throws ArgumentError ucmc.step!(alg, model, geometry, state, T)
         end

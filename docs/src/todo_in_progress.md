@@ -6,10 +6,6 @@ In the future we'd like to add some further functionality to this package.
 
 - Potts Model
 
-## Algorithms
-
-- Overrelaxation (XY/Heisenberg)
-
 ## Functionality
 
 - Checkpointing (JLD2 or HDF5)

@@ -32,7 +32,7 @@ abstract type AbstractState end
 
 Abstract supertype for the site-selection schemes of local-update algorithms
 ([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
-[`HeatbathAlgorithm`](@ref)).
+[`HeatbathAlgorithm`](@ref), [`OverrelaxationAlgorithm`](@ref)).
 
 A scheme decides which site each [`step!`](@ref) update visits —
 [`RandomProposal`](@ref) draws uniformly at random,

@@ -75,7 +75,7 @@ Return the per-run scratch space that [`step!`](@ref) reuses for `algorithm`:
 a [`ClusterWorkspace`](@ref) for cluster algorithms, a
 [`LocalUpdateWorkspace`](@ref) for local-update algorithms
 ([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
-[`HeatbathAlgorithm`](@ref)), `nothing`
+[`HeatbathAlgorithm`](@ref), [`OverrelaxationAlgorithm`](@ref)), `nothing`
 otherwise. [`run_simulation`](@ref) allocates it once and passes it through
 [`MC_Sweep!`](@ref). Extend this for custom algorithms with per-step
 allocations.

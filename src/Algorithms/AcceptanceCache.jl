@@ -104,7 +104,7 @@ tabulate_acceptance(::AbstractModel) = false
 
 Per-run workspace for the local-update algorithms
 ([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
-[`HeatbathAlgorithm`](@ref)), built by
+[`HeatbathAlgorithm`](@ref), [`OverrelaxationAlgorithm`](@ref)), built by
 [`algorithm_workspace`](@ref) and threaded through [`MC_Sweep!`](@ref) into
 [`step!`](@ref). Bundles the site-selection scheme's per-run state with the
 acceptance-probability memo table.

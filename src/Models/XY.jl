@@ -160,6 +160,47 @@ function heatbath_draw(
 end
 
 """
+    overrelax(model::XYModel, geometry, state, site)
+
+Return the overrelaxation update of the XY spin at `site`: its reflection
+about the local field `H = (C + h, S)` assembled from the bond sums
+`C = Σ J cos(θ_j)`, `S = Σ J sin(θ_j)`. On the circle this is the angle map
+`θ ↦ 2φ - θ` with `φ` the local-field direction, written in components as
+`v ↦ 2 (v·H) H / |H|² - v` so no trigonometric calls are needed; the
+reflected components remain a unit vector to rounding. The reflection
+preserves `v · H`, so it conserves the site's energy exactly. A vanishing
+local field (`|H| = 0`) leaves the spin unchanged.
+
+# Returns
+
+A [`SpinUpdate`](@ref) carrying the reflected components as `new_value` and
+their change from the current components as `magnetization_change`.
+"""
+function overrelax(model::XYModel, geometry::Geometry, state::XYState, site::Int)
+    info = geometry.neighbor_table[site]
+    J = couplings(model)
+    Hx = Float64(field_strength(model, geometry, site))
+    Hy = zero(Hx)
+    for (template, neighbor) in zip(info.templates, info.neighbors)
+        neighbor == site && continue
+        Hx += J[template] * state.cosines[neighbor]
+        Hy += J[template] * state.sines[neighbor]
+    end
+
+    c_old = state.cosines[site]
+    s_old = state.sines[site]
+    R2 = Hx * Hx + Hy * Hy
+    R2 == 0 && return SpinUpdate(site, (c_old, s_old), (zero(R2), zero(R2)))
+
+    projection = (c_old * Hx + s_old * Hy) / R2
+    c_new = 2 * projection * Hx - c_old
+    s_new = 2 * projection * Hy - s_old
+    return SpinUpdate(
+        site, (c_new, s_new), (c_new - c_old, s_new - s_old),
+    )
+end
+
+"""
     XYClusterContext
 
 Per-update state of an XY cluster move (Wolff or Swendsen-Wang): the random

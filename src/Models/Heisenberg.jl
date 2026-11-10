@@ -234,6 +234,53 @@ function _orthonormal_basis(u::NTuple{3,Real})
 end
 
 """
+    overrelax(model::HeisenbergModel, geometry, state, site)
+
+Return the overrelaxation update of the Heisenberg spin at `site`: its
+reflection about the local field `H = (h, 0, 0) + Σ J v_j` — the rotation
+by `π` about the local-field axis, `v ↦ 2 (v·H) H / |H|² - v`. The
+reflection preserves `v · H`, so it conserves the site's energy exactly,
+and the reflected components remain a unit vector to rounding. A vanishing
+local field (`|H| = 0`) leaves the spin unchanged.
+
+# Returns
+
+A [`SpinUpdate`](@ref) carrying the reflected components as `new_value` and
+their change from the current components as `magnetization_change`.
+"""
+function overrelax(model::HeisenbergModel, geometry::Geometry, state::HeisenbergState, site::Int)
+    info = geometry.neighbor_table[site]
+    J = couplings(model)
+    Hx = Float64(field_strength(model, geometry, site))
+    Hy = zero(Hx)
+    Hz = zero(Hx)
+    for (template, neighbor) in zip(info.templates, info.neighbors)
+        neighbor == site && continue
+        Hx += J[template] * state.xs[neighbor]
+        Hy += J[template] * state.ys[neighbor]
+        Hz += J[template] * state.zs[neighbor]
+    end
+
+    x_old = state.xs[site]
+    y_old = state.ys[site]
+    z_old = state.zs[site]
+    R2 = Hx * Hx + Hy * Hy + Hz * Hz
+    R2 == 0 && return SpinUpdate(
+        site, (x_old, y_old, z_old), (zero(R2), zero(R2), zero(R2))
+    )
+
+    projection = (x_old * Hx + y_old * Hy + z_old * Hz) / R2
+    new = (
+        2 * projection * Hx - x_old,
+        2 * projection * Hy - y_old,
+        2 * projection * Hz - z_old,
+    )
+    return SpinUpdate(
+        site, new, (new[1] - x_old, new[2] - y_old, new[3] - z_old),
+    )
+end
+
+"""
     HeisenbergClusterContext
 
 Per-update state of a Heisenberg cluster move (Wolff or Swendsen-Wang): the

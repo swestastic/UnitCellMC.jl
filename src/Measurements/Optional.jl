@@ -98,10 +98,9 @@ An `(obs, der)` tuple: `obs` holds the matrix-valued
 """
 function magnetization_per_orbital_entry(model, geometry)
     n_comp = n_operator_components(model)   # fail at container construction
-    n_orb = LatticeUtilities.norbits(geometry.unit_cell)
+    n_orb = n_orbitals(geometry)
     n_cells = geometry.n_sites ÷ n_orb
-    orbitals = [LatticeUtilities.site_to_orbital(site, geometry.unit_cell)
-                for site in 1:geometry.n_sites]
+    orbitals = [site_orbital(geometry, site) for site in 1:geometry.n_sites]
 
     function sample(state)
         m = zeros(Float64, n_comp, n_orb)

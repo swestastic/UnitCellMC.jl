@@ -25,7 +25,7 @@ function sweep_steps!(
     T, stats::Tuple, diagnostics::Val{D};
     rng::AbstractRNG, workspace
 ) where {D}
-    if LatticeUtilities.norbits(geometry.unit_cell) == 1
+    if n_orbitals(geometry) == 1
         return _ising_metropolis_sweep!(
             alg, model, geometry, state, T, stats, diagnostics, rng,
             _acceptance_cache(workspace)

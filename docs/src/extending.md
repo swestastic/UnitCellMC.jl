@@ -393,6 +393,9 @@ There is nothing to extend: a [`Geometry`](@ref UnitCellMC.Geometry) is built fr
 LatticeUtilities `UnitCell`/`Lattice` plus a list of bond templates, and
 multiple orbitals, long-range bonds, and mixed periodic/open boundaries all
 work out of the box. If you need coordinate machinery in a new measurement,
-use [`site_at`](@ref UnitCellMC.site_at), [`build_displacement_classes`](@ref UnitCellMC.build_displacement_classes), and
+use [`site_at`](@ref UnitCellMC.site_at), [`n_orbitals`](@ref UnitCellMC.n_orbitals),
+[`site_orbital`](@ref UnitCellMC.site_orbital),
+[`bond_displacement`](@ref UnitCellMC.bond_displacement),
+[`build_displacement_classes`](@ref UnitCellMC.build_displacement_classes), and
 [`build_momentum_grid`](@ref UnitCellMC.build_momentum_grid) rather than calling LatticeUtilities conversion
 routines directly.

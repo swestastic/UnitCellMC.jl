@@ -164,6 +164,26 @@ site_at(geometry::Geometry, loc, orbital) =
     LatticeUtilities.loc_to_site(loc, orbital, geometry.unit_cell, geometry.lattice)
 
 """
+    n_orbitals(geometry)
+
+Return the number of orbitals per unit cell of `geometry` — the index range
+of the model's per-orbital field vector ([`field_strength`](@ref)) and of
+per-orbital measurements. A thin wrapper over `LatticeUtilities.norbits`, so
+code outside the Geometry layer does not reach into `geometry.unit_cell`.
+"""
+n_orbitals(geometry::Geometry) = LatticeUtilities.norbits(geometry.unit_cell)
+
+"""
+    site_orbital(geometry, site)
+
+Return the unit-cell orbital of `site`: the index into the model's
+per-orbital field vector for that site (see [`field_strength`](@ref)). A thin
+wrapper over `LatticeUtilities.site_to_orbital` (see [`site_at`](@ref)).
+"""
+site_orbital(geometry::Geometry, site::Int) =
+    LatticeUtilities.site_to_orbital(site, geometry.unit_cell)
+
+"""
     bond_displacement(geometry, template)
 
 Return the real-space displacement vector of bond template `template` (an

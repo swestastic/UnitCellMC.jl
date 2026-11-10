@@ -35,9 +35,9 @@ function validate_model_geometry(model::AbstractModel, geometry::Geometry)
     ))
 
     h = fields(model)
-    n_orbitals = LatticeUtilities.norbits(geometry.unit_cell)
-    length(h) == n_orbitals || throw(ArgumentError(
-        "length(fields(model)) = $(length(h)) does not match the number of sites in the unit cell = $n_orbitals"
+    n_orb = n_orbitals(geometry)
+    length(h) == n_orb || throw(ArgumentError(
+        "length(fields(model)) = $(length(h)) does not match the number of sites in the unit cell = $n_orb"
     ))
     return nothing
 end
@@ -110,7 +110,7 @@ range when [`validate_model_geometry`](@ref) passed at initialization.
 - `site`: Index of the site to look up.
 """
 function field_strength(model::AbstractModel, geometry::Geometry, site::Int)
-    orbital = LatticeUtilities.site_to_orbital(site, geometry.unit_cell)
+    orbital = site_orbital(geometry, site)
     return fields(model)[orbital]
 end
 

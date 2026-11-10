@@ -19,7 +19,7 @@ I_d = \\sum_{\\langle ij \\rangle} J_{ij} (\\Delta r_{ij})_d
 
 where `u_i` is the unit spin vector of site `i`, the sums run over unique
 bonds, and `Δr_ij` is the real-space displacement vector of a bond (see
-`LatticeUtilities.bond_to_vec`). The twist is taken about the spin-space z
+[`bond_displacement`](@ref)). The twist is taken about the spin-space z
 axis; for the two-component models (XY, clock) this is the only choice, and
 for the Heisenberg model every axis is equivalent at zero field. In the
 XY/clock models a nonzero `Υ` signals the quasi-ordered phase, and the
@@ -69,18 +69,8 @@ function helicity_modulus_entry(model, geometry::Geometry{D}) where {D}
     n_sites = geometry.n_sites
 
     # Real-space displacement vector of each bond template.
-    template_vecs = [LatticeUtilities.bond_to_vec(bond, geometry.unit_cell)
-                     for bond in geometry.bonds]
-
-    # Source site of every concrete bond, so that each directed neighbor-table
-    # entry can be assigned the correctly signed displacement: the tables are
-    # concatenated exactly as in the Geometry constructor, so column b of the
-    # concatenated matrix is concrete bond b and connects source to target.
-    per_template_tables = [
-        LatticeUtilities.build_neighbor_table([bond], geometry.unit_cell, geometry.lattice)
-        for bond in geometry.bonds
-    ]
-    bond_source = [nt[1, c] for nt in per_template_tables for c in axes(nt, 2)]
+    template_vecs = [bond_displacement(geometry, template)
+                     for template in eachindex(geometry.bonds)]
 
     # Per directed neighbor-table entry, the coefficients of the stiffness
     # (C2) and twist-current (C1) sums.
@@ -91,7 +81,7 @@ function helicity_modulus_entry(model, geometry::Geometry{D}) where {D}
         for p in eachindex(info.neighbors)
             bid = info.bonds[p]
             J = bond_strength(model, geometry, bid)
-            sgn = bond_source[bid] == i ? 1 : -1
+            sgn = geometry.bond_sources[bid] == i ? 1 : -1
             v = template_vecs[info.templates[p]]
             for d in 1:D
                 C1[i][p, d] = J * sgn * v[d]

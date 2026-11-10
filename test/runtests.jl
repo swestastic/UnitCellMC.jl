@@ -106,6 +106,36 @@ function clock_invariants_hold(model, geometry, state)
         isapprox(state.magnetization_y, clock_my(q, state.spins); atol = 1e-10)
 end
 
+@testset "Geometry bond sources" begin
+    geometry = square_geometry(3)
+    @test length(geometry.bond_sources) == length(geometry.bond_id_to_template)
+
+    # Every concrete bond's source is one of its endpoints, and the other
+    # endpoint is reached from the source by the template's displacement.
+    for i in 1:geometry.n_sites
+        info = geometry.neighbor_table[i]
+        for p in eachindex(info.bonds)
+            b = info.bonds[p]
+            j = info.neighbors[p]
+            s = geometry.bond_sources[b]
+            @test s == i || s == j
+            if s == i
+                template = geometry.bonds[geometry.bond_id_to_template[b]]
+                @test j == lu.site_to_site(s, template.displacement, template.orbitals[2],
+                                           geometry.unit_cell, geometry.lattice)
+            end
+        end
+    end
+
+    # The displacement accessor returns the template's real-space vector.
+    @test ucmc.bond_displacement(geometry, 1) ≈ [1.0, 0.0]
+    @test ucmc.bond_displacement(geometry, 2) ≈ [0.0, 1.0]
+
+    # Degenerate bond sets leave the source list empty.
+    empty_geometry = ucmc.Geometry(geometry.unit_cell, geometry.lattice, lu.Bond{2}[])
+    @test isempty(empty_geometry.bond_sources)
+end
+
 @testset "Site-resolved Ising fields" begin
     geometry = two_orbital_geometry(2)
     model = ucmc.IsingModel([1.0, 2.0], [0.5, -0.25])
@@ -1634,7 +1664,8 @@ end
     push!(self_table[1].templates, 1)
     push!(self_table[1].neighbors, 1)
     self_geometry = ucmc.Geometry(square.unit_cell, square.lattice, square.bonds,
-                                  square.bond_id_to_template, self_table, square.n_sites)
+                                  square.bond_id_to_template, square.bond_sources,
+                                  self_table, square.n_sites)
     @test_throws ArgumentError ucmc.color_lattice(self_geometry, 3)
 
     # the drivers build and thread the workspace automatically

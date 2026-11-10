@@ -5,8 +5,9 @@ The mutable configuration of an Ising model simulation: per-site spins and
 the running totals (energy, magnetization) kept in sync with them as updates
 are applied.
 
-The running totals are maintained incrementally by [`apply_update!`](@ref)
-rather than recomputed from scratch each step, so they must be kept
+The running totals are maintained incrementally by [`apply_update!`](@ref),
+[`apply_cluster!`](@ref), and [`apply_clusters!`](@ref) rather than recomputed
+from scratch each step, so they must be kept
 consistent with `spins` by construction (see [`initialize_state`](@ref)) and
 by every code path that mutates `spins`.
 

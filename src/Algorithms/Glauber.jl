@@ -5,9 +5,9 @@ The Glauber single-site update algorithm: the same trial moves as
 [`MetropolisAlgorithm`](@ref), but a trial move is accepted with probability
 `1 / (1 + exp(ΔE / T))` instead of the Metropolis `min(1, exp(-ΔE / T))`.
 
-By default every model proposes the same symmetric single-site trial moves as
-for [`MetropolisAlgorithm`](@ref) — a generic fallback [`propose`](@ref)
-method forwards to it — so detailed balance holds with respect to the
+By default every model proposes its usual single-site trial move — the
+six-argument [`propose`](@ref) method falls back to the model's
+[`propose_value`](@ref) hook — so detailed balance holds with respect to the
 Boltzmann distribution. A model may override the fallback with a
 Glauber-specific proposal.
 
@@ -33,8 +33,8 @@ Generate a Glauber trial move: pick a site with the algorithm's
 [`AbstractProposalScheme`](@ref) (see [`propose_site`](@ref)), then call the
 model's `propose(rng, algorithm, model, geometry, state, site)` method to
 choose the new value there. By default that method falls back to the model's
-Metropolis proposal at the same site; a model can override it with a
-Glauber-specific proposal.
+[`propose_value`](@ref) hook; a model can override it with a Glauber-specific
+proposal.
 
 # Arguments
 
@@ -59,11 +59,11 @@ function propose(
     return propose(rng, alg, model, geometry, state, site)
 end
 
-# By default a model's Glauber value proposal is its Metropolis one (the same
-# symmetric trial move at the chosen site); a model can override this
-# fallback with a Glauber-specific proposal.
+# By default a model's Glauber trial move is its `propose_value` hook (the
+# same symmetric move every local-update algorithm proposes); a model can
+# override this fallback with a Glauber-specific proposal.
 propose(rng::AbstractRNG, ::GlauberAlgorithm, model::AbstractModel, geometry, state::AbstractState, site::Int) =
-    propose(rng, MetropolisAlgorithm(), model, geometry, state, site)
+    propose_value(rng, model, geometry, state, site)
 
 shared_workspace(alg::GlauberAlgorithm, model, geometry) =
     visiting_order(alg.proposal, geometry)
@@ -73,7 +73,7 @@ algorithm_workspace(alg::GlauberAlgorithm, model, geometry, state,
     LocalUpdateWorkspace(alg.proposal, model, geometry, order)
 
 """
-    step!(alg::GlauberAlgorithm, model, geometry, state, T; rng = Random.default_rng())
+    step!(alg::GlauberAlgorithm, model, geometry, state, T; rng = Random.default_rng(), workspace = nothing)
 
 Attempt one Glauber update on `state` at temperature `T`, and apply it if
 accepted.

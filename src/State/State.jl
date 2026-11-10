@@ -62,7 +62,7 @@ magnetization for an [`IsingState`](@ref), and the magnitude of the Cartesian
 components for an [`XYState`](@ref), [`ClockState`](@ref), or
 [`HeisenbergState`](@ref) (`hypot` of two, resp. three, components). Used by
 the optional order-parameter measurements (`:abs_magnetization`,
-`:binder_cumulant`, `:magnetization_fourth`).
+`:abs_magnetization_squared`, `:binder_cumulant`, `:magnetization_fourth`).
 
 Each state type provides its own method (in the corresponding model's file,
 next to [`local_operator`](@ref)); this fallback throws for state types
@@ -77,6 +77,17 @@ function magnetization_value(state::AbstractState)
         "magnetization_value is not implemented for $(nameof(typeof(state)))"
     ))
 end
+
+"""
+    total_energy(state)
+
+Return the total energy of `state`: the running total every state type
+caches and every update keeps exactly consistent with the configuration.
+The default reads the `energy` field; a state that stores or computes its
+energy differently overrides this accessor rather than every read site
+([`swap_pass!`](@ref) and the per-model energy observables read through it).
+"""
+total_energy(state::AbstractState) = state.energy
 
 # The per-model `initialize_state` methods live in `Initialization.jl`, which
 # `src/UnitCellMC.jl` includes after `Models/`: the state structs must exist

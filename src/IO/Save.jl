@@ -10,45 +10,49 @@ algorithms (e.g. `"MetropolisAlgorithm-SequentialProposal"`,
 `"MetropolisAlgorithm-ColoredProposal3"`), so that runs comparing
 site-selection schemes do not overwrite each other. The default
 [`RandomProposal`](@ref) keeps the bare type name.
+
+The scheme is read through the generic [`proposal_scheme`](@ref) accessor and
+rendered by [`proposal_label`](@ref), so custom algorithms and schemes are
+labeled without this function naming their types.
 """
-algorithm_label(algorithm) = string(nameof(typeof(algorithm)))
-
-algorithm_label(alg::Union{MetropolisAlgorithm, GlauberAlgorithm}) =
-    algorithm_label(nameof(typeof(alg)), alg.proposal)
-
-algorithm_label(name, ::RandomProposal) = string(name)
-algorithm_label(name, proposal::AbstractProposalScheme) =
-    string(name, "-", nameof(typeof(proposal)))
-algorithm_label(name, proposal::ColoredProposal) =
-    string(name, "-", nameof(typeof(proposal)), proposal.ncolors)
+function algorithm_label(algorithm)
+    scheme = proposal_scheme(algorithm)
+    scheme === nothing && return string(nameof(typeof(algorithm)))
+    return string(nameof(typeof(algorithm)), proposal_label(scheme))
+end
 
 """
-    results_dirname(model, algorithm, L, T; root = "results")
+    results_dirname(model, algorithm, geometry, T; root = "results")
 
 Construct the output directory path for a single-temperature run, encoding
-the model type, algorithm type, system size `L`, and temperature `T` into
-the directory name.
+the model type, algorithm type, system size, a [`geometry_tag`](@ref) of the
+geometry's connectivity, and temperature `T` into the directory name. The tag
+distinguishes geometries that share a size (e.g. square and triangular
+lattices with the same `L`), so their results never share a directory.
 
 # Arguments
 
 - `model`: The model instance being simulated (only its type name is used).
 - `algorithm`: The algorithm instance being used (see
   [`algorithm_label`](@ref)).
-- `L`: System size, joined component-wise with `"x"` (e.g. `(4, 4)` → `"4x4"`).
+- `geometry`: The lattice geometry; the system size is read from
+  `geometry.lattice.L` (joined component-wise with `"x"`, e.g. `(4, 4)` →
+  `"4x4"`) and the connectivity tag from [`geometry_tag`](@ref).
 - `T`: Temperature, formatted with `repr` (shortest lossless round-trip) for
   the directory name, so distinct values never share a directory.
 - `root`: Base directory under which the run directory is created.
 
 # Returns
 
-The path `root/ModelName_AlgorithmName_LWxH_tempT`, without creating it.
+The path `root/ModelName_AlgorithmName_LWxH_g<tag>_tempT`, without creating
+it.
 """
-function results_dirname(model, algorithm, L, T; root::AbstractString = "results")
+function results_dirname(model, algorithm, geometry, T; root::AbstractString = "results")
     model_name = string(nameof(typeof(model)))
     alg_name   = algorithm_label(algorithm)
-    L_str      = join(L, "x")
+    L_str      = join(geometry.lattice.L, "x")
     T_str      = repr(T)
-    return joinpath(root, "$(model_name)_$(alg_name)_L$(L_str)_temp$(T_str)")
+    return joinpath(root, "$(model_name)_$(alg_name)_L$(L_str)_g$(geometry_tag(geometry))_temp$(T_str)")
 end
 
 """
@@ -361,7 +365,8 @@ autocorrelation data.
 
 Columns: `observable`, `tau`, `tau_err`, `window`, `n_samples`, `status`.
 `tau` is in units of measurements (`n_unmeasured + 1` sweeps) and is `NaN`
-unless `status == "resolved"`; see [`AutocorrelationResult`](@ref).
+unless `status` is `"resolved"` or `"anticorrelated"`; see
+[`AutocorrelationResult`](@ref).
 """
 function autocorrelation_rows(results)
     hasproperty(results, :autocorrelation) || return nothing
@@ -394,16 +399,13 @@ end
     save_results(model, algorithm, geometry, T, results, parameters;
         root = "results", seed = global_seed())
 
-Save all output for a single-temperature run: create the run directory,
-write metadata, measurements, correlations (if any), the structure factor
-(if any), per-orbital magnetizations (if any), and autocorrelation times (if
-any). Optional-data files the new results lack are removed, so re-running
-into a directory that held a richer run never leaves stale files behind.
-
-Combines [`results_dirname`](@ref), [`save_metadata`](@ref),
+Save all output for a single-temperature run, combining
+[`results_dirname`](@ref), [`save_metadata`](@ref),
 [`save_measurements`](@ref), [`save_correlations`](@ref),
 [`save_structure_factor`](@ref), [`save_magnetization_per_orbital`](@ref),
-and [`save_autocorrelation`](@ref) into one call.
+and [`save_autocorrelation`](@ref) into one call. Optional-data files the
+new results lack are removed, so re-running into a directory that held a
+richer run never leaves stale files behind.
 
 # Arguments
 
@@ -424,7 +426,7 @@ function save_results(
     root::AbstractString = "results", seed = global_seed()
 )
     L = geometry.lattice.L
-    dir = results_dirname(model, algorithm, L, T; root = root)
+    dir = results_dirname(model, algorithm, geometry, T; root = root)
     mkpath(dir)
     save_metadata(dir, model, algorithm, L, T, parameters; seed = seed)
     save_measurements(dir, results)
@@ -436,29 +438,35 @@ function save_results(
 end
 
 """
-    sweep_dirname(model, algorithm, L; root = "results")
+    sweep_dirname(model, algorithm, geometry; root = "results")
 
 Construct the output directory path for a temperature sweep (multiple
-temperatures saved together), encoding the model type, algorithm type, and
-system size `L` into the directory name.
+temperatures saved together), encoding the model type, algorithm type,
+system size, and a [`geometry_tag`](@ref) of the geometry's connectivity
+into the directory name. The tag distinguishes geometries that share a size
+(e.g. square and triangular lattices with the same `L`), so their results
+never share a directory.
 
 # Arguments
 
 - `model`: The model instance being simulated (only its type name is used).
 - `algorithm`: The algorithm instance being used (see
   [`algorithm_label`](@ref)).
-- `L`: System size, joined component-wise with `"x"`.
+- `geometry`: The lattice geometry; the system size is read from
+  `geometry.lattice.L` (joined component-wise with `"x"`) and the
+  connectivity tag from [`geometry_tag`](@ref).
 - `root`: Base directory under which the sweep directory is created.
 
 # Returns
 
-The path `root/ModelName_AlgorithmName_LWxH_sweep`, without creating it.
+The path `root/ModelName_AlgorithmName_LWxH_g<tag>_sweep`, without creating
+it.
 """
-function sweep_dirname(model, algorithm, L; root::AbstractString = "results")
+function sweep_dirname(model, algorithm, geometry; root::AbstractString = "results")
     model_name = string(nameof(typeof(model)))
     alg_name   = algorithm_label(algorithm)
-    L_str      = join(L, "x")
-    return joinpath(root, "$(model_name)_$(alg_name)_L$(L_str)_sweep")
+    L_str      = join(geometry.lattice.L, "x")
+    return joinpath(root, "$(model_name)_$(alg_name)_L$(L_str)_g$(geometry_tag(geometry))_sweep")
 end
 
 """
@@ -565,7 +573,9 @@ end
 """
     save_sweep_results(sweep_results, Ts, model, algorithm, geometry,
                         n_thermalization, n_measurements, n_unmeasured, n_bins;
-                        root = "results", seed = global_seed())
+                        root = "results", seed = global_seed(), n_runs = nothing,
+                        simulated_annealing = nothing, measurements = nothing,
+                        diagnostics = nothing, time_series = nothing)
 
 Save the combined output of a temperature sweep into a single directory:
 `measurement_results.csv`, `correlation_results.csv`,
@@ -576,8 +586,8 @@ metadata.
 
 `sweep_results[i]` must correspond to `Ts[i]`; per-temperature rows are built
 with [`measurement_rows`](@ref), [`correlation_rows`](@ref),
-[`structure_factor_rows`](@ref), and [`autocorrelation_rows`](@ref) and
-concatenated across all temperatures.
+[`structure_factor_rows`](@ref), [`magnetization_per_orbital_rows`](@ref), and
+[`autocorrelation_rows`](@ref) and concatenated across all temperatures.
 Temperatures with no correlation (structure-factor, autocorrelation) data are simply
 omitted from the corresponding file; if none have such data, that file is not
 written at all, and a stale file from an earlier save into the same directory
@@ -623,7 +633,7 @@ function save_sweep_results(
     length(sweep_results) == length(Ts) ||
         throw(ArgumentError("sweep_results ($(length(sweep_results))) and Ts ($(length(Ts))) must have the same length"))
 
-    dir = sweep_dirname(model, algorithm, L; root = root)
+    dir = sweep_dirname(model, algorithm, geometry; root = root)
     mkpath(dir)
     save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
         seed = seed, n_runs = n_runs, simulated_annealing = simulated_annealing,
@@ -639,28 +649,32 @@ function save_sweep_results(
 end
 
 """
-    tempering_dirname(model, algorithm, L; root = "results")
+    tempering_dirname(model, algorithm, geometry; root = "results")
 
 Construct the output directory path for a [`tempering_sweep`](@ref) run,
-encoding the model type, algorithm type, and system size `L` into the
-directory name.
+encoding the model type, algorithm type, system size, and a
+[`geometry_tag`](@ref) of the geometry's connectivity into the directory
+name.
 
 # Arguments
 
 - `model`: The model instance being simulated (only its type name is used).
 - `algorithm`: The per-replica update algorithm (see [`algorithm_label`](@ref)).
-- `L`: System size, joined component-wise with `"x"`.
+- `geometry`: The lattice geometry; the system size is read from
+  `geometry.lattice.L` (joined component-wise with `"x"`) and the
+  connectivity tag from [`geometry_tag`](@ref).
 - `root`: Base directory under which the sweep directory is created.
 
 # Returns
 
-The path `root/ModelName_AlgorithmName_LWxH_tempering`, without creating it.
+The path `root/ModelName_AlgorithmName_LWxH_g<tag>_tempering`, without
+creating it.
 """
-function tempering_dirname(model, algorithm, L; root::AbstractString = "results")
+function tempering_dirname(model, algorithm, geometry; root::AbstractString = "results")
     model_name = string(nameof(typeof(model)))
     alg_name   = algorithm_label(algorithm)
-    L_str      = join(L, "x")
-    return joinpath(root, "$(model_name)_$(alg_name)_L$(L_str)_tempering")
+    L_str      = join(geometry.lattice.L, "x")
+    return joinpath(root, "$(model_name)_$(alg_name)_L$(L_str)_g$(geometry_tag(geometry))_tempering")
 end
 
 """
@@ -708,7 +722,7 @@ function save_tempering_results(
 )
     Ts = result.temperatures
     L = geometry.lattice.L
-    dir = tempering_dirname(model, algorithm, L; root = root)
+    dir = tempering_dirname(model, algorithm, geometry; root = root)
     mkpath(dir)
     save_sweep_metadata(dir, model, algorithm, L, Ts, n_thermalization, n_measurements, n_unmeasured, n_bins;
         seed = seed, measurements = measurements, diagnostics = diagnostics, time_series = time_series)

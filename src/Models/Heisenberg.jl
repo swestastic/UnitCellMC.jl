@@ -70,10 +70,46 @@ n_operator_components(::HeisenbergModel) = 3
 operator_components(::HeisenbergModel, v::NTuple{3,Real}) = v
 
 """
-    propose(rng, ::MetropolisAlgorithm, model::HeisenbergModel, geometry, state, site)
+    helicity_stiffness_product(::HeisenbergModel, a, b)
 
-Generate a Metropolis trial move for the Heisenberg model at `site` (chosen
-by the algorithm's [`AbstractProposalScheme`](@ref)): propose a new spin
+The Heisenberg specialization of [`helicity_stiffness_product`](@ref), the
+per-bond spin factor of the helicity-modulus stiffness sum. With the twist
+taken about the spin-space `z` axis, the second twist derivative of the bond
+energy ``-J \\, \\mathbf{u}_i \\cdot \\mathbf{u}_j`` carries the factor
+``\\mathbf{u}_i \\cdot \\mathbf{u}_j - (\\mathbf{u}_i \\cdot \\hat{z})
+(\\mathbf{u}_j \\cdot \\hat{z})``, so the `z` components drop out:
+`a[1] * b[1] + a[2] * b[2]`. Spins aligned with the twist axis contribute
+no stiffness, as rotations about `z` leave them invariant.
+"""
+helicity_stiffness_product(::HeisenbergModel, a::NTuple{3,Real}, b::NTuple{3,Real}) =
+    a[1] * b[1] + a[2] * b[2]
+
+"""
+    random_unit_vector(rng)
+
+Draw a uniformly distributed unit vector in ``\\mathbb{R}^3`` (a random point
+on the unit sphere): with `z` uniform on `[-1, 1]` and `φ` uniform on
+`[0, 2π)`, the vector `(√(1 - z²) cos φ, √(1 - z²) sin φ, z)` is uniform on
+the sphere. Shared by [`initialize_state`](@ref), [`propose_value`](@ref),
+and the cluster context of the [`HeisenbergModel`](@ref), so all consume the
+same two draws per vector from `rng`.
+
+# Returns
+
+A `(x, y, z)` tuple with `x² + y² + z² == 1` to rounding.
+"""
+function random_unit_vector(rng::AbstractRNG)
+    z = 1 - 2 * rand(rng)
+    s, c = sincos(2π * rand(rng))
+    r = sqrt(1 - z^2)
+    return (r * c, r * s, z)
+end
+
+"""
+    propose_value(rng, model::HeisenbergModel, geometry, state, site)
+
+Propose the new value at `site` (chosen by the algorithm's
+[`AbstractProposalScheme`](@ref)) for a local-update trial move: a new spin
 drawn uniformly from the unit sphere via [`random_unit_vector`](@ref).
 
 # Returns
@@ -82,7 +118,7 @@ A [`SpinUpdate`](@ref) carrying the proposed components `(x, y, z)` as
 `new_value` and their change from the current components as
 `magnetization_change`.
 """
-function propose(rng::AbstractRNG, ::MetropolisAlgorithm, ::HeisenbergModel, geometry, state::HeisenbergState, site::Int)
+function propose_value(rng::AbstractRNG, ::HeisenbergModel, geometry::Geometry, state::HeisenbergState, site::Int)
     new = random_unit_vector(rng)
     return SpinUpdate(
         site, new,
@@ -128,6 +164,156 @@ function energy_difference(
     # The carried change is (x_new - x_old, y_new - y_old, z_new - z_old).
     dx, dy, dz = proposal.magnetization_change
     return -(dx * Cx + dy * Cy + dz * Cz) - field_strength(model, geometry, site) * dx
+end
+
+"""
+    heatbath_draw(rng, model::HeisenbergModel, geometry, state, site, T, cache)
+
+Draw the new spin at `site` from its single-site conditional distribution at
+temperature `T`: with the local field `H = (h, 0, 0) + Σ J v_j` assembled
+from the bond sums, the conditional is the Fisher (Langevin) distribution
+`p(v) ∝ exp(κ û · v)` on the unit sphere, with concentration `κ = |H| / T`
+about the local-field direction `û = H / |H|`.
+
+The draw is exact: the polar component `cos θ = v · û` has density
+`∝ exp(κ cos θ)` on `[-1, 1]`, sampled by inversion of its cumulative
+distribution (see [`_heatbath_cos_theta`](@ref)); the azimuth about `û` is
+uniform; and the two are combined in an orthonormal triad around `û` (see
+[`_orthonormal_basis`](@ref)). A vanishing local field (`|H| = 0`) gives a
+uniform unit vector. `cache` goes unused: the draw does not reduce to a
+memoized Boltzmann factor.
+
+# Returns
+
+A [`SpinUpdate`](@ref) carrying the drawn components `(x, y, z)` as
+`new_value` and their change from the current components as
+`magnetization_change`.
+"""
+function heatbath_draw(
+    rng::AbstractRNG,
+    model::HeisenbergModel,
+    geometry::Geometry,
+    state::HeisenbergState,
+    site::Int,
+    T::Real,
+    cache,
+)
+    info = geometry.neighbor_table[site]
+    J = couplings(model)
+    Hx = Float64(field_strength(model, geometry, site))
+    Hy = zero(Hx)
+    Hz = zero(Hx)
+    for (template, neighbor) in zip(info.templates, info.neighbors)
+        neighbor == site && continue
+        Hx += J[template] * state.xs[neighbor]
+        Hy += J[template] * state.ys[neighbor]
+        Hz += J[template] * state.zs[neighbor]
+    end
+
+    R = hypot(Hx, Hy, Hz)
+    new = if R == 0
+        random_unit_vector(rng)
+    else
+        cos_θ = _heatbath_cos_theta(rng, R / T)
+        sin_θ = sqrt((1 - cos_θ) * (1 + cos_θ))
+        sin_φ, cos_φ = sincos(2π * rand(rng))
+        u = (Hx / R, Hy / R, Hz / R)
+        e1, e2 = _orthonormal_basis(u)
+        ntuple(3) do α
+            cos_θ * u[α] + sin_θ * (cos_φ * e1[α] + sin_φ * e2[α])
+        end
+    end
+
+    return SpinUpdate(
+        site, new,
+        (new[1] - state.xs[site], new[2] - state.ys[site], new[3] - state.zs[site]),
+    )
+end
+
+"""
+    _heatbath_cos_theta(rng, κ)
+
+Draw `cos θ ∈ [-1, 1]` from `p(c) ∝ exp(κ c)`, the polar-angle density of the
+Fisher distribution, by inversion of the cumulative distribution:
+`c = 1 + log(u + (1 - u) exp(-2κ)) / κ` for `u` uniform on `[0, 1)`. The
+written form factors out `exp(κ)`, so it neither overflows nor loses range at
+large `κ`. For `κ < 1e-8` the density is uniform to `O(κ)`, so `c = 2u - 1`
+avoids the `0 / 0` limit.
+"""
+function _heatbath_cos_theta(rng::AbstractRNG, κ::Real)
+    u = rand(rng)
+    κ < 1e-8 && return 2u - 1
+    return 1 + log(u + (1 - u) * exp(-2κ)) / κ
+end
+
+"""
+    _orthonormal_basis(u)
+
+Return unit vectors `e1, e2` perpendicular to the unit vector `u` and to each
+other: `e1` is the normalized cross product of `u` with the coordinate axis
+least aligned with it (the largest such cross product, so the normalization
+cannot degenerate), and `e2 = u × e1`.
+"""
+function _orthonormal_basis(u::NTuple{3,Real})
+    ax = if abs(u[1]) <= abs(u[2]) && abs(u[1]) <= abs(u[3])
+        (1.0, 0.0, 0.0)
+    elseif abs(u[2]) <= abs(u[3])
+        (0.0, 1.0, 0.0)
+    else
+        (0.0, 0.0, 1.0)
+    end
+    e1 = (u[2] * ax[3] - u[3] * ax[2], u[3] * ax[1] - u[1] * ax[3], u[1] * ax[2] - u[2] * ax[1])
+    n = hypot(e1[1], e1[2], e1[3])
+    e1 = (e1[1] / n, e1[2] / n, e1[3] / n)
+    e2 = (u[2] * e1[3] - u[3] * e1[2], u[3] * e1[1] - u[1] * e1[3], u[1] * e1[2] - u[2] * e1[1])
+    return e1, e2
+end
+
+"""
+    overrelax(model::HeisenbergModel, geometry, state, site)
+
+Return the overrelaxation update of the Heisenberg spin at `site`: its
+reflection about the local field `H = (h, 0, 0) + Σ J v_j` — the rotation
+by `π` about the local-field axis, `v ↦ 2 (v·H) H / |H|² - v`. The
+reflection preserves `v · H`, so it conserves the site's energy exactly,
+and the reflected components remain a unit vector to rounding. A vanishing
+local field (`|H| = 0`) leaves the spin unchanged.
+
+# Returns
+
+A [`SpinUpdate`](@ref) carrying the reflected components as `new_value` and
+their change from the current components as `magnetization_change`.
+"""
+function overrelax(model::HeisenbergModel, geometry::Geometry, state::HeisenbergState, site::Int)
+    info = geometry.neighbor_table[site]
+    J = couplings(model)
+    Hx = Float64(field_strength(model, geometry, site))
+    Hy = zero(Hx)
+    Hz = zero(Hx)
+    for (template, neighbor) in zip(info.templates, info.neighbors)
+        neighbor == site && continue
+        Hx += J[template] * state.xs[neighbor]
+        Hy += J[template] * state.ys[neighbor]
+        Hz += J[template] * state.zs[neighbor]
+    end
+
+    x_old = state.xs[site]
+    y_old = state.ys[site]
+    z_old = state.zs[site]
+    R2 = Hx * Hx + Hy * Hy + Hz * Hz
+    R2 == 0 && return SpinUpdate(
+        site, (x_old, y_old, z_old), (zero(R2), zero(R2), zero(R2))
+    )
+
+    projection = (x_old * Hx + y_old * Hy + z_old * Hz) / R2
+    new = (
+        2 * projection * Hx - x_old,
+        2 * projection * Hy - y_old,
+        2 * projection * Hz - z_old,
+    )
+    return SpinUpdate(
+        site, new, (new[1] - x_old, new[2] - y_old, new[3] - z_old),
+    )
 end
 
 """
@@ -228,8 +414,7 @@ cluster contributes `ΔE = 2 * J * p_i * p_j`, and each reflected site
 contributes `ΔE = 2 * h * r̂_x * p_i` and `ΔM_α = -2 * r̂_α * p_i`. The
 reflection itself is the linear map `v ↦ v - 2 (v·r̂) r̂`.
 
-This explicit form allocates a membership mask per call and serves as the
-readable reference implementation (exercised by the tests); the Wolff driver
+This form allocates a membership mask per call; the Wolff driver instead
 passes down the mask it already built.
 """
 function apply_cluster!(
@@ -310,9 +495,7 @@ end
 Explicit-partition form of [`apply_clusters!`](@ref): reflect each cluster in
 `clusters` about `axis` (a nonzero 3-vector, normalized on entry)
 independently with probability 1/2. Allocates its own label map; the
-Swendsen-Wang driver uses the allocation-free workspace form below. This
-explicit form is the readable reference implementation exercised by the
-tests.
+Swendsen-Wang driver uses the workspace form below.
 """
 function apply_clusters!(
     rng::AbstractRNG,
@@ -407,3 +590,69 @@ function _reflect_heisenberg_clusters!(
     state.magnetization_z += ΔMz
     return nothing
 end
+
+"""
+    observables(::HeisenbergModel, geometry)
+
+Return the raw per-measurement observables tracked for every
+[`HeisenbergModel`](@ref) simulation: per-site energy, the three Cartesian
+magnetization components, the magnetization magnitude
+`hypot(M_x, M_y, M_z) / N`, and the square of each.
+
+# Returns
+
+A `Vector{Observable}` with `:energy`, `:energy_squared`, `:magnetization_x`,
+`:magnetization_x_squared`, `:magnetization_y`, `:magnetization_y_squared`,
+`:magnetization_z`, `:magnetization_z_squared`, `:magnetization`, and
+`:magnetization_squared`.
+"""
+observables(::HeisenbergModel, geometry) = begin
+    n_sites = geometry.n_sites
+    [
+        Observable(:energy, state -> total_energy(state) / n_sites),
+        Observable(:energy_squared, state -> (total_energy(state) / n_sites)^2),
+        Observable(:magnetization_x, state -> state.magnetization_x / n_sites),
+        Observable(:magnetization_x_squared, state -> (state.magnetization_x / n_sites)^2),
+        Observable(:magnetization_y, state -> state.magnetization_y / n_sites),
+        Observable(:magnetization_y_squared, state -> (state.magnetization_y / n_sites)^2),
+        Observable(:magnetization_z, state -> state.magnetization_z / n_sites),
+        Observable(:magnetization_z_squared, state -> (state.magnetization_z / n_sites)^2),
+        Observable(:magnetization, state -> hypot(
+            state.magnetization_x, state.magnetization_y, state.magnetization_z) / n_sites),
+        Observable(:magnetization_squared, state -> (
+            (state.magnetization_x^2 + state.magnetization_y^2 + state.magnetization_z^2) / n_sites^2
+        )),
+    ]
+end
+
+"""
+    derived_observables(::HeisenbergModel, geometry)
+
+Return the always-on derived quantities for the [`HeisenbergModel`](@ref):
+the specific heat, the component susceptibilities `:susceptibility_x`,
+`:susceptibility_y`, and `:susceptibility_z`, and the total
+`:susceptibility = N * (⟨m_x²⟩ - ⟨m_x⟩² + ⟨m_y²⟩ - ⟨m_y⟩² + ⟨m_z²⟩ - ⟨m_z⟩²) / T`,
+each with its jackknife error.
+"""
+derived_observables(::HeisenbergModel, geometry) = [
+    DerivedObservable(:specific_heat, :specific_heat_err, (:energy, :energy_squared),
+        (e, e2; T, N) -> N * (e2 - e^2) / T^2),
+    DerivedObservable(:susceptibility_x, :susceptibility_x_err,
+        (:magnetization_x, :magnetization_x_squared),
+        (mx, mx2; T, N) -> N * (mx2 - mx^2) / T),
+    DerivedObservable(:susceptibility_y, :susceptibility_y_err,
+        (:magnetization_y, :magnetization_y_squared),
+        (my, my2; T, N) -> N * (my2 - my^2) / T),
+    DerivedObservable(:susceptibility_z, :susceptibility_z_err,
+        (:magnetization_z, :magnetization_z_squared),
+        (mz, mz2; T, N) -> N * (mz2 - mz^2) / T),
+    DerivedObservable(:susceptibility, :susceptibility_err,
+        (:magnetization_x, :magnetization_x_squared,
+            :magnetization_y, :magnetization_y_squared,
+            :magnetization_z, :magnetization_z_squared),
+        (mx, mx2, my, my2, mz, mz2; T, N) -> N * (mx2 - mx^2 + my2 - my^2 + mz2 - mz^2) / T),
+]
+
+# The Heisenberg model supports the helicity-modulus measurement (see
+# `src/Measurements/HelicityModulus.jl` for the entry builder).
+extra_measurements(::Type{<:HeisenbergModel}) = (:helicity_modulus,)

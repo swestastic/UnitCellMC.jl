@@ -11,8 +11,7 @@ starting-site coordinates for which the site at `Δl` offset from the start
 remains within the lattice. Along periodic dimensions the full range
 `0:(L[d]-1)` is always valid; along open (non-periodic) dimensions the range
 is clipped so that both the starting site and its displaced partner lie
-in-bounds. Classes with zero valid starting sites (only possible along an
-open dimension) are skipped.
+in-bounds.
 
 This is typically used to precompute, once per `geometry`, the bookkeeping
 needed to average a correlation function over all equivalent site pairs at a
@@ -61,7 +60,7 @@ function build_displacement_classes(geometry::Geometry{D}) where D
                 end
             end
             count = prod(length(r) for r in ranges)
-            count > 0 || continue   # only possible when an open dim has no valid pairs
+            count > 0 || continue   # defensive: with Δl[d] in 0:(L[d]-1) every class is nonempty
 
             push!(displacements, Δl)
             push!(orbitals, (oi, oj))

@@ -49,18 +49,18 @@ n_operator_components(::IsingModel) = 1
 operator_components(::IsingModel, s::Real) = (s,)
 
 """
-    propose(rng, ::MetropolisAlgorithm, model::IsingModel, geometry, state, site)
+    propose_value(rng, model::IsingModel, geometry, state, site)
 
-Generate a Metropolis trial move for the Ising model at `site` (chosen by the
-algorithm's [`AbstractProposalScheme`](@ref)): propose flipping its spin.
-`rng` goes unused — the flip is deterministic — but is part of the shared
-single-site update contract (see [`apply_update!`](@ref)).
+Propose the new value at `site` (chosen by the algorithm's
+[`AbstractProposalScheme`](@ref)) for a local-update trial move: flip its
+spin. `rng` goes unused — the flip is deterministic — but is part of the
+shared single-site update contract (see [`apply_update!`](@ref)).
 
 # Returns
 
 A `SpinUpdate` describing the site and its proposed (flipped) value.
 """
-function propose(::AbstractRNG, ::MetropolisAlgorithm, ::IsingModel, geometry, state, site::Int)
+function propose_value(::AbstractRNG, ::IsingModel, geometry::Geometry, state::IsingState, site::Int)
     s = state.spins[site]
     return SpinUpdate(site, -s, -2s)
 end
@@ -103,6 +103,56 @@ function energy_difference(
     end
 
     return (s - proposal.new_value) * (weighted_sum + field_strength(model, geometry, site))
+end
+
+"""
+    heatbath_draw(rng, model::IsingModel, geometry, state, site, T, cache)
+
+Draw the new spin at `site` from its single-site conditional distribution at
+temperature `T`: with the local field `H = h + sum(J * neighbor_spin)`, the
+conditional probability of spin up is
+`p = exp(H / T) / (2 cosh(H / T)) = 1 / (1 + exp(-2H / T))`.
+
+For a two-state spin this is exactly the [`GlauberAlgorithm`](@ref)
+transition kernel — `glauber_probability(ΔE, T)` evaluated at the energy
+change `ΔE = -2H` of the down-to-up move — so heatbath and Glauber updates
+coincide for the Ising model; the probability is computed by
+[`glauber_probability`](@ref), or read off the memoized Boltzmann factor
+`u = exp(-ΔE / T)` with the same overflow-safe branch as the Glauber
+[`step!`](@ref) when `cache` is an [`AcceptanceCache`](@ref).
+
+# Returns
+
+A `SpinUpdate` for the site and its drawn spin.
+"""
+function heatbath_draw(
+    rng::AbstractRNG,
+    model::IsingModel,
+    geometry::Geometry,
+    state::IsingState,
+    site::Int,
+    T::Real,
+    cache,
+)
+    s = state.spins[site]
+    info = geometry.neighbor_table[site]
+
+    J = couplings(model)
+    weighted_sum = zero(promote_type(eltype(state.spins), eltype(J)))
+    for (template, neighbor) in zip(info.templates, info.neighbors)
+        neighbor == site && continue
+        weighted_sum += J[template] * state.spins[neighbor]
+    end
+    H = weighted_sum + field_strength(model, geometry, site)
+
+    p_up = if cache === nothing
+        glauber_probability(-2H, T)
+    else
+        u = cached_boltzmann_factor(cache, -2H, Float64(T))
+        H < 0 ? u / (1 + u) : 1 / (1 + 1 / u)
+    end
+    s_new = rand(rng) < p_up ? one(s) : -one(s)
+    return SpinUpdate(site, s_new, s_new - s)
 end
 
 """
@@ -175,8 +225,7 @@ a boundary bond `(i, j)` with `i` in the cluster contributes
 `ΔE = 2 * J * spins[i] * spins[j]`, and each flipped site contributes a field
 term `ΔE = 2 * h * spins[i]` and `ΔM = -2 * spins[i]`.
 
-This explicit form allocates a membership mask per call and serves as the
-readable reference implementation (exercised by the tests); the Wolff driver
+This form allocates a membership mask per call; the Wolff driver instead
 passes down the mask it already built.
 """
 function apply_cluster!(
@@ -242,9 +291,7 @@ end
 
 Explicit-partition form of [`apply_clusters!`](@ref): flip each cluster in
 `clusters` independently with probability 1/2. Allocates its own label map;
-the Swendsen-Wang driver uses the allocation-free workspace form below. This
-explicit form is the readable reference implementation exercised by the
-tests.
+the Swendsen-Wang driver uses the workspace form below.
 """
 function apply_clusters!(
     rng::AbstractRNG,
@@ -328,73 +375,70 @@ function _flip_ising_clusters!(
     return nothing
 end
 
-# Fused fast path for the common case of a single-orbital Ising lattice swept
-# with uniform-random site selection: with the field uniform across sites,
-# the `field_strength` lookup, the `SpinUpdate` struct, and the per-step
-# function layering all drop out of the inner loop. The loop draws from `rng`
-# exactly as the generic path (one site draw per update, one acceptance draw
-# per uphill proposal) and mirrors the `energy_difference` arithmetic term
-# for term, so a seeded run follows the same trajectory either way.
-function sweep_steps!(
-    alg::MetropolisAlgorithm{RandomProposal},
-    model::IsingModel,
-    geometry::Geometry,
-    state::IsingState,
-    T, stats::Tuple, diagnostics::Val{D};
-    rng::AbstractRNG, workspace
-) where {D}
-    if LatticeUtilities.norbits(geometry.unit_cell) == 1
-        return _ising_metropolis_sweep!(
-            alg, model, geometry, state, T, stats, diagnostics, rng,
-            _acceptance_cache(workspace)
-        )
-    end
-    return _generic_sweep_steps!(
-        alg, model, geometry, state, T, stats, diagnostics; rng = rng, workspace = workspace
-    )
+"""
+    observables(::IsingModel, geometry)
+
+Return the raw per-measurement observables tracked for every [`IsingModel`](@ref)
+simulation: energy and magnetization (and their squares), each normalized by
+the number of sites.
+
+These are the always-on observables included by [`MeasurementContainer`](@ref)
+for any `IsingModel` run, independent of the optional `measurements` list
+handled by [`optional_observables`](@ref).
+
+# Arguments
+
+- `model`: The `IsingModel` being measured (unused beyond dispatch).
+- `geometry`: The lattice geometry, used for `n_sites` to normalize per-site
+  quantities.
+
+# Returns
+
+A `Vector{Observable}` with four entries: `:energy`, `:energy_squared`,
+`:magnetization`, `:magnetization_squared`, each sampling
+`state.energy`/`state.magnetization` divided (or divided-and-squared) by
+`n_sites`.
+"""
+observables(::IsingModel, geometry) = begin
+    n_sites = geometry.n_sites
+    [
+        Observable(:energy, state -> total_energy(state) / n_sites),
+        Observable(:energy_squared, state -> (total_energy(state) / n_sites)^2),
+        Observable(:magnetization, state -> state.magnetization / n_sites),
+        Observable(:magnetization_squared, state -> (state.magnetization / n_sites)^2),
+    ]
 end
 
-function _ising_metropolis_sweep!(
-    alg::MetropolisAlgorithm, model::IsingModel, geometry::Geometry,
-    state::IsingState, T, stats::Tuple, ::Val{D}, rng::AbstractRNG, cache
-) where {D}
-    T > 0 || throw(ArgumentError("Temperature must be positive, got $T"))
-    validate_model_geometry(model, geometry)
+"""
+    derived_observables(::IsingModel, geometry)
 
-    n = geometry.n_sites
-    table = geometry.neighbor_table
-    J = couplings(model)
-    h = fields(model)[1]  # single orbital: the field is uniform
-    spins = state.spins
-    length(spins) == n || throw(ArgumentError(
-        "length(state.spins) = $(length(spins)) does not match geometry.n_sites = $n"
-    ))
-    T64 = Float64(T)
+Return the always-on derived quantities computed for every [`IsingModel`](@ref)
+simulation: specific heat and magnetic susceptibility, obtained via
+fluctuation formulas from the raw energy/magnetization observables.
 
-    for _ in 1:steps_per_sweep(alg, geometry)
-        site = rand(rng, 1:n)
-        @inbounds s = spins[site]
-        @inbounds info = table[site]
-        weighted_sum = zero(promote_type(eltype(spins), eltype(J)))
-        @inbounds for k in eachindex(info.neighbors)
-            neighbor = info.neighbors[k]
-            neighbor == site && continue
-            weighted_sum += J[info.templates[k]] * spins[neighbor]
-        end
-        ΔE = (s - (-s)) * (weighted_sum + h)
-        accepted = if ΔE <= 0
-            true
-        elseif cache === nothing
-            log(rand(rng)) < -ΔE / T
-        else
-            rand(rng) < cached_boltzmann_factor(cache, ΔE, T64)
-        end
-        if accepted
-            @inbounds spins[site] = -s
-            state.energy += ΔE
-            state.magnetization += -2 * s
-        end
-        record_all!(stats, diagnostic_values(alg, MetropolisUpdateResult(accepted)), Val(D))
-    end
-    return stats
-end
+Specific heat is computed as `N * (⟨e²⟩ - ⟨e⟩²) / T²` and susceptibility as
+`N * (⟨m²⟩ - ⟨m⟩²) / T`, using jackknife samples of the per-site energy and
+magnetization observables from [`observables`](@ref) (each `DerivedObservable`
+declares its dependency on the corresponding `:energy`/`:magnetization` pair,
+so [`validate_dependencies`](@ref) can confirm they're being measured, and
+errors are obtained automatically via [`jackknife_stats`](@ref)).
+
+# Arguments
+
+- `model`: The `IsingModel` being measured (unused beyond dispatch).
+- `geometry`: The lattice geometry (unused directly; included for a
+  consistent `(model, geometry)` dispatch signature).
+
+# Returns
+
+A `Vector{DerivedObservable}` with two entries: `(:specific_heat,
+:specific_heat_err)` depending on `(:energy, :energy_squared)`, and
+`(:susceptibility, :susceptibility_err)` depending on `(:magnetization,
+:magnetization_squared)`.
+"""
+derived_observables(::IsingModel, geometry) = [
+    DerivedObservable(:specific_heat, :specific_heat_err, (:energy, :energy_squared),
+        (e, e2; T, N) -> N * (e2 - e^2) / T^2),
+    DerivedObservable(:susceptibility, :susceptibility_err, (:magnetization, :magnetization_squared),
+        (m, m2; T, N) -> N * (m2 - m^2) / T),
+]

@@ -8,7 +8,8 @@ are delegated to `apply_clusters!`.
 With an external field, clusters that attach to a ghost site are never
 flipped, and for β|h| ≳ 1 most of the lattice attaches — most steps leave the
 state unchanged. Prefer a local-update algorithm
-([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref)) in strong fields.
+([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
+[`HeatbathAlgorithm`](@ref)) in strong fields.
 """
 struct SwendsenWangAlgorithm <: AbstractAlgorithm end
 

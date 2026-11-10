@@ -11,9 +11,8 @@ and the neighboring site reached by each bond (`neighbors`). `bonds[k]`,
 so the three vectors always have equal length.
 
 `templates[k]` is `bond_id_to_template[bonds[k]]`: the id of the bond
-template (in `bonds`) that generated bond `bonds[k]`. It is stored per site
-as a per-bond payload index, so that inner loops can use it directly — for
-example to index a model's coupling vector — instead of going through
+template (in `bonds`) that generated bond `bonds[k]`. It is stored per site so
+inner loops can index a model's coupling vector directly instead of calling
 `bond_id_to_template` on every neighbor visit.
 """
 const NeighborInfo = NamedTuple{
@@ -34,6 +33,10 @@ and the neighbor bookkeeping derived from them.
 - `bonds::Vector{Bond{D}}`: Bond templates defining the model's connectivity.
 - `bond_id_to_template::Vector{Int}`: Maps each concrete bond id to the index
   of the bond template (in `bonds`) it was generated from.
+- `bond_sources::Vector{Int}`: The source site of each concrete bond (the
+  site the bond's template displacement points away from); the other endpoint
+  is reachable through the neighbor table. Used by measurements that need
+  oriented bonds (see [`bond_displacement`](@ref)).
 - `neighbor_table::Vector{NeighborInfo}`: Indexed by site number, each entry
   gives the bonds, their bond templates, and the neighboring sites connected
   to that site.
@@ -46,6 +49,7 @@ struct Geometry{D,T<:AbstractFloat,N}
     lattice::Lattice{D}
     bonds::Vector{Bond{D}}
     bond_id_to_template::Vector{Int}
+    bond_sources::Vector{Int}
     neighbor_table::Vector{NeighborInfo}
     n_sites::Int
 end
@@ -70,6 +74,14 @@ displacement — every site gets an empty `NeighborInfo` and
 - `lattice`: The lattice defining system size and boundary conditions.
 - `bonds`: Bond templates to expand into the full neighbor table.
 
+# Throws
+
+`ArgumentError` if a bond template connects a site to itself (equal orbitals,
+zero displacement). A self-bond's energy is a constant offset for
+fixed-length spins, and every update path skips self-bonds
+(`neighbor == site`) while from-scratch energy sums would include them, so
+they are rejected here instead of being silently inconsistent.
+
 # Returns
 
 A `Geometry{D,T,N}` with `n_sites` set from `unit_cell` and `lattice`.
@@ -82,10 +94,20 @@ function Geometry(
 
     n_sites = LatticeUtilities.nsites(unit_cell, lattice)
 
+    for bond in bonds
+        (bond.orbitals[1] == bond.orbitals[2] && iszero(bond.displacement)) &&
+            throw(ArgumentError(
+                "Self-bond template (orbitals $(bond.orbitals), zero displacement): a bond " *
+                "from a site to itself is a constant energy offset and is not supported"
+            ))
+    end
+
     if isempty(bonds)
         bond_id_to_template = Int[]
+        bond_sources = Int[]
         neighbor_table = [(bonds=Int[], templates=Int[], neighbors=Int[]) for i in 1:n_sites]
-        return Geometry(unit_cell, lattice, bonds, bond_id_to_template, neighbor_table, n_sites)
+        return Geometry(unit_cell, lattice, bonds, bond_id_to_template, bond_sources,
+                        neighbor_table, n_sites)
     end
 
     per_template_tables = [
@@ -98,11 +120,16 @@ function Geometry(
         [fill(i, size(nt, 2)) for (i, nt) in enumerate(per_template_tables)]
     )
 
+    # Row 1 of a LatticeUtilities neighbor table is the bond's source site
+    # (the site the template's displacement points away from).
+    bond_sources = [nt[1, c] for nt in per_template_tables for c in axes(nt, 2)]
+
     # Every template may fall outside the lattice (e.g. an open lattice too
     # small for any displacement); that degenerates to the empty-bonds case.
     if isempty(bond_id_to_template)
         neighbor_table = [(bonds=Int[], templates=Int[], neighbors=Int[]) for i in 1:n_sites]
-        return Geometry(unit_cell, lattice, bonds, bond_id_to_template, neighbor_table, n_sites)
+        return Geometry(unit_cell, lattice, bonds, bond_id_to_template, bond_sources,
+                        neighbor_table, n_sites)
     end
 
     neighbor_table_matrix = reduce(hcat, per_template_tables)
@@ -116,7 +143,8 @@ function Geometry(
         )
     end
 
-    return Geometry(unit_cell, lattice, bonds, bond_id_to_template, neighbor_table, n_sites)
+    return Geometry(unit_cell, lattice, bonds, bond_id_to_template, bond_sources,
+                    neighbor_table, n_sites)
 end
 
 """
@@ -129,27 +157,65 @@ not need that function's calling convention.
 
 # Returns
 
-The site index (an `Int`).
+The site index (an `Int`), or `0` if `loc` is invalid under the lattice's
+boundary conditions.
 """
 site_at(geometry::Geometry, loc, orbital) =
     LatticeUtilities.loc_to_site(loc, orbital, geometry.unit_cell, geometry.lattice)
 
 """
-    _cluster_labels(geometry, clusters::Vector{Vector{Int}})
+    n_orbitals(geometry)
 
-Translate an explicit partition of sites into per-site cluster labels: a
-vector `labels` of length `geometry.n_sites` with `labels[i] = c` for site
-`i` in `clusters[c]`, and `0` for sites absent from the partition. Entries
-of `clusters` with indices above `n_sites` (ghost sites) are ignored.
-
-Shared by the explicit-partition forms of `apply_clusters!`.
+Return the number of orbitals per unit cell of `geometry` — the index range
+of the model's per-orbital field vector ([`field_strength`](@ref)) and of
+per-orbital measurements. A thin wrapper over `LatticeUtilities.norbits`, so
+code outside the Geometry layer does not reach into `geometry.unit_cell`.
 """
-function _cluster_labels(geometry, clusters::Vector{Vector{Int}})
-    labels = zeros(Int, geometry.n_sites)
-    for (c, cluster) in enumerate(clusters), site in cluster
-        site <= geometry.n_sites && (labels[site] = c)
-    end
-    return labels
+n_orbitals(geometry::Geometry) = LatticeUtilities.norbits(geometry.unit_cell)
+
+"""
+    site_orbital(geometry, site)
+
+Return the unit-cell orbital of `site`: the index into the model's
+per-orbital field vector for that site (see [`field_strength`](@ref)). A thin
+wrapper over `LatticeUtilities.site_to_orbital` (see [`site_at`](@ref)).
+"""
+site_orbital(geometry::Geometry, site::Int) =
+    LatticeUtilities.site_to_orbital(site, geometry.unit_cell)
+
+"""
+    bond_displacement(geometry, template)
+
+Return the real-space displacement vector of bond template `template` (an
+index into `geometry.bonds`), from its source orbital to its target orbital.
+A thin wrapper over `LatticeUtilities.bond_to_vec`, so measurement code does
+not need to call LatticeUtilities conversion routines directly (see
+[`site_at`](@ref)). The orientation matches the `bond_sources` field: the
+vector points from `bond_sources[b]` to the other endpoint of each concrete
+bond `b` generated by the template.
+
+# Returns
+
+The displacement vector (an `SVector`/`Vector` of length `D`, as returned by
+`LatticeUtilities.bond_to_vec`).
+"""
+bond_displacement(geometry::Geometry, template::Int) =
+    LatticeUtilities.bond_to_vec(geometry.bonds[template], geometry.unit_cell)
+
+"""
+    geometry_tag(geometry)
+
+Return a short string identifying the geometry's connectivity — its unit
+cell, bond templates, and per-dimension boundary conditions, but not its
+size — as eight hexadecimal digits. Results directory names include it (see
+[`results_dirname`](@ref)) so that two different geometries of the same size
+(say a square and a triangular lattice with the same `L`) never share an
+output directory. The tag is stable across sessions for the same defining
+data, but may change across Julia versions.
+"""
+function geometry_tag(geometry::Geometry)
+    data = (geometry.unit_cell, geometry.bonds, geometry.lattice.periodic)
+    return lpad(string(hash(repr(data)) & 0xffffffff, base = 16), 8, '0')
 end
 
 include("Displacements.jl")

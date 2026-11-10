@@ -41,6 +41,11 @@ For an Ising spin `s` this is `(s,)`; for an XY spin the local value is
 already the unit vector `(cos θ, sin θ)`, so this is the identity; for a
 clock index `n` it is `(cos(2πn/q), sin(2πn/q))`.
 
+For models with at least two components, components 1 and 2 must be the
+spin's x and y Cartesian components (unit-normalized for a unit-spin model):
+the `:helicity_modulus` measurement reads the twist current
+`(u_i × u_j)_z = u_i[1] u_j[2] - u_i[2] u_j[1]` from them.
+
 # Throws
 
 `ArgumentError` for models that do not implement the hook.
@@ -121,9 +126,9 @@ without an FFT dependency.
 
 # Throws
 
-`ArgumentError` if `W`'s second dimension does not match `size(A, d)` — the
-contraction is unchecked (`@inbounds`) below, so the shapes are validated
-here.
+`ArgumentError` if `d` is out of range for `ndims(A)`, or if `W`'s second
+dimension does not match `size(A, d)` — the contraction is unchecked
+(`@inbounds`) below, so the shapes are validated here.
 """
 function fourier_transform_dim(A::Array{T}, W::AbstractMatrix, d::Int) where T
     sz = size(A)

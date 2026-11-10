@@ -13,5 +13,8 @@ UnitCellMC.build_momentum_grid
 UnitCellMC.NeighborInfo
 UnitCellMC.Geometry
 UnitCellMC.site_at
-UnitCellMC._cluster_labels
+UnitCellMC.n_orbitals
+UnitCellMC.site_orbital
+UnitCellMC.bond_displacement
+UnitCellMC.geometry_tag
 ```

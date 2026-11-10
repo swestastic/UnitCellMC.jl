@@ -53,6 +53,7 @@ src/
   State/                      # Updates.jl, IsingState.jl, ..., Initialization.jl
   Algorithms/                 # Algorithms.jl (marker includes), Metropolis.jl, ...
   Models/                     # Models.jl (includes + shared accessors), Ising.jl, ...
+  Algorithms/FastPaths.jl     # fused model/algorithm fast paths; included *after* Models
   State/Initialization.jl     # included *after* Models (see below)
   Measurements/
   Simulation/
@@ -110,7 +111,11 @@ end
 ```
 
 Include it from `src/State/State.jl`. The running totals are the contract:
-any function that mutates `spins` must update them in the same step.
+any function that mutates `spins` must update them in the same step. Generic
+code reads them through the [`total_energy`](@ref UnitCellMC.total_energy)
+and [`magnetization_value`](@ref UnitCellMC.magnetization_value) accessors,
+so a state that stores them differently overrides those rather than every
+read site.
 
 ### 2. The update application — in the same state file
 
@@ -175,7 +180,7 @@ magnetization_value(state::HeisenbergState) =
 
 # the single-site update contract — the algorithm's proposal scheme picks the
 # site (random, sequential, ...), the model proposes the new value there
-function propose(rng::AbstractRNG, ::MetropolisAlgorithm, model::HeisenbergModel, geometry, state, site::Int)
+function propose_value(rng::AbstractRNG, model::HeisenbergModel, geometry, state, site::Int)
     new = random_unit_vector(rng)
     return SpinUpdate(site, new, new .- state.spins[site])
 end
@@ -195,9 +200,17 @@ function energy_difference(model::HeisenbergModel, geometry, state, proposal)
 end
 ```
 
-That is all the Metropolis algorithm needs; **Glauber works automatically**
-(a generic fallback forwards [`propose`](@ref UnitCellMC.propose) to the Metropolis proposal —
-override it if you want a different Glauber proposal). In the inner loop,
+That one hook is all every local-update algorithm needs: Metropolis, Glauber,
+and any custom local-update algorithm whose six-argument
+[`propose`](@ref UnitCellMC.propose) falls back to
+[`propose_value`](@ref UnitCellMC.propose_value) (as the built-in ones do) all
+work immediately. A model can still override a specific algorithm's
+six-argument `propose` when it wants an algorithm-specific move. **Heatbath
+requires one more hook**, [`heatbath_draw`](@ref UnitCellMC.heatbath_draw):
+draw the site's new value from its single-site conditional distribution and
+return it as a `SpinUpdate` (the `cache` argument is the run's
+[`AcceptanceCache`](@ref UnitCellMC.AcceptanceCache) when
+`tabulate_acceptance(model)` is true, `nothing` otherwise). In the inner loop,
 hoist `J = couplings(model)` once and index `J[template]`; the per-site
 `templates` vector exists precisely for this.
 
@@ -218,6 +231,10 @@ Optional hooks enable optional features:
 - [`operator_product`](@ref UnitCellMC.operator_product) — the two-body product, needed by the direct
   correlation path (open boundaries).
 - [`binder_denominator`](@ref UnitCellMC.binder_denominator) — enables `:binder_cumulant`.
+- [`overrelax`](@ref UnitCellMC.overrelax) — the microcanonical reflection about the site's
+  local field, enabling [`OverrelaxationAlgorithm`](@ref UnitCellMC.OverrelaxationAlgorithm)
+  for continuous-spin models (implemented for [`XYModel`](@ref UnitCellMC.XYModel) and
+  [`HeisenbergModel`](@ref UnitCellMC.HeisenbergModel)).
 - [`tabulate_acceptance`](@ref UnitCellMC.tabulate_acceptance) — return `true` when the single-site
   `energy_difference` takes values from a small discrete set, so local-update
   algorithms memoize Boltzmann factors per temperature in an
@@ -234,6 +251,7 @@ has more constraints). The model supplies the physics through these hooks:
 
 ```julia
 cluster_context(rng, model, geometry, state, T)          # per-update scratch (e.g. a reflection axis); `nothing` if unused
+cluster_seed(rng, model, geometry, state)                # optional: defaults to a uniformly random site
 cluster_bond_probability(model, geometry, state, site, neighbor, bond_template, T, context)
 cluster_ghost_count(model, geometry, state, context)     # 2 for a +/- external field, 0 for no field coupling
 cluster_ghost_probability(model, geometry, state, site, ghost, T, context)
@@ -264,32 +282,34 @@ label). Look at `Models/XY.jl` for a complete example.
 
 An algorithm is a marker struct plus `step!`, and it lives in
 `src/Algorithms/MyAlgorithm.jl` (included from `src/Algorithms/Algorithms.jl`).
-Worked skeleton: a heat-bath algorithm.
+Worked skeleton:
 
 ```julia
-struct HeatbathAlgorithm <: AbstractAlgorithm end
+struct MyAlgorithm <: AbstractAlgorithm end
 
-struct HeatbathUpdateResult <: AbstractUpdateResult
+struct MyUpdateResult <: AbstractUpdateResult
     accepted::Bool     # whatever describes one update
 end
 
-function step!(::HeatbathAlgorithm, model::AbstractModel, geometry::Geometry,
+function step!(::MyAlgorithm, model::AbstractModel, geometry::Geometry,
                state::AbstractState, T::Real; rng::AbstractRNG = Random.default_rng())
     T > 0 || throw(ArgumentError("Temperature must be positive, got $T"))
     ...
-    return HeatbathUpdateResult(...)
+    return MyUpdateResult(...)
 end
 
-diagnostic_values(::HeatbathAlgorithm, result) = (acceptance_ratio = ...,)
-available_diagnostics(::Type{<:HeatbathAlgorithm}) = [:acceptance_ratio]
+diagnostic_values(::MyAlgorithm, result) = (acceptance_ratio = ...,)
+available_diagnostics(::Type{<:MyAlgorithm}) = [:acceptance_ratio]
 ```
 
 Rules of the road:
 
 - **Reuse the single-site contract.** If your algorithm is a local-update
   scheme, build `step!` out of [`propose`](@ref UnitCellMC.propose) → [`energy_difference`](@ref UnitCellMC.energy_difference)
-  → [`apply_update!`](@ref UnitCellMC.apply_update!) (as `Metropolis.jl`/`Glauber.jl` do): every model
-  then works with it immediately.
+  → [`apply_update!`](@ref UnitCellMC.apply_update!) (as `Metropolis.jl`/`Glauber.jl` do), and make
+  your six-argument `propose` fall back to the model's
+  [`propose_value`](@ref UnitCellMC.propose_value) hook: every model then
+  works with it immediately, with no model-side code.
 - **Never read model fields or state fields directly in the driver** — go
   through the hooks. The algorithm should not know what a spin is.
 - [`steps_per_sweep`](@ref UnitCellMC.steps_per_sweep) defaults to `geometry.n_sites` (one update per
@@ -315,11 +335,20 @@ Rules of the road:
 - The diagnostic keys returned by [`diagnostic_values`](@ref UnitCellMC.diagnostic_values) must be exactly
   [`available_diagnostics`](@ref UnitCellMC.available_diagnostics)`(MyAlgorithm)`; the container validates
   this up front ([`validate_run`](@ref UnitCellMC.validate_run)).
+- **Results labels.** The IO layer labels results directories with the
+  algorithm's type name plus its proposal scheme, read through
+  [`proposal_scheme`](@ref UnitCellMC.proposal_scheme) and rendered by
+  [`proposal_label`](@ref UnitCellMC.proposal_label); storing the scheme in a
+  `proposal` field makes both automatic, so runs with different schemes never
+  share a directory.
 - The per-sweep loop is [`sweep_steps!`](@ref UnitCellMC.sweep_steps!), whose default method calls `step!`
   per update. A model/algorithm pair may override it with a fused fast path
-  (see `Models/Ising.jl`), but the override must visit sites and draw from
-  `rng` exactly as the generic loop, keep the state's running totals exact,
-  and record identical diagnostics.
+  in `src/Algorithms/FastPaths.jl` (see the Ising/Metropolis example there),
+  but the override must visit sites and draw from `rng` exactly as the
+  generic loop, keep the state's running totals exact, record identical
+  diagnostics, and use the algorithm's shared acceptance kernel (e.g.
+  [`metropolis_accept`](@ref UnitCellMC.metropolis_accept)) so the two paths
+  cannot drift apart.
 
 Registration checklist:
 
@@ -364,6 +393,9 @@ There is nothing to extend: a [`Geometry`](@ref UnitCellMC.Geometry) is built fr
 LatticeUtilities `UnitCell`/`Lattice` plus a list of bond templates, and
 multiple orbitals, long-range bonds, and mixed periodic/open boundaries all
 work out of the box. If you need coordinate machinery in a new measurement,
-use [`site_at`](@ref UnitCellMC.site_at), [`build_displacement_classes`](@ref UnitCellMC.build_displacement_classes), and
+use [`site_at`](@ref UnitCellMC.site_at), [`n_orbitals`](@ref UnitCellMC.n_orbitals),
+[`site_orbital`](@ref UnitCellMC.site_orbital),
+[`bond_displacement`](@ref UnitCellMC.bond_displacement),
+[`build_displacement_classes`](@ref UnitCellMC.build_displacement_classes), and
 [`build_momentum_grid`](@ref UnitCellMC.build_momentum_grid) rather than calling LatticeUtilities conversion
 routines directly.

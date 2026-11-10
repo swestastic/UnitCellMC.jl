@@ -14,6 +14,8 @@ UnitCellMC.clock_cos
 UnitCellMC.ClockClusterContext
 UnitCellMC.XYClusterContext
 UnitCellMC.HeisenbergClusterContext
+UnitCellMC.rand_von_mises
+UnitCellMC.random_unit_vector
 UnitCellMC.couplings
 UnitCellMC.fields
 UnitCellMC.bond_strength
@@ -29,6 +31,7 @@ UnitCellMC.operator_product
 UnitCellMC.n_operator_components
 UnitCellMC.operator_components
 UnitCellMC.propose
+UnitCellMC.propose_value
 UnitCellMC.energy_difference
 UnitCellMC.validate_cluster_model
 UnitCellMC.cluster_bond_probability
@@ -39,4 +42,6 @@ UnitCellMC._reflect_heisenberg_clusters!
 UnitCellMC._flip_ising_clusters!
 UnitCellMC._reflect_clock_sites!
 UnitCellMC._reflect_clock_clusters!
+UnitCellMC._heatbath_cos_theta
+UnitCellMC._orthonormal_basis
 ```

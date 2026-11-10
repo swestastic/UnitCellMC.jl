@@ -10,6 +10,13 @@ UnitCellMC.MetropolisUpdateResult
 UnitCellMC.GlauberAlgorithm
 UnitCellMC.GlauberUpdateResult
 UnitCellMC.glauber_probability
+UnitCellMC.metropolis_accept
+UnitCellMC.HeatbathAlgorithm
+UnitCellMC.HeatbathUpdateResult
+UnitCellMC.heatbath_draw
+UnitCellMC.OverrelaxationAlgorithm
+UnitCellMC.OverrelaxationUpdateResult
+UnitCellMC.overrelax
 UnitCellMC.WolffAlgorithm
 UnitCellMC.WolffUpdateResult
 UnitCellMC.SwendsenWangAlgorithm
@@ -27,6 +34,8 @@ UnitCellMC.ColoredProposalWorkspace
 UnitCellMC.checkerboard_colors
 UnitCellMC.color_lattice
 UnitCellMC.propose_site
+UnitCellMC.proposal_label
+UnitCellMC.proposal_scheme
 UnitCellMC.proposal_workspace
 UnitCellMC.visiting_order
 UnitCellMC.LocalUpdateWorkspace
@@ -41,6 +50,7 @@ UnitCellMC.algorithm_workspace
 UnitCellMC.shared_workspace
 UnitCellMC.ghost_site
 UnitCellMC.draw_cluster_flips!
+UnitCellMC._cluster_labels
 UnitCellMC.UpdateStatistic
 UnitCellMC.available_diagnostics
 UnitCellMC.diagnostic_values

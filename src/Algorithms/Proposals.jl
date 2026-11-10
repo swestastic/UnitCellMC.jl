@@ -2,7 +2,8 @@
     RandomProposal
 
 Site-selection scheme for local-update algorithms
-([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref)): every
+([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
+[`HeatbathAlgorithm`](@ref), [`OverrelaxationAlgorithm`](@ref)): every
 [`step!`](@ref) update draws a site uniformly at random from `rng`. This is
 the default scheme.
 """
@@ -12,7 +13,8 @@ struct RandomProposal <: AbstractProposalScheme end
     SequentialProposal
 
 Site-selection scheme for local-update algorithms
-([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref)): [`step!`](@ref)
+([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
+[`HeatbathAlgorithm`](@ref), [`OverrelaxationAlgorithm`](@ref)): [`step!`](@ref)
 updates visit the sites in site-index order, so one sweep
 ([`steps_per_sweep`](@ref) updates) attempts every site exactly once instead
 of `n_sites` random draws.
@@ -39,7 +41,8 @@ struct SequentialProposal <: AbstractProposalScheme end
     CheckerboardProposal
 
 Site-selection scheme for local-update algorithms
-([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref)) on bipartite
+([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
+[`HeatbathAlgorithm`](@ref), [`OverrelaxationAlgorithm`](@ref)) on bipartite
 lattices: the sites are 2-colored so that no bond connects same-color sites
 (see [`checkerboard_colors`](@ref)), and each sweep first updates all sites
 of one color, then all sites of the other. Within a color, sites are visited
@@ -66,7 +69,8 @@ struct CheckerboardProposal <: AbstractProposalScheme end
     ColoredProposal(k)
 
 Site-selection scheme for local-update algorithms
-([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref)): the sites are
+([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
+[`HeatbathAlgorithm`](@ref), [`OverrelaxationAlgorithm`](@ref)): the sites are
 colored with at most `k` colors so that no bond connects same-color sites
 (see [`color_lattice`](@ref)), and each sweep updates all sites of one color
 class, then the next — e.g. `ColoredProposal(3)` for the tripartite
@@ -77,12 +81,11 @@ Same-color sites share no bond, so the updates within each color block do not
 interact directly, and each single-site update satisfies detailed balance, so
 the completed sweep leaves the Boltzmann distribution invariant.
 
-The coloring is a saturation-first greedy (DSATUR) with randomized
-restarts; see [`color_lattice`](@ref). Exact coloring is NP-hard in general,
-so if no attempt manages with `k` colors an `ArgumentError` is thrown when
-the workspace is built — even where a `k`-coloring exists. DSATUR is exact
-on bipartite graphs, but for `k = 2` prefer [`CheckerboardProposal`](@ref),
-whose coloring is cheaper and needs no restarts.
+The coloring is a saturation-first greedy (DSATUR) with randomized restarts
+(see [`color_lattice`](@ref)); if no attempt manages with `k` colors, an
+`ArgumentError` is thrown when the workspace is built — even where a
+`k`-coloring exists. For `k = 2` prefer [`CheckerboardProposal`](@ref), whose
+coloring is cheaper and needs no restarts.
 
 The visiting order and cursor are per-run state held in a
 [`ColoredProposalWorkspace`](@ref), built once per run by
@@ -102,6 +105,20 @@ struct ColoredProposal <: AbstractProposalScheme
         return new(Int(k))
     end
 end
+
+"""
+    proposal_label(scheme)
+
+Return the string appended to an algorithm's type name in results directory
+names to distinguish runs using different site-selection schemes (see
+[`algorithm_label`](@ref)): `""` for the default [`RandomProposal`](@ref),
+`"-"` plus the type name for the other schemes, with the color count appended
+for [`ColoredProposal`](@ref) (e.g. `"-ColoredProposal3"`). Define a method
+for a custom scheme whose parameters matter for identifying a run.
+"""
+proposal_label(::RandomProposal) = ""
+proposal_label(proposal::AbstractProposalScheme) = "-" * string(nameof(typeof(proposal)))
+proposal_label(proposal::ColoredProposal) = "-" * string(nameof(typeof(proposal))) * string(proposal.ncolors)
 
 """
     SequentialProposalWorkspace
@@ -143,8 +160,7 @@ end
 2-color the bond graph of `geometry`: return a `Vector{Int}` with one entry
 per site, 0 or 1, such that the two endpoints of every bond have opposite
 colors. On a square lattice this is the parity `mod(x + y, 2)` of the unit
-cell coordinates. The neighbor table lists each bond from both endpoints, so
-every bond constrains the coloring exactly once per direction.
+cell coordinates.
 
 # Throws
 
@@ -370,7 +386,7 @@ For the colored schemes, `order` reuses a precomputed
 [`visiting_order`](@ref) instead of re-coloring `geometry`; it must be
 exactly `visiting_order(scheme, geometry)` (the coloring is deterministic) —
 [`sweep_Ts`](@ref) shares one coloring across its runs this way. `nothing`
-(the default, and the only value stateless schemes accept) recomputes it.
+(the default) recomputes it; stateless schemes ignore any `order`.
 An `order` a scheme has no specific three-argument method for is discarded
 and the workspace rebuilt, so a custom scheme that exposes
 [`visiting_order`](@ref) keeps working without one — define the

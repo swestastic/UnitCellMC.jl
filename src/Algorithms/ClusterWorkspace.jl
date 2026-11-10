@@ -19,7 +19,7 @@ shared between concurrent runs.
 
 - `in_cluster::BitVector`: Wolff cluster-membership mask.
 - `cluster::Vector{Int}`: Wolff cluster member list.
-- `frontier::Vector{Int}`: Wolff breadth-first stack.
+- `frontier::Vector{Int}`: Wolff depth-first traversal stack.
 - `parents::Vector{Int}`: Swendsen-Wang union-find parent of each site, then
   each ghost site.
 - `ranks::Vector{UInt8}`: Swendsen-Wang union-find ranks.
@@ -74,7 +74,8 @@ shared_workspace(::AbstractAlgorithm, model, geometry) = nothing
 Return the per-run scratch space that [`step!`](@ref) reuses for `algorithm`:
 a [`ClusterWorkspace`](@ref) for cluster algorithms, a
 [`LocalUpdateWorkspace`](@ref) for local-update algorithms
-([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref)), `nothing`
+([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
+[`HeatbathAlgorithm`](@ref), [`OverrelaxationAlgorithm`](@ref)), `nothing`
 otherwise. [`run_simulation`](@ref) allocates it once and passes it through
 [`MC_Sweep!`](@ref). Extend this for custom algorithms with per-step
 allocations.
@@ -151,4 +152,23 @@ end
 function _resize_buffer!(buffer::AbstractVector, n::Int)
     length(buffer) == n || resize!(buffer, n)
     return buffer
+end
+
+"""
+    _cluster_labels(geometry, clusters::Vector{Vector{Int}})
+
+Translate an explicit partition of sites into per-site cluster labels: a
+vector `labels` of length `geometry.n_sites` with `labels[i] = c` for site
+`i` in `clusters[c]`, and `0` for sites absent from the partition. Entries
+of `clusters` with indices above `n_sites` (ghost sites, see
+[`ghost_site`](@ref)) are ignored.
+
+Shared by the explicit-partition forms of `apply_clusters!`.
+"""
+function _cluster_labels(geometry, clusters::Vector{Vector{Int}})
+    labels = zeros(Int, geometry.n_sites)
+    for (c, cluster) in enumerate(clusters), site in cluster
+        site <= geometry.n_sites && (labels[site] = c)
+    end
+    return labels
 end

@@ -9,6 +9,9 @@ include("Geometry/Geometry.jl")
 include("State/State.jl")
 include("Algorithms/Algorithms.jl")
 include("Models/Models.jl")
+# Fused model/algorithm fast paths (algorithm mechanics that name concrete
+# model types) come after the models they specialize.
+include("Algorithms/FastPaths.jl")
 include("State/Initialization.jl")
 include("Measurements/Measurements.jl")
 include("Simulation/Simulation.jl")
@@ -16,7 +19,8 @@ include("IO/IO.jl")
 
 export Geometry, initialize_state
 export IsingModel, XYModel, ClockModel, HeisenbergModel
-export MetropolisAlgorithm, GlauberAlgorithm, WolffAlgorithm, SwendsenWangAlgorithm
+export MetropolisAlgorithm, GlauberAlgorithm, HeatbathAlgorithm, OverrelaxationAlgorithm
+export WolffAlgorithm, SwendsenWangAlgorithm
 export RandomProposal, SequentialProposal, CheckerboardProposal, ColoredProposal
 export SimulationParameters, MeasurementContainer
 export MC_Sweep!, run_simulation, sweep_Ts, merge_containers, analyze, autotune_binning
@@ -26,5 +30,6 @@ export save_results, save_sweep_results, save_tempering_results
 export available_measurements, available_diagnostics
 export AutocorrelationResult, autocorrelation, autocorrelation_function
 export integrated_autocorrelation_time, tau_lower_bound, recommended_binning
+export ReweightingResult, reweight
 
 end

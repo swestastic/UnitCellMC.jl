@@ -74,9 +74,7 @@ cached `energy` travels with the configuration), accepted with the
 Metropolis criterion `min(1, exp(x))` where
 `x = (betas[i] - betas[j]) * (states[i].energy - states[j].energy)`,
 evaluated as `log(rand(rng)) < x` to avoid overflow. The cached running
-energies are used directly, making each attempt `O(1)`; their accumulated
-floating-point drift over a run (~1e-10 of the total energy) is irrelevant
-to an acceptance probability.
+energies are used directly, so each attempt is `O(1)`.
 
 To preserve detailed balance while giving every adjacent pair equal
 opportunity, the pass alternates its pairing by `pass` (the count of swap
@@ -92,7 +90,7 @@ function swap_pass!(states, betas, stats::SwapStats, pass::Int, rng::AbstractRNG
     start = isodd(pass) ? 1 : 2
     for i in start:2:(length(states) - 1)
         j = i + 1
-        x = (betas[i] - betas[j]) * (states[i].energy - states[j].energy)
+        x = (betas[i] - betas[j]) * (total_energy(states[i]) - total_energy(states[j]))
         stats.attempts[i] += 1
         if log(rand(rng)) < x
             states[i], states[j] = states[j], states[i]
@@ -357,7 +355,7 @@ end
     geometric_ladder(T_min, T_max, n)
 
 Return `n` geometrically spaced temperatures from `T_min` to `T_max`
-(inclusive), sorted ascending — the standard starting point for the
+(sorted ascending) — the standard starting point for the
 temperature ladder of a [`tempering_sweep`](@ref). Geometric spacing puts
 equal ratio between neighbors, which roughly equalizes swap acceptance
 rates when the heat capacity varies slowly; refine from the reported
@@ -370,8 +368,8 @@ acceptances when it does not.
 
 # Returns
 
-A `Vector{Float64}` of length `n` with `Ts[1] == T_min` and
-`Ts[end] == T_max`.
+A `Vector{Float64}` of length `n` with `Ts[1] ≈ T_min` and
+`Ts[end] ≈ T_max` (up to floating-point rounding of `exp ∘ log`).
 """
 function geometric_ladder(T_min::Real, T_max::Real, n::Integer)
     T_min > 0 || throw(ArgumentError("T_min must be positive, got $T_min"))

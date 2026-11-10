@@ -24,7 +24,8 @@ sweep.
   (or up to the maximum lag when unresolved), not over the whole series.
 - `lags::Vector{Int}`: Lags `0, 1, …` corresponding to `acf`.
 - `n::Int`: Number of samples in the series (summed over all chains).
-- `window::Int`: The self-consistent window `K` (`0` unless resolved).
+- `window::Int`: The self-consistent window `K` (`0` unless the window
+  condition was met, i.e. `status` is `:resolved` or `:anticorrelated`).
 - `status::Symbol`: One of
   - `:resolved`: `tau` is a valid estimate;
   - `:anticorrelated`: `tau` is significantly below `1/2`
@@ -257,6 +258,12 @@ separate components.
 
 A constant series returns a `:constant` result rather than throwing.
 
+# Throws
+
+`ArgumentError` if `window <= 0`, if `max_lag < 1`, if `chain_lengths` has
+nonpositive entries or does not sum to `length(series)`, or if vector-valued
+samples have unequal lengths.
+
 # Returns
 
 An [`AutocorrelationResult`](@ref).
@@ -367,7 +374,7 @@ A named tuple `(bin_size = ..., n_unmeasured = ...)`. Choose the production
 
 `ArgumentError` if `tau` is not finite and positive (an unresolved `NaN`
 autocorrelation time means the pilot run was too short; there is no safe
-default), or if `bin_factor` is not positive.
+default), if `bin_factor` is not positive, or if `n_unmeasured` is negative.
 """
 function recommended_binning(
     tau::Real;

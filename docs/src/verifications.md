@@ -55,7 +55,7 @@ Some examples:
 **Energy:**
 
 ```math
-\langle E \rangle = \frac{1}{Z} \sum_{\{S\}} H(\{S\}) , e^{-\beta H(\{S\})} = -\frac{\partial \ln Z}{\partial \beta}.
+\langle E \rangle = \frac{1}{Z} \sum_{\{S\}} H(\{S\}) \, e^{-\beta H(\{S\})} = -\frac{\partial \ln Z}{\partial \beta}.
 ```
 
 **Specific Heat:**
@@ -74,7 +74,7 @@ where $M(\{S\}) = \sum_i S_i$ is the instantaneous magnetization of a configurat
 
 Note: at $h=0$, every configuration $\{S\}$ has a degenerate partner $\{-S\}$ with the same energy, for any temperature. Exact enumeration sums over both of these with equal Boltzmann weights, giving $\langle M \rangle = 0$.
 
-Typically, a single MC run will have $\langle M \rangle = 0$ for $T>T_c$, and $\langle M \rangle = \pm1$ for $T < T_c$. Averaging over many runs will recover the result where $\langle M \rangle = 0$ for all $T$.
+Typically, a single MC run will have $\langle M \rangle = 0$ for $T>T_c$, while for $T < T_c$ it falls into one of the two symmetry-related phases, $\langle M \rangle / N = \pm m$ with $m$ the spontaneous magnetization per site. Averaging over many runs will recover the result where $\langle M \rangle = 0$ for all $T$.
 
 **Susceptibility**
 

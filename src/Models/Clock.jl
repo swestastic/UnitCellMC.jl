@@ -117,18 +117,18 @@ n_operator_components(::ClockModel) = 2
 operator_components(model::ClockModel, n::Integer) = (clock_cos(model, n), clock_sin(model, n))
 
 """
-    propose(rng, ::MetropolisAlgorithm, model::ClockModel, geometry, state, site)
+    propose_value(rng, model::ClockModel, geometry, state, site)
 
-Generate a Metropolis trial move for the clock model at `site` (chosen by
-the algorithm's [`AbstractProposalScheme`](@ref)): propose one of the other
-`q - 1` clock states uniformly at random (a symmetric proposal), drawn
+Propose the new value at `site` (chosen by the algorithm's
+[`AbstractProposalScheme`](@ref)) for a local-update trial move: one of the
+other `q - 1` clock states uniformly at random (a symmetric proposal), drawn
 from `rng`.
 
 # Returns
 
 A [`SpinUpdate`](@ref) for the site and new clock index, carrying the magnetization change.
 """
-function propose(rng::AbstractRNG, ::MetropolisAlgorithm, model::ClockModel, geometry, state::ClockState, site::Int)
+function propose_value(rng::AbstractRNG, model::ClockModel, geometry::Geometry, state::ClockState, site::Int)
     old = state.spins[site]
     new = mod(old + rand(rng, 1:(model.q - 1)), model.q)
     return SpinUpdate(
@@ -138,6 +138,19 @@ function propose(rng::AbstractRNG, ::MetropolisAlgorithm, model::ClockModel, geo
     )
 end
 
+"""
+    energy_difference(model::ClockModel, geometry, state, proposal)
+
+Compute the change in total energy `ΔE` from changing the clock index at
+`proposal.site` to `proposal.new_value`: with `θ_n = 2πn/q`, this is
+`-Σ_j J_ij (cos(θ_new - θ_j) - cos(θ_old - θ_j))` over the site's
+neighbors, plus the field term `-h (cos θ_new - cos θ_old)` (the field points
+along the x direction).
+
+# Returns
+
+The energy difference `ΔE` between the proposed and current configurations.
+"""
 function energy_difference(
     model::ClockModel,
     geometry::Geometry,
@@ -157,6 +170,79 @@ function energy_difference(
             (clock_cos(model, new - n_j) - clock_cos(model, old - n_j))
     end
     return -weighted_sum - field_strength(model, geometry, site) * proposal.magnetization_change[1]
+end
+
+"""
+    heatbath_draw(rng, model::ClockModel, geometry, state, site, T, cache)
+
+Draw the new clock index at `site` from its single-site conditional
+distribution at temperature `T`: with `θ_n = 2πn/q` and the local field sums
+`A = h + Σ_j J cos(θ_j)`, `B = Σ_j J sin(θ_j)` over the site's bonds, state
+`n` is drawn with probability proportional to the Boltzmann weight
+`exp((A cos θ_n + B sin θ_n) / T)`.
+
+The `q` weights are enumerated twice from the lookup tables — once for their
+maximum and total, once to locate the draw in the cumulative sum — so no
+`q`-sized scratch array is needed. Subtracting the maximum exponent keeps the
+weights finite at any temperature; a weight that underflows to zero is never
+selected, as it should be. `cache` goes unused: the draw does not reduce to a
+memoized Boltzmann factor.
+
+# Returns
+
+A [`SpinUpdate`](@ref) for the site and its drawn clock index, carrying the
+magnetization change from the lookup tables.
+"""
+function heatbath_draw(
+    rng::AbstractRNG,
+    model::ClockModel,
+    geometry::Geometry,
+    state::ClockState,
+    site::Int,
+    T::Real,
+    cache,
+)
+    old = state.spins[site]
+    info = geometry.neighbor_table[site]
+    J = couplings(model)
+    A = Float64(field_strength(model, geometry, site))
+    B = zero(A)
+    for (template, neighbor) in zip(info.templates, info.neighbors)
+        neighbor == site && continue
+        A += J[template] * clock_cos(model, state.spins[neighbor])
+        B += J[template] * clock_sin(model, state.spins[neighbor])
+    end
+    βA = A / T
+    βB = B / T
+    q = model.q
+    cosines = model.cosines
+    sines = model.sines
+
+    a_max = -Inf
+    for n in 1:q
+        a = βA * cosines[n] + βB * sines[n]
+        a > a_max && (a_max = a)
+    end
+    total = 0.0
+    for n in 1:q
+        total += exp(βA * cosines[n] + βB * sines[n] - a_max)
+    end
+    r = rand(rng) * total
+    cumulated = 0.0
+    new = q - 1
+    for n in 1:q
+        cumulated += exp(βA * cosines[n] + βB * sines[n] - a_max)
+        if cumulated >= r
+            new = n - 1
+            break
+        end
+    end
+
+    return SpinUpdate(
+        site, new,
+        (clock_cos(model, new) - clock_cos(model, old),
+            clock_sin(model, new) - clock_sin(model, old)),
+    )
 end
 
 """
@@ -248,9 +334,8 @@ Reflect a Wolff cluster across clock mirror `mirror`
 (`n ↦ mod(mirror - n, q)`, see [`ClockClusterContext`](@ref)) and update the
 cached clock observables incrementally via
 [`_reflect_clock_sites!`](@ref).
-This explicit form allocates a membership mask per call and is the
-readable reference implementation exercised by the tests; the Wolff
-driver passes down the mask it already built.
+This form allocates a membership mask per call; the Wolff driver
+instead passes down the mask it already built.
 """
 function apply_cluster!(
     model::ClockModel,
@@ -434,3 +519,76 @@ function _reflect_clock_clusters!(
     state.magnetization_y += ΔMy
     return nothing
 end
+
+"""
+    observables(::ClockModel, geometry)
+
+Return the raw per-measurement observables tracked for every
+[`ClockModel`](@ref) simulation (shared with the other planar-spin models,
+see [`observables`](@ref)): per-site energy, both Cartesian magnetization
+components, the magnetization magnitude, and the square of each.
+"""
+observables(::ClockModel, geometry) = _planar_observables(geometry)
+
+"""
+    derived_observables(::ClockModel, geometry)
+
+Return the always-on derived quantities for the [`ClockModel`](@ref) (shared
+with the other planar-spin models): the specific heat, the component
+susceptibilities, and the total susceptibility, each with its jackknife
+error.
+"""
+derived_observables(::ClockModel, geometry) = _planar_derived_observables(geometry)
+
+"""
+    clock_order_parameter_entry(model, geometry)
+
+Build the optional angular order parameter of a [`ClockModel`](@ref).
+
+The raw observable `:clock_order_parameter` is the instantaneous
+`cos(q φ_M)` from [`clock_angle_order`](@ref) (an `O(N)` resum of the
+magnetization per measurement), where `φ_M` is the direction of the total
+magnetization. Its average `⟨cos(q φ_M)⟩` tends to `1` when the
+magnetization locks onto one of the `q` clock directions and to `0` when its
+direction is uniformly distributed, so for `q >= 5` it separates the
+low-temperature ordered phase from the intermediate critical phase, and its
+rise sharpens with system size at the lower transition.
+
+No derived quantity is added: `cos(q φ_M)` is not a sum of local terms, so
+a fluctuation "susceptibility" `N * Var / T` would only reflect the trivial
+variance `1/2` of a uniformly distributed angle, growing with `N` throughout
+the disordered phase.
+
+# Arguments
+
+- `model`: The `ClockModel` being measured; supplies `q`.
+- `geometry`: The lattice geometry (unused; kept for the common entry
+  signature).
+
+# Returns
+
+An `(obs, der)` tuple: `obs` holds the `:clock_order_parameter` observable
+and `der` is empty.
+
+# Throws
+
+`ArgumentError` if `model` is not a [`ClockModel`](@ref).
+"""
+function clock_order_parameter_entry(model::ClockModel, geometry)
+    obs = Observable[
+        Observable(:clock_order_parameter, state -> clock_angle_order(model, state)),
+    ]
+    return obs, DerivedObservable[]
+end
+
+clock_order_parameter_entry(model, geometry) = throw(ArgumentError(
+    "The :clock_order_parameter measurement requires a ClockModel; got $(nameof(typeof(model)))"
+))
+
+optional_observables(model, geometry, ::Val{:clock_order_parameter}) =
+    clock_order_parameter_entry(model, geometry)
+
+# The clock model's model-specific optional measurements: its angular order
+# parameter (built here) and the helicity modulus (built for all vector-spin
+# models in `src/Measurements/HelicityModulus.jl`).
+extra_measurements(::Type{<:ClockModel}) = (:clock_order_parameter, :helicity_modulus)

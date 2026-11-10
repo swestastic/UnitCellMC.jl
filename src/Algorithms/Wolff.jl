@@ -2,14 +2,16 @@
     WolffAlgorithm
 
 Marker type selecting a single-cluster Wolff update. The cluster traversal is
-model-independent; models provide `cluster_seed`, `cluster_bond_probability`,
-and `apply_cluster!` methods.
+model-independent; models provide `cluster_bond_probability` and
+`apply_cluster!` methods (`cluster_seed` defaults to a uniformly random site
+and can be overridden).
 
 With an external field, clusters that attach to a ghost site are never
 flipped, and for β|h| ≳ 1 most clusters attach — acceptance collapses and the
 cluster sizes stay small (the [`WolffUpdateResult`](@ref) `cluster_size`
 reports zero for those frozen steps). Prefer a local-update algorithm
-([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref)) in strong fields.
+([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
+[`HeatbathAlgorithm`](@ref)) in strong fields.
 """
 struct WolffAlgorithm <: AbstractAlgorithm end
 
@@ -40,9 +42,11 @@ drivers allocate one workspace per run — rather than before every step; a
 
 The default enforces the cluster updates' core requirement — non-negative
 (ferromagnetic) couplings, so the bond-activation probabilities stay in
-`[0, 1]` — for models with the default coupling layout (see
-[`couplings`](@ref)); a model without a `J` field passes. Models with extra
-structure extend this method with their own checks.
+`[0, 1]` — reading the couplings through the [`couplings`](@ref) accessor
+(see the layout contract under [`AbstractModel`](@ref)), so a model with a
+custom storage layout is checked on the values it actually serves rather
+than passing unvalidated. Models with extra structure extend this method
+with their own checks.
 
 # Throws
 
@@ -53,9 +57,9 @@ structure extend this method with their own checks.
 `nothing`.
 """
 function validate_cluster_model(model::AbstractModel, geometry, state::AbstractState, ::Real)
-    hasproperty(model, :J) || return nothing
-    all(>=(0), couplings(model)) || throw(ArgumentError(
-        "Cluster algorithms require non-negative couplings; got J = $(couplings(model))"
+    J = couplings(model)
+    all(>=(0), J) || throw(ArgumentError(
+        "Cluster algorithms require non-negative couplings; got J = $J"
     ))
     return nothing
 end

@@ -1,11 +1,12 @@
 include("Observables.jl")
 include("Container.jl")
-include("Values.jl")
 include("Correlations.jl")
 include("StructureFactor.jl")
 include("Optional.jl")
 include("BinProcessing.jl")
 include("Autocorrelation.jl")
+include("Reweighting.jl")
+include("HelicityModulus.jl")
 
 """
     measure!(measurements::MeasurementContainer, state; diagnostics)
@@ -14,15 +15,11 @@ Take one measurement of `state` and accumulate it into `measurements`,
 flushing a completed bin into `data` once `bin_size` measurements have been
 accumulated.
 
-Each observable in `measurements.observables` is evaluated on `state` via
-its `value` function, and the supplied algorithm diagnostic values are added
-to the same named tuple. The results are added elementwise into
-`measurements.bin_sums`. Once `measurements.bin_count` reaches
-`measurements.bin_size`, the accumulated sums are averaged (dividing by
-`bin_size`) and pushed onto the corresponding vector in `measurements.data`,
-after which `bin_sums` is reset to zero (array accumulators are zeroed in
-place and reused for the next bin) and `bin_count` returns to `0` to begin
-accumulating the next bin.
+Each observable's `value` is evaluated on `state` and added, with the
+diagnostics, into `measurements.bin_sums`; raw values are also appended to
+`measurements.time_series` for the recorded names. Once `bin_size`
+measurements have accumulated, their average is pushed onto `data` and the
+sums are reset.
 
 # Arguments
 

@@ -5,8 +5,7 @@ Maximum number of memoized `ΔE → exp(-ΔE / T)` entries held by an
 [`AcceptanceCache`](@ref), so the memo table is bounded and its scan stays
 short. The typical models selected by [`tabulate_acceptance`](@ref) have far
 fewer distinct `ΔE` values than this; a wider spectrum keeps the first
-entries (the commonest, since they are met first) and computes further
-values directly.
+entries it meets and computes further values directly.
 """
 const ACCEPTANCE_CACHE_CAPACITY = 64
 
@@ -17,17 +16,17 @@ Per-run memo table of Boltzmann factors `u = exp(-ΔE / T)` for the
 local-update acceptance tests, built by [`algorithm_workspace`](@ref) as part
 of a [`LocalUpdateWorkspace`](@ref) when [`tabulate_acceptance`](@ref) is
 true for the model. The Metropolis test `rand(rng) < exp(-ΔE / T)` and the
-Glauber acceptance probability both become table lookups once an entry is
+Glauber acceptance probability (equivalently the Ising heatbath conditional
+probability, see [`heatbath_draw`](@ref)) both become table lookups once an entry is
 memoized.
 
 Entries are keyed by the exact `Float64` value of each computed `ΔE`, so a
 hit reproduces a direct `exp(-ΔE / T)` evaluation bit for bit. The table is
 cleared when `T` changes between updates (the drivers use a fixed `T` per
 run, so this happens at most once) and holds at most
-[`ACCEPTANCE_CACHE_CAPACITY`](@ref) entries; a wider spectrum (say a
-large-`q` [`ClockModel`](@ref)) simply stops memoizing new values once full,
-while already-memoized values are still served — the commonest `ΔE`s are met
-first, so they are the ones retained. Like [`ClusterWorkspace`](@ref), it
+[`ACCEPTANCE_CACHE_CAPACITY`](@ref) entries; once full, new values are
+computed directly while already-memoized values are still served. Like
+[`ClusterWorkspace`](@ref), it
 carries mutable per-run state and must not be shared between concurrent runs.
 """
 mutable struct AcceptanceCache
@@ -85,7 +84,8 @@ end
 
 Return `true` if the model's single-site [`energy_difference`](@ref) takes
 values from a small discrete set, so that local-update algorithms
-([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref)) benefit from
+([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
+[`HeatbathAlgorithm`](@ref)) benefit from
 memoizing Boltzmann factors per temperature in an [`AcceptanceCache`](@ref).
 Memoization is exact whenever the spectrum is discrete, since computed `ΔE`
 values repeat bit for bit.
@@ -103,7 +103,8 @@ tabulate_acceptance(::AbstractModel) = false
     LocalUpdateWorkspace
 
 Per-run workspace for the local-update algorithms
-([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref)), built by
+([`MetropolisAlgorithm`](@ref), [`GlauberAlgorithm`](@ref),
+[`HeatbathAlgorithm`](@ref), [`OverrelaxationAlgorithm`](@ref)), built by
 [`algorithm_workspace`](@ref) and threaded through [`MC_Sweep!`](@ref) into
 [`step!`](@ref). Bundles the site-selection scheme's per-run state with the
 acceptance-probability memo table.

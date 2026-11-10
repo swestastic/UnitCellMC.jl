@@ -84,7 +84,7 @@ function _checked_series(container::MeasurementContainer, name::Symbol, n_expect
 end
 
 """
-    reweight(container, T_sim, temperatures, N; magnetization = :magnetization)
+    reweight(container, T_sim, temperatures, N; magnetization = :magnetization, energy = :energy)
 
 Reweight the measurements of a simulation run at temperature `T_sim` to the
 nearby temperatures in `temperatures`, using Ferrenberg–Swendsen
@@ -128,6 +128,10 @@ targets whose `n_eff` is much smaller than the number of measurements.
 - `temperatures`: The target temperatures to reweight to.
 - `N`: The number of sites, used to convert the recorded per-site energies
     to total energies in the weights (same role as in [`analyze`](@ref)).
+- `energy`: Name of the recorded per-site energy time series to reweight
+    (default `:energy`). A model recording its energy under a different name
+    passes it here; the values must be per-site (the weights use
+    `E_t = N · e_t`).
 - `magnetization`: Name of the recorded magnetization time series to
     reweight, or `nothing` to skip magnetic quantities. The default
     `:magnetization` is the signed magnetization for [`IsingModel`](@ref)
@@ -144,7 +148,7 @@ targets whose `n_eff` is much smaller than the number of measurements.
 
 `ArgumentError` if `T_sim` or any target temperature is not positive, if
 `N` is not positive, if the container holds fewer than two completed bins,
-if the `:energy` (or requested magnetization) time series was not recorded,
+if the energy (or requested magnetization) time series was not recorded,
 or if a time series length is inconsistent with the completed bins (e.g. a
 partially filled container).
 
@@ -160,6 +164,7 @@ Monte Carlo data analysis", Phys. Rev. Lett. 63, 1195 (1989).
 function reweight(
     container::MeasurementContainer, T_sim, temperatures, N;
     magnetization::Union{Symbol, Nothing} = :magnetization,
+    energy::Symbol = :energy,
 )
     T_sim > 0 || throw(ArgumentError("T_sim must be positive, got $T_sim"))
     N >= 1 || throw(ArgumentError("N must be positive, got $N"))
@@ -168,28 +173,28 @@ function reweight(
     all(>(0), Ts) || throw(ArgumentError(
         "target temperatures must all be positive, got $Ts"))
 
-    haskey(container.data, :energy) || throw(ArgumentError(
-        "the container has no :energy observable to reweight"))
+    haskey(container.data, energy) || throw(ArgumentError(
+        "the container has no :$energy observable to reweight"))
     series = container.time_series
-    haskey(series, :energy) || throw(ArgumentError(
-        "the :energy time series was not recorded; reweighting needs the " *
+    haskey(series, energy) || throw(ArgumentError(
+        "the :$energy time series was not recorded; reweighting needs the " *
         "unbinned energy history (the default time_series = :scalars records it)"))
 
-    n_bins = length(container.data.energy)
+    n_bins = length(container.data[energy])
     n_bins >= 2 || throw(ArgumentError(
         "the container has $n_bins completed bin(s); at least two are " *
         "required. Was it filled by a run (see `run_simulation`)?"))
     bin_size = container.bin_size
     n_expected = n_bins * bin_size
 
-    e = _checked_series(container, :energy, n_expected)
+    e = _checked_series(container, energy, n_expected)
     m = magnetization === nothing ? nothing :
         _checked_series(container, magnetization, n_expected)
 
     β_sim = 1 / T_sim
     e_shift = Statistics.mean(e)   # cancels in the ratios; keeps exponents small
 
-    energy = Float64[]
+    energies = Float64[]
     energy_err = Float64[]
     specific_heat = Float64[]
     specific_heat_err = Float64[]
@@ -212,7 +217,7 @@ function reweight(
         jkE2 = jackknife_samples(_bin_means(w .* abs2.(e), n_bins, bin_size))
 
         value, err = jackknife_stats((we, wj) -> we / wj, jkE, jkW)
-        push!(energy, value)
+        push!(energies, value)
         push!(energy_err, err)
         value, err = jackknife_stats(
             (we, we2, wj) -> N * (we2 / wj - (we / wj)^2) / T^2, jkE, jkE2, jkW)
@@ -233,7 +238,7 @@ function reweight(
     end
 
     return ReweightingResult(
-        Float64(T_sim), Ts, N, energy, energy_err, specific_heat, specific_heat_err,
+        Float64(T_sim), Ts, N, energies, energy_err, specific_heat, specific_heat_err,
         m === nothing ? nothing : mag, m === nothing ? nothing : mag_err,
         m === nothing ? nothing : chi, m === nothing ? nothing : chi_err,
         n_eff,

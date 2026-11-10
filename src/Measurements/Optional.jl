@@ -8,12 +8,25 @@ The resulting raw observables are `:abs_magnetization` and
 magnetization distribution would obscure the finite-size scaling signal.
 """
 function abs_magnetization_entry(model, geometry)
+    _check_magnetization_value(model)
     n_sites = geometry.n_sites
     obs = Observable[
         Observable(:abs_magnetization, state -> abs(magnetization_value(state)) / n_sites),
         Observable(:abs_magnetization_squared, state -> (abs(magnetization_value(state)) / n_sites)^2),
     ]
     return obs, DerivedObservable[]
+end
+
+# Fail at container construction, not mid-run: the magnetization-magnitude
+# observables call `magnetization_value(state)` per measurement, so the
+# model's state type must have the hook before any sweep runs (the same
+# eager-check pattern as `binder_denominator` and `n_operator_components`).
+function _check_magnetization_value(model)
+    S = state_type(model)
+    hasmethod(magnetization_value, Tuple{S}) || throw(ArgumentError(
+        "$(nameof(typeof(model))) does not implement magnetization_value(::$S), " *
+        "required by the magnetization-magnitude measurements"))
+    return nothing
 end
 
 """
@@ -57,51 +70,6 @@ function binder_cumulant_entry(model, geometry)
     ]
     return obs, der
 end
-
-"""
-    clock_order_parameter_entry(model, geometry)
-
-Build the optional angular order parameter of a [`ClockModel`](@ref).
-
-The raw observable `:clock_order_parameter` is the instantaneous
-`cos(q φ_M)` from [`clock_angle_order`](@ref) (an `O(N)` resum of the
-magnetization per measurement), where `φ_M` is the direction of the total
-magnetization. Its average `⟨cos(q φ_M)⟩` tends to `1` when the
-magnetization locks onto one of the `q` clock directions and to `0` when its
-direction is uniformly distributed, so for `q >= 5` it separates the
-low-temperature ordered phase from the intermediate critical phase, and its
-rise sharpens with system size at the lower transition.
-
-No derived quantity is added: `cos(q φ_M)` is not a sum of local terms, so
-a fluctuation "susceptibility" `N * Var / T` would only reflect the trivial
-variance `1/2` of a uniformly distributed angle, growing with `N` throughout
-the disordered phase.
-
-# Arguments
-
-- `model`: The `ClockModel` being measured; supplies `q`.
-- `geometry`: The lattice geometry (unused; kept for the common entry
-  signature).
-
-# Returns
-
-An `(obs, der)` tuple: `obs` holds the `:clock_order_parameter` observable
-and `der` is empty.
-
-# Throws
-
-`ArgumentError` if `model` is not a [`ClockModel`](@ref).
-"""
-function clock_order_parameter_entry(model::ClockModel, geometry)
-    obs = Observable[
-        Observable(:clock_order_parameter, state -> clock_angle_order(model, state)),
-    ]
-    return obs, DerivedObservable[]
-end
-
-clock_order_parameter_entry(model, geometry) = throw(ArgumentError(
-    "The :clock_order_parameter measurement requires a ClockModel; got $(nameof(typeof(model)))"
-))
 
 """
     magnetization_per_orbital_entry(model, geometry)
@@ -239,12 +207,14 @@ measurement_implies(::Val) = ()
 Build the `(obs, der)` pair for the single optional measurement `name` (see
 [`optional_observables`](@ref)`(model, geometry, measurements)`). Each
 measurement has its own method — `Val(:raw_correlation)` and
-`Val(:connected_correlation)` in `Correlations.jl`, and
+`Val(:connected_correlation)` in `Correlations.jl`,
 `Val(:abs_magnetization)`, `Val(:abs_magnetization_squared)`,
-`Val(:binder_cumulant)`, `Val(:magnetization_fourth)`,
-`Val(:magnetization_per_orbital)`, `Val(:clock_order_parameter)`, and
-`Val(:structure_factor)` here — defined next to its builder, so adding a
-measurement never requires editing shared code. This fallback lists the names
+`Val(:binder_cumulant)`, `Val(:magnetization_fourth)`, and
+`Val(:magnetization_per_orbital)` here, `Val(:structure_factor)` in
+`StructureFactor.jl`, `Val(:helicity_modulus)` in `HelicityModulus.jl`, and
+model-specific measurements such as `Val(:clock_order_parameter)` in the
+model's own file — defined next to its builder, so adding a measurement never
+requires editing shared code. This fallback lists the names
 accepted by `model`.
 
 # Throws
@@ -259,30 +229,33 @@ optional_observables(model, geometry, ::Val{name}) where {name} = throw(Argument
 optional_observables(model, geometry, ::Val{:abs_magnetization}) =
     abs_magnetization_entry(model, geometry)
 
-optional_observables(model, geometry, ::Val{:abs_magnetization_squared}) = (
-    Observable[Observable(
-        :abs_magnetization_squared,
-        state -> (abs(magnetization_value(state)) / geometry.n_sites)^2,
-    )],
-    DerivedObservable[],
-)
+function optional_observables(model, geometry, ::Val{:abs_magnetization_squared})
+    _check_magnetization_value(model)
+    return (
+        Observable[Observable(
+            :abs_magnetization_squared,
+            state -> (abs(magnetization_value(state)) / geometry.n_sites)^2,
+        )],
+        DerivedObservable[],
+    )
+end
 
 optional_observables(model, geometry, ::Val{:binder_cumulant}) =
     binder_cumulant_entry(model, geometry)
 
-optional_observables(model, geometry, ::Val{:magnetization_fourth}) = (
-    Observable[Observable(
-        :magnetization_fourth,
-        state -> (magnetization_value(state) / geometry.n_sites)^4,
-    )],
-    DerivedObservable[],
-)
+function optional_observables(model, geometry, ::Val{:magnetization_fourth})
+    _check_magnetization_value(model)
+    return (
+        Observable[Observable(
+            :magnetization_fourth,
+            state -> (magnetization_value(state) / geometry.n_sites)^4,
+        )],
+        DerivedObservable[],
+    )
+end
 
 optional_observables(model, geometry, ::Val{:magnetization_per_orbital}) =
     magnetization_per_orbital_entry(model, geometry)
-
-optional_observables(model, geometry, ::Val{:clock_order_parameter}) =
-    clock_order_parameter_entry(model, geometry)
 
 optional_observables(model, geometry, ::Val{:structure_factor}) =
     structure_factor_entry(model, geometry)
@@ -374,15 +347,15 @@ const _COMMON_MEASUREMENTS = (
 
 Return a tuple of additional optional measurement names specific to a model,
 beyond the common set available to every model (see
-[`available_measurements`](@ref)). The default is empty; for example
-`extra_measurements(::Type{<:ClockModel}) = (:clock_order_parameter, :helicity_modulus)`.
+[`available_measurements`](@ref)). The default is empty; each model declares
+its own in its file under `src/Models/` (e.g. `extra_measurements(::Type{<:ClockModel})
+= (:clock_order_parameter, :helicity_modulus)` in `Clock.jl`).
 
 A model extending this must also provide the corresponding
 `optional_observables(model, geometry, Val(name))` method, or requesting the
 name fails at container construction.
 """
 extra_measurements(::Type{<:AbstractModel}) = ()
-extra_measurements(::Type{<:ClockModel}) = (:clock_order_parameter, :helicity_modulus)
 
 """
     available_measurements(model::AbstractModel)

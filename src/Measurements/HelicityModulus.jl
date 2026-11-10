@@ -170,6 +170,3 @@ end
 
 optional_observables(model, geometry, ::Val{:helicity_modulus}) =
     helicity_modulus_entry(model, geometry)
-
-extra_measurements(::Type{<:XYModel}) = (:helicity_modulus,)
-extra_measurements(::Type{<:HeisenbergModel}) = (:helicity_modulus,)

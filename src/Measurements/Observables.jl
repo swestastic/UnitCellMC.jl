@@ -130,3 +130,44 @@ function DerivedObservable(value_name::Symbol, err_name::Symbol, depends_on::Tup
     end
     return DerivedObservable(names, compute, depends_on)
 end
+
+"""
+    observables(model, geometry)
+
+Return the raw per-measurement observables tracked for every simulation of
+`model` — the always-on set included by [`MeasurementContainer`](@ref)
+before any optional `measurements` are resolved. Each model defines its own
+method in its file under `src/Models/` (e.g. `observables(::IsingModel,
+geometry)`); this fallback throws so a model without one fails loudly.
+
+# Throws
+
+`ArgumentError` if `model` does not define its own method. To support a
+custom model, define `observables(::MyModel, geometry)` returning a
+`Vector{`[`Observable`](@ref)`}`.
+"""
+observables(model::AbstractModel, geometry) = throw(ArgumentError(
+    "observables is not implemented for $(nameof(typeof(model))); " *
+    "define `observables(::$(nameof(typeof(model))), geometry)` returning a " *
+    "Vector{Observable} of the model's always-on measurements"
+))
+
+"""
+    derived_observables(model, geometry)
+
+Return the always-on derived quantities computed for every simulation of
+`model` from its raw observables' jackknife samples (e.g. specific heat from
+the energy moments). Each model defines its own method in its file under
+`src/Models/`; this fallback throws so a model without one fails loudly.
+
+# Throws
+
+`ArgumentError` if `model` does not define its own method. To support a
+custom model, define `derived_observables(::MyModel, geometry)` returning a
+`Vector{`[`DerivedObservable`](@ref)`}` (possibly empty).
+"""
+derived_observables(model::AbstractModel, geometry) = throw(ArgumentError(
+    "derived_observables is not implemented for $(nameof(typeof(model))); " *
+    "define `derived_observables(::$(nameof(typeof(model))), geometry)` " *
+    "returning a Vector{DerivedObservable}"
+))

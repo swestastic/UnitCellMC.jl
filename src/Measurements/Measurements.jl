@@ -1,6 +1,5 @@
 include("Observables.jl")
 include("Container.jl")
-include("Values.jl")
 include("Correlations.jl")
 include("StructureFactor.jl")
 include("Optional.jl")

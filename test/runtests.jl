@@ -3637,6 +3637,12 @@ end
     @test ucmc.extra_measurements(ucmc.ClockModel) == (:clock_order_parameter, :helicity_modulus)
     @test isempty(ucmc.extra_measurements(ucmc.IsingModel))
     @test_throws ArgumentError ucmc.binder_denominator(PairingTestModel())
+
+    # models without the hooks fail loudly at construction, not mid-run
+    @test_throws ArgumentError ucmc.observables(PairingTestModel(), geometry)
+    @test_throws ArgumentError ucmc.derived_observables(PairingTestModel(), geometry)
+    @test_throws ArgumentError ucmc.optional_observables(PairingTestModel(), geometry, Val(:abs_magnetization))
+    @test_throws ArgumentError ucmc.optional_observables(PairingTestModel(), geometry, Val(:magnetization_fourth))
 end
 
 @testset "swap_pass!" begin

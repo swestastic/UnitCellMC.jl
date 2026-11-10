@@ -519,3 +519,76 @@ function _reflect_clock_clusters!(
     state.magnetization_y += ΔMy
     return nothing
 end
+
+"""
+    observables(::ClockModel, geometry)
+
+Return the raw per-measurement observables tracked for every
+[`ClockModel`](@ref) simulation (shared with the other planar-spin models,
+see [`observables`](@ref)): per-site energy, both Cartesian magnetization
+components, the magnetization magnitude, and the square of each.
+"""
+observables(::ClockModel, geometry) = _planar_observables(geometry)
+
+"""
+    derived_observables(::ClockModel, geometry)
+
+Return the always-on derived quantities for the [`ClockModel`](@ref) (shared
+with the other planar-spin models): the specific heat, the component
+susceptibilities, and the total susceptibility, each with its jackknife
+error.
+"""
+derived_observables(::ClockModel, geometry) = _planar_derived_observables(geometry)
+
+"""
+    clock_order_parameter_entry(model, geometry)
+
+Build the optional angular order parameter of a [`ClockModel`](@ref).
+
+The raw observable `:clock_order_parameter` is the instantaneous
+`cos(q φ_M)` from [`clock_angle_order`](@ref) (an `O(N)` resum of the
+magnetization per measurement), where `φ_M` is the direction of the total
+magnetization. Its average `⟨cos(q φ_M)⟩` tends to `1` when the
+magnetization locks onto one of the `q` clock directions and to `0` when its
+direction is uniformly distributed, so for `q >= 5` it separates the
+low-temperature ordered phase from the intermediate critical phase, and its
+rise sharpens with system size at the lower transition.
+
+No derived quantity is added: `cos(q φ_M)` is not a sum of local terms, so
+a fluctuation "susceptibility" `N * Var / T` would only reflect the trivial
+variance `1/2` of a uniformly distributed angle, growing with `N` throughout
+the disordered phase.
+
+# Arguments
+
+- `model`: The `ClockModel` being measured; supplies `q`.
+- `geometry`: The lattice geometry (unused; kept for the common entry
+  signature).
+
+# Returns
+
+An `(obs, der)` tuple: `obs` holds the `:clock_order_parameter` observable
+and `der` is empty.
+
+# Throws
+
+`ArgumentError` if `model` is not a [`ClockModel`](@ref).
+"""
+function clock_order_parameter_entry(model::ClockModel, geometry)
+    obs = Observable[
+        Observable(:clock_order_parameter, state -> clock_angle_order(model, state)),
+    ]
+    return obs, DerivedObservable[]
+end
+
+clock_order_parameter_entry(model, geometry) = throw(ArgumentError(
+    "The :clock_order_parameter measurement requires a ClockModel; got $(nameof(typeof(model)))"
+))
+
+optional_observables(model, geometry, ::Val{:clock_order_parameter}) =
+    clock_order_parameter_entry(model, geometry)
+
+# The clock model's model-specific optional measurements: its angular order
+# parameter (built here) and the helicity modulus (built for all vector-spin
+# models in `src/Measurements/HelicityModulus.jl`).
+extra_measurements(::Type{<:ClockModel}) = (:clock_order_parameter, :helicity_modulus)

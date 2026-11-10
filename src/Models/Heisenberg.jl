@@ -70,10 +70,10 @@ n_operator_components(::HeisenbergModel) = 3
 operator_components(::HeisenbergModel, v::NTuple{3,Real}) = v
 
 """
-    propose(rng, ::MetropolisAlgorithm, model::HeisenbergModel, geometry, state, site)
+    propose_value(rng, model::HeisenbergModel, geometry, state, site)
 
-Generate a Metropolis trial move for the Heisenberg model at `site` (chosen
-by the algorithm's [`AbstractProposalScheme`](@ref)): propose a new spin
+Propose the new value at `site` (chosen by the algorithm's
+[`AbstractProposalScheme`](@ref)) for a local-update trial move: a new spin
 drawn uniformly from the unit sphere via [`random_unit_vector`](@ref).
 
 # Returns
@@ -82,7 +82,7 @@ A [`SpinUpdate`](@ref) carrying the proposed components `(x, y, z)` as
 `new_value` and their change from the current components as
 `magnetization_change`.
 """
-function propose(rng::AbstractRNG, ::MetropolisAlgorithm, ::HeisenbergModel, geometry, state::HeisenbergState, site::Int)
+function propose_value(rng::AbstractRNG, ::HeisenbergModel, geometry::Geometry, state::HeisenbergState, site::Int)
     new = random_unit_vector(rng)
     return SpinUpdate(
         site, new,

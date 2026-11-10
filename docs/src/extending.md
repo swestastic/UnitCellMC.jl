@@ -176,7 +176,7 @@ magnetization_value(state::HeisenbergState) =
 
 # the single-site update contract — the algorithm's proposal scheme picks the
 # site (random, sequential, ...), the model proposes the new value there
-function propose(rng::AbstractRNG, ::MetropolisAlgorithm, model::HeisenbergModel, geometry, state, site::Int)
+function propose_value(rng::AbstractRNG, model::HeisenbergModel, geometry, state, site::Int)
     new = random_unit_vector(rng)
     return SpinUpdate(site, new, new .- state.spins[site])
 end
@@ -196,12 +196,16 @@ function energy_difference(model::HeisenbergModel, geometry, state, proposal)
 end
 ```
 
-That is all the Metropolis algorithm needs; **Glauber works automatically**
-(a generic fallback forwards [`propose`](@ref UnitCellMC.propose) to the Metropolis proposal —
-override it if you want a different Glauber proposal). **Heatbath requires one
-more hook**, [`heatbath_draw`](@ref UnitCellMC.heatbath_draw): draw the site's new value from its
-single-site conditional distribution and return it as a `SpinUpdate` (the
-`cache` argument is the run's [`AcceptanceCache`](@ref UnitCellMC.AcceptanceCache) when
+That one hook is all every local-update algorithm needs: Metropolis, Glauber,
+and any custom local-update algorithm whose six-argument
+[`propose`](@ref UnitCellMC.propose) falls back to
+[`propose_value`](@ref UnitCellMC.propose_value) (as the built-in ones do) all
+work immediately. A model can still override a specific algorithm's
+six-argument `propose` when it wants an algorithm-specific move. **Heatbath
+requires one more hook**, [`heatbath_draw`](@ref UnitCellMC.heatbath_draw):
+draw the site's new value from its single-site conditional distribution and
+return it as a `SpinUpdate` (the `cache` argument is the run's
+[`AcceptanceCache`](@ref UnitCellMC.AcceptanceCache) when
 `tabulate_acceptance(model)` is true, `nothing` otherwise). In the inner loop,
 hoist `J = couplings(model)` once and index `J[template]`; the per-site
 `templates` vector exists precisely for this.
@@ -298,8 +302,10 @@ Rules of the road:
 
 - **Reuse the single-site contract.** If your algorithm is a local-update
   scheme, build `step!` out of [`propose`](@ref UnitCellMC.propose) → [`energy_difference`](@ref UnitCellMC.energy_difference)
-  → [`apply_update!`](@ref UnitCellMC.apply_update!) (as `Metropolis.jl`/`Glauber.jl` do): every model
-  then works with it immediately.
+  → [`apply_update!`](@ref UnitCellMC.apply_update!) (as `Metropolis.jl`/`Glauber.jl` do), and make
+  your six-argument `propose` fall back to the model's
+  [`propose_value`](@ref UnitCellMC.propose_value) hook: every model then
+  works with it immediately, with no model-side code.
 - **Never read model fields or state fields directly in the driver** — go
   through the hooks. The algorithm should not know what a spin is.
 - [`steps_per_sweep`](@ref UnitCellMC.steps_per_sweep) defaults to `geometry.n_sites` (one update per

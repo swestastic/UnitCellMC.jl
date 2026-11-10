@@ -44,11 +44,11 @@ n_operator_components(::XYModel) = 2
 operator_components(::XYModel, v::NTuple{2,Real}) = v
 
 """
-    propose(rng, ::MetropolisAlgorithm, model::XYModel, geometry, state, site)
+    propose_value(rng, model::XYModel, geometry, state, site)
 
-Generate a Metropolis trial move for the XY model at `site` (chosen by the
-algorithm's [`AbstractProposalScheme`](@ref)): propose a new spin drawn
-uniformly from the unit circle via `rng`.
+Propose the new value at `site` (chosen by the algorithm's
+[`AbstractProposalScheme`](@ref)) for a local-update trial move: a new spin
+drawn uniformly from the unit circle via `rng`.
 
 # Returns
 
@@ -56,7 +56,7 @@ A [`SpinUpdate`](@ref) carrying the proposed components `(cos θ, sin θ)` as
 `new_value` and their change from the current components as
 `magnetization_change`.
 """
-function propose(rng::AbstractRNG, ::MetropolisAlgorithm, ::XYModel, geometry, state::XYState, site::Int)
+function propose_value(rng::AbstractRNG, ::XYModel, geometry::Geometry, state::XYState, site::Int)
     s_new, c_new = sincos(2π * rand(rng))
     return SpinUpdate(
         site, (c_new, s_new),

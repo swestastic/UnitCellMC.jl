@@ -17,7 +17,7 @@ accessors, so a model with a different storage layout overrides exactly these
 two functions (plus [`validate_model_geometry`](@ref) for its checks).
 
 A model also declares its state type ([`state_type`](@ref)) and implements
-the single-site update contract ([`propose`](@ref),
+the single-site update contract ([`propose_value`](@ref),
 [`energy_difference`](@ref); [`apply_update!`](@ref) comes with the state),
 its observables ([`observables`](@ref), [`derived_observables`](@ref)), and
 optionally the cluster-update hooks and [`binder_denominator`](@ref).

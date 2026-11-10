@@ -117,18 +117,18 @@ n_operator_components(::ClockModel) = 2
 operator_components(model::ClockModel, n::Integer) = (clock_cos(model, n), clock_sin(model, n))
 
 """
-    propose(rng, ::MetropolisAlgorithm, model::ClockModel, geometry, state, site)
+    propose_value(rng, model::ClockModel, geometry, state, site)
 
-Generate a Metropolis trial move for the clock model at `site` (chosen by
-the algorithm's [`AbstractProposalScheme`](@ref)): propose one of the other
-`q - 1` clock states uniformly at random (a symmetric proposal), drawn
+Propose the new value at `site` (chosen by the algorithm's
+[`AbstractProposalScheme`](@ref)) for a local-update trial move: one of the
+other `q - 1` clock states uniformly at random (a symmetric proposal), drawn
 from `rng`.
 
 # Returns
 
 A [`SpinUpdate`](@ref) for the site and new clock index, carrying the magnetization change.
 """
-function propose(rng::AbstractRNG, ::MetropolisAlgorithm, model::ClockModel, geometry, state::ClockState, site::Int)
+function propose_value(rng::AbstractRNG, model::ClockModel, geometry::Geometry, state::ClockState, site::Int)
     old = state.spins[site]
     new = mod(old + rand(rng, 1:(model.q - 1)), model.q)
     return SpinUpdate(

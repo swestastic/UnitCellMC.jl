@@ -52,6 +52,53 @@ function propose(
     return propose(rng, alg, model, geometry, state, site)
 end
 
+"""
+    propose_value(rng, model, geometry, state, site)
+
+The model hook behind every local-update algorithm's trial move: propose a
+new value for the degree of freedom at `site` (chosen by the algorithm's
+[`AbstractProposalScheme`](@ref)), given the frozen current `state`, and
+return it as a [`SpinUpdate`](@ref) carrying the value and the magnetization
+change the update would make.
+
+Every model implements this once and thereby supports all local-update
+algorithms: the [`MetropolisAlgorithm`](@ref) and [`GlauberAlgorithm`](@ref)
+`propose` methods both fall back to it, as does any custom local-update
+algorithm whose six-argument [`propose`](@ref) does the same. A model may
+still override a specific algorithm's six-argument `propose` when it wants an
+algorithm-specific move (e.g. a different Glauber proposal).
+
+# Throws
+
+`ArgumentError` if `model` does not define its own method. To support a
+custom model, define
+`propose_value(rng, model::MyModel, geometry, state::MyState, site::Int)`
+returning a [`SpinUpdate`](@ref).
+
+# Returns
+
+A [`SpinUpdate`](@ref) describing the site and its proposed new value.
+"""
+function propose_value(
+    rng::AbstractRNG,
+    model::AbstractModel,
+    geometry::Geometry,
+    state::AbstractState,
+    site::Int,
+)
+    throw(ArgumentError(
+        "propose_value is not implemented for $(nameof(typeof(model))); " *
+        "define `propose_value(rng, model::$(nameof(typeof(model))), geometry, " *
+        "state, site::Int)` returning a SpinUpdate with the site's proposed " *
+        "new value and the magnetization change"
+    ))
+end
+
+# The Metropolis trial move is the model's value proposal at the chosen site;
+# a model can override this method for a Metropolis-specific proposal.
+propose(rng::AbstractRNG, ::MetropolisAlgorithm, model::AbstractModel, geometry, state::AbstractState, site::Int) =
+    propose_value(rng, model, geometry, state, site)
+
 shared_workspace(alg::MetropolisAlgorithm, model, geometry) =
     visiting_order(alg.proposal, geometry)
 

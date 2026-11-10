@@ -29,6 +29,7 @@ UnitCellMC.operator_product
 UnitCellMC.n_operator_components
 UnitCellMC.operator_components
 UnitCellMC.propose
+UnitCellMC.propose_value
 UnitCellMC.energy_difference
 UnitCellMC.validate_cluster_model
 UnitCellMC.cluster_bond_probability

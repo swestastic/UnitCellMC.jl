@@ -20,11 +20,14 @@ Classical Markov Chain Monte Carlo simulations of spin models with user-defined 
 
 To install [UnitCellMC.jl](https://github.com/swestastic/UnitCellMC.jl),
 simply open the Julia REPL and run the command
+
 ```julia
 julia> ]
 pkg> add UnitCellMC
 ```
+
 or equivalently via `Pkg` do
+
 ```julia
 julia> using Pkg; Pkg.add("UnitCellMC")
 ```

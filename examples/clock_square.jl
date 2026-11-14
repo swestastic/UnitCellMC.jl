@@ -102,6 +102,7 @@ sweep_results = sweep_Ts(
     n_unmeasured, 
     n_bins, 
     Ts;
+    n_runs = n_runs,
     simulated_annealing = true,
     measurements = measurements,
     diagnostics = diagnostics,

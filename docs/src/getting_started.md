@@ -2,11 +2,18 @@
 
 ## Installation
 
-Install UnitCellMC using Julia's package manager:
+To install [UnitCellMC.jl](https://github.com/swestastic/UnitCellMC.jl),
+simply open the Julia REPL and run the command
 
 ```julia
-import Pkg
-Pkg.add(url="https://github.com/swestastic/UnitCellMC.jl")
+julia> ]
+pkg> add UnitCellMC
+```
+
+or equivalently via `Pkg` do
+
+```julia
+julia> using Pkg; Pkg.add("UnitCellMC")
 ```
 
 The main user-facing types and functions are exported, so

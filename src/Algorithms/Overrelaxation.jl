@@ -16,9 +16,10 @@ chain to a constant-energy shell of the configuration space. It samples the
 canonical ensemble only when alternated with a thermalizing algorithm — the
 standard recipe is one [`HeatbathAlgorithm`](@ref) sweep followed by a few
 overrelaxation sweeps, which decorrelates XY and Heisenberg configurations
-much faster than heatbath alone near criticality. Mix sweeps by calling
-[`MC_Sweep!`](@ref) with each algorithm in turn (the drivers accept one
-algorithm per run).
+much faster than heatbath alone near criticality. Compose the mix with an
+[`AlgorithmCycle`](@ref) (e.g. `AlgorithmCycle(HeatbathAlgorithm(),
+OverrelaxationAlgorithm() => 3)`), which every sweep driver accepts in place
+of a single algorithm.
 
 Only models with a continuous spin support the reflection; the model hook
 [`overrelax`](@ref) is implemented for [`XYModel`](@ref) and

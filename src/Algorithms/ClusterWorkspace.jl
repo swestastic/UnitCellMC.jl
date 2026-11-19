@@ -65,6 +65,9 @@ local-update algorithms with a colored proposal scheme, the scheme's
 so expensive deterministic constructions (DSATUR lattice coloring) run once
 per sweep instead of once per (temperature, run). Everything mutable — the
 site cursor, the [`AcceptanceCache`](@ref) — stays per-run.
+
+For an [`AlgorithmCycle`](@ref) the shared workspace is a tuple with one
+entry per algorithm.
 """
 shared_workspace(::AbstractAlgorithm, model, geometry) = nothing
 
@@ -79,6 +82,9 @@ a [`ClusterWorkspace`](@ref) for cluster algorithms, a
 otherwise. [`run_simulation`](@ref) allocates it once and passes it through
 [`MC_Sweep!`](@ref). Extend this for custom algorithms with per-step
 allocations.
+
+For an [`AlgorithmCycle`](@ref) the workspace is a tuple with one entry per
+algorithm, each built from the corresponding entry of `shared`.
 
 The optional `shared` argument carries
 [`shared_workspace`](@ref)`(algorithm, model, geometry)` — deterministic

@@ -184,7 +184,8 @@ ladder `Ts` and return a [`ParallelTemperingResult`](@ref). Unless
 
 One replica simulates `model` at each temperature with `algorithm` — any
 `AbstractAlgorithm` works as the inner update, including the cluster
-algorithms. The simulation proceeds in *rounds*: one [`MC_Sweep!`](@ref)
+algorithms, and an [`AlgorithmCycle`](@ref) composing several. The
+simulation proceeds in *rounds*: one [`MC_Sweep!`](@ref)
 per replica (in parallel over threads), followed every `swap_every` rounds
 by a serial [`swap_pass!`](@ref) attempting to exchange the configurations
 of neighboring temperatures. The sequence of rounds mirrors
@@ -222,7 +223,8 @@ recorded.
 # Arguments
 
 - `algorithm`: The per-replica update algorithm (e.g.
-  [`MetropolisAlgorithm`](@ref)).
+  [`MetropolisAlgorithm`](@ref)), or an [`AlgorithmCycle`](@ref) composing
+  several.
 - `model`: The model defining couplings/energetics.
 - `geometry`: The lattice geometry.
 - `Ts`: The temperature ladder; at least 2 temperatures, sorted ascending.

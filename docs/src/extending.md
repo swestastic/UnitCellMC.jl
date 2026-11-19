@@ -335,6 +335,12 @@ Rules of the road:
 - The diagnostic keys returned by [`diagnostic_values`](@ref UnitCellMC.diagnostic_values) must be exactly
   [`available_diagnostics`](@ref UnitCellMC.available_diagnostics)`(MyAlgorithm)`; the container validates
   this up front ([`validate_run`](@ref UnitCellMC.validate_run)).
+- **Cycles come for free.** An algorithm implementing the interface above
+  works as an entry of an [`AlgorithmCycle`](@ref UnitCellMC.AlgorithmCycle)
+  with no extra code: the cycle delegates to its own `sweep_steps!` with its
+  own workspace, and namespaces its diagnostics with
+  [`diagnostic_prefix`](@ref UnitCellMC.diagnostic_prefix) — override that if
+  the default (the snake_cased type name) collides with another entry's.
 - **Results labels.** The IO layer labels results directories with the
   algorithm's type name plus its proposal scheme, read through
   [`proposal_scheme`](@ref UnitCellMC.proposal_scheme) and rendered by

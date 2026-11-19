@@ -14,11 +14,24 @@ site-selection schemes do not overwrite each other. The default
 The scheme is read through the generic [`proposal_scheme`](@ref) accessor and
 rendered by [`proposal_label`](@ref), so custom algorithms and schemes are
 labeled without this function naming their types.
+
+For an [`AlgorithmCycle`](@ref) the label joins the entries' labels with
+`"+"`, prefixing each with its sweep count when greater than one (e.g.
+`"WolffAlgorithm+MetropolisAlgorithm"`,
+`"HeatbathAlgorithm+3xOverrelaxationAlgorithm"`).
 """
 function algorithm_label(algorithm)
     scheme = proposal_scheme(algorithm)
     scheme === nothing && return string(nameof(typeof(algorithm)))
     return string(nameof(typeof(algorithm)), proposal_label(scheme))
+end
+
+function algorithm_label(cycle::AlgorithmCycle)
+    labels = map(zip(cycle.algorithms, cycle.counts)) do (algorithm, count)
+        label = algorithm_label(algorithm)
+        count == 1 ? label : string(count, "x", label)
+    end
+    return join(labels, "+")
 end
 
 """

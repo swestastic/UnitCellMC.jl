@@ -21,6 +21,8 @@ UnitCellMC.WolffAlgorithm
 UnitCellMC.WolffUpdateResult
 UnitCellMC.SwendsenWangAlgorithm
 UnitCellMC.SwendsenWangUpdateResult
+UnitCellMC.AlgorithmCycle
+UnitCellMC.diagnostic_prefix
 UnitCellMC.AbstractUpdateResult
 UnitCellMC.step!
 UnitCellMC.steps_per_sweep

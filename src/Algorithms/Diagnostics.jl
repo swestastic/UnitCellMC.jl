@@ -78,6 +78,9 @@ when constructing a [`MeasurementContainer`](@ref).
   there are no diagnostics)
 - `WolffAlgorithm` → `[:cluster_size]`
 - `SwendsenWangAlgorithm` → `[:cluster_count, :largest_cluster_fraction]`
+- `AlgorithmCycle` → each entry's diagnostics prefixed by
+  [`diagnostic_prefix`](@ref) and an underscore, in entry order (e.g.
+  `[:wolff_cluster_size, :metropolis_acceptance_ratio]`)
 """
 available_diagnostics(::Type{<:MetropolisAlgorithm})   = [:acceptance_ratio]
 available_diagnostics(::Type{<:GlauberAlgorithm})      = [:acceptance_ratio]

@@ -19,7 +19,8 @@ model/algorithm pairs with a fused fast path (single-orbital
 
 # Arguments
 
-- `algorithm`: The update algorithm to use.
+- `algorithm`: The update algorithm to use, or an [`AlgorithmCycle`](@ref)
+  composing several (one sweep is then each entry's sweep in turn).
 - `model`: The model defining couplings/energetics.
 - `geometry`: The lattice geometry.
 - `state`: The current configuration, mutated in place.
@@ -71,7 +72,9 @@ One sweep consists of [`steps_per_sweep`](@ref) calls to [`step!`](@ref)
 
 # Arguments
 
-- `algorithm`: The update algorithm to use (e.g. `MetropolisAlgorithm()`).
+- `algorithm`: The update algorithm to use (e.g. `MetropolisAlgorithm()`),
+  or an [`AlgorithmCycle`](@ref) composing several (e.g.
+  `AlgorithmCycle(WolffAlgorithm(), MetropolisAlgorithm())`).
 - `model`: The model defining couplings/energetics.
 - `geometry`: The lattice geometry.
 - `state`: The current configuration, mutated in place.
@@ -352,7 +355,10 @@ A new [`SimulationParameters`](@ref) is created for every temperature
 
 # Arguments
 
-- `algorithm`: The update algorithm to use.
+- `algorithm`: The update algorithm to use, or an [`AlgorithmCycle`](@ref)
+  composing several (e.g.
+  `AlgorithmCycle(WolffAlgorithm(), MetropolisAlgorithm())`, which every
+  driver accepts in place of a single algorithm).
 - `model`: The model defining couplings/energetics.
 - `geometry`: The lattice geometry.
 - `state`: The starting configuration for run 1; reused across temperatures

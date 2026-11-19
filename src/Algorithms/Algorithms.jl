@@ -81,6 +81,10 @@ algorithms
 update already moves a macroscopic fraction of the lattice, so a sweep is
 exactly one call to [`step!`](@ref).
 
+For an [`AlgorithmCycle`](@ref), which composes several algorithms, a sweep
+is each entry's sweep in turn, repeated by the entry's count — the
+count-weighted sum of its entries' `steps_per_sweep`.
+
 Extend this function to change the sweep size for a custom algorithm.
 """
 steps_per_sweep(::AbstractAlgorithm, geometry::Geometry) = geometry.n_sites
@@ -110,3 +114,4 @@ include("Wolff.jl")
 include("SwendsenWang.jl")
 include("Diagnostics.jl")
 include("Sweeps.jl")
+include("Cycle.jl")

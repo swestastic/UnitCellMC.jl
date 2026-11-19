@@ -1,0 +1,134 @@
+"""
+This example code implements the 2D XY model using the UnitCellMC.jl package.
+It demonstrates how to combine several update algorithms in one simulation with
+an AlgorithmCycle: each driver sweep is one heatbath sweep followed by three
+overrelaxation sweeps. Overrelaxation moves spins along their constant-energy
+orbits, decorrelating the configuration much faster than heatbath alone near
+the BKT transition (T_BKT ≈ 0.89) — but it is not ergodic by itself, so it must
+be alternated with a thermalizing algorithm.
+"""
+
+#### Import the necessary modules
+
+using UnitCellMC
+import LatticeUtilities as lu
+
+#### Set the global RNG seed
+
+# Every random number in this script (initial states, the autotuning pilot, and
+# all n_runs parallel runs in sweep_Ts) derives from the global RNG, so rerunning
+# with the same seed reproduces the results exactly, for any number of threads.
+# The seed is saved to the results folder's metadata.txt. Change it for a
+# statistically independent run, or call set_global_seed!() for a random one.
+seed = 1234
+set_global_seed!(seed)
+
+#### Initialize Geometry
+
+L = [8, 8] # In this case this is [Lx, Ly] becuase the lattice_vectors are [x̂, ŷ]
+
+lattice_vectors = [[1.0, 0.0], [0.0, 1.0]] # [x̂, ŷ] in 2D
+basis_vectors = [[0.0, 0.0]] # our unit cell is a single site at the origin
+
+unit_cell = lu.UnitCell( 
+    lattice_vecs = lattice_vectors,
+    basis_vecs = basis_vectors
+)
+
+lattice = lu.Lattice(
+    L = L,
+    periodic = [true, true] # periodic boundary conditions along x̂ and ŷ
+)
+
+bond_1 = lu.Bond(orbitals = (1, 1), displacement = [1, 0]) # bond along x̂
+bond_2 = lu.Bond(orbitals = (1, 1), displacement = [0, 1]) # bond along ŷ
+bonds = [bond_1, bond_2]
+
+geometry = Geometry(unit_cell, lattice, bonds)
+
+n_sites = geometry.n_sites
+
+#### Initialize State
+J1 = 1.0 # Coupling strength along x̂
+J2 = 1.0 # Coupling strength along ŷ
+J = [J1, J2]
+h = [0.0] # External magnetic field strength per unit-cell site
+
+model = XYModel(J, h)
+
+# One sweep of the cycle is one heatbath sweep (thermalizing) followed by
+# three overrelaxation sweeps (energy-conserving reflections). Other useful
+# mixes: AlgorithmCycle(WolffAlgorithm(), MetropolisAlgorithm()) to clean up
+# between cluster updates, or MetropolisAlgorithm() => 2 as an entry to run
+# several sweeps of one algorithm per cycle.
+algorithm = AlgorithmCycle(HeatbathAlgorithm() => 1, OverrelaxationAlgorithm() => 3)
+
+# Diagnostic names are prefixed per entry: available_diagnostics(algorithm) is
+# [:heatbath_change_ratio] here (overrelaxation is deterministic and reports none)
+diagnostics = available_diagnostics(algorithm)
+measurements = available_measurements(model)
+
+state = initialize_state(model, geometry) # Generate random spin configuration, calculate the initial energy and magnetization
+
+#### Set simulation parameters
+
+n_thermalization = 10_000 # warmup / thermalization sweeps before measurements
+n_bins = 100 # number of bins for jackknife error estimation
+n_runs = 20 # number of independent runs to average over
+
+Ts = collect(3.0:-0.1:1.0) # temperatures from T = 3.0 down to T = 1.0
+
+#### Choose n_unmeasured and the bin size from the autocorrelation time
+
+# A short pilot run at every temperature measures after every sweep and
+# estimates the integrated autocorrelation time τ (in sweeps) of each
+# observable; the slowest one sets the measurement spacing and bin size.
+# One cycle sweep is one heatbath sweep plus three overrelaxation sweeps, so
+# the τ reported here is in those mixed units.
+tuning = autotune_binning(
+    algorithm, model, geometry, initialize_state(model, geometry), Ts;
+    n_pilot = 5_000,
+)
+tuned_observables = collect(keys(first(tuning.per_temperature))) # all measured observables
+println("Slowest τ = $(round(tuning.tau, digits = 2)) sweeps ($(tuning.observable) at T = $(tuning.T))")
+
+n_unmeasured = tuning.n_unmeasured # sweeps between measurements, ≈ τ - 1
+n_measurements = tuning.bin_size * n_bins # measurements per run; scale up for smaller error bars
+println("Using n_unmeasured = $n_unmeasured, bin_size = $(tuning.bin_size), n_measurements = $n_measurements")
+
+#### Perform simulation
+
+sweep_results = sweep_Ts(
+    algorithm, 
+    model, 
+    geometry, 
+    state,
+    n_thermalization, 
+    n_measurements, 
+    n_unmeasured, 
+    n_bins, 
+    Ts;
+    n_runs = n_runs,
+    simulated_annealing = true,
+    measurements = measurements,
+    diagnostics = diagnostics,
+    time_series = :scalars # unbinned history for autocorrelations: :scalars (skips the correlation vector), :all, or :none
+)
+
+#### Check the binning against the production autocorrelation times
+
+# `analyze` estimates the integrated autocorrelation time of every observable
+# from the production time series. These times are in units of measurements
+# (n_unmeasured + 1 sweeps); bins spanning >= 10 of them give reliable error bars.
+bin_size = n_measurements ÷ n_bins
+for (T, results) in zip(Ts, sweep_results)
+    taus = [tau_lower_bound(results.autocorrelation[name]) for name in tuned_observables]
+    taus = filter(isfinite, taus)
+    if isempty(taus)
+        println("T = $T: no fluctuations recorded")
+        continue
+    end
+    tau = maximum(taus)
+    verdict = bin_size >= 10 * tau ? "ok" : "bin_size < 10 tau: increase n_pilot or bin_factor"
+    println("T = $T: tau = $(round(tau, digits = 2)) measurements, bin_size / tau = $(round(bin_size / tau, digits = 1)) ($verdict)")
+end

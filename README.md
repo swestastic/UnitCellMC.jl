@@ -10,7 +10,7 @@ Classical Markov Chain Monte Carlo simulations of spin models with user-defined 
 ## Features
 
 - **Models:** Ising, XY, q-state clock, and Heisenberg with per-bond couplings and per-site external fields
-- **Algorithms:** Metropolis, Glauber, heatbath, overrelaxation (XY/Heisenberg), Wolff (single-cluster), and Swendsen-Wang, with random, sequential, checkerboard, and graph-colored site-selection schemes
+- **Algorithms:** Metropolis, Glauber, heatbath, overrelaxation (XY/Heisenberg), Wolff (single-cluster), and Swendsen-Wang — composable into per-sweep mixes with `AlgorithmCycle` — with random, sequential, checkerboard, and graph-colored site-selection schemes
 - **Geometry:** arbitrary lattices built from [LatticeUtilities.jl](https://github.com/SmoQySuite/LatticeUtilities.jl) unit cells, lattices, and bonds. Built-in functionality for coloring lattices.
 - **Measurements:** energy, specific heat, magnetization, susceptibility, Binder cumulant, correlation functions, and structure factors, with binning, jackknife error estimation, and autocorrelation analysis
 - **Drivers:** single-temperature runs, temperature sweeps with optional simulated annealing, and parallel tempering (replica exchange); independent runs and replicas parallelize over threads, with autocorrelation-based autotuning of the measurement spacing and bin size
@@ -36,4 +36,4 @@ julia> using Pkg; Pkg.add("UnitCellMC")
 
 The main user-facing API is exported — `using UnitCellMC` brings `Geometry`, the models and algorithms, `initialize_state`, `SimulationParameters`, `MeasurementContainer`, the simulation drivers (`run_simulation`, `sweep_Ts`, `tempering_sweep`, ...), `analyze`, and the save functions into scope. Lattice types (`UnitCell`, `Lattice`, `Bond`) come from [LatticeUtilities.jl](https://github.com/SmoQySuite/LatticeUtilities.jl) and must be loaded separately.
 
-See `examples/` for runnable 1D Ising chain and 2D square-lattice Ising/XY/clock simulations, including temperature sweeps, proposal-scheme comparisons, and parallel tempering.
+See `examples/` for runnable 1D Ising chain and 2D square-lattice Ising/XY/clock simulations, including temperature sweeps, proposal-scheme comparisons, mixed-algorithm cycles, and parallel tempering.

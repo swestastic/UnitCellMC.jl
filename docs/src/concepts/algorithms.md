@@ -114,21 +114,14 @@ Because energy is conserved, overrelaxation is **not ergodic by itself** —
 the chain is confined to a constant-energy shell. It must be alternated with
 a thermalizing algorithm; the standard recipe is one heatbath sweep followed
 by a few overrelaxation sweeps, which decorrelates configurations much faster
-than heatbath alone near criticality. The drivers accept one algorithm per
-run, so mix the sweeps with [`MC_Sweep!`](@ref) directly:
+than heatbath alone near criticality. Compose the mix with an
+[`AlgorithmCycle`](@ref), which every sweep driver accepts in place of a
+single algorithm — here, one heatbath sweep followed by three overrelaxation
+sweeps per cycle:
 
 ```julia
-heatbath_ws = ucmc.algorithm_workspace(HeatbathAlgorithm(), model, geometry, state)
-overrelax_ws = ucmc.algorithm_workspace(OverrelaxationAlgorithm(), model, geometry, state)
-for sweep in 1:n_sweeps
-    ucmc.MC_Sweep!(HeatbathAlgorithm(), model, geometry, state, container, T, ();
-                   rng = rng, workspace = heatbath_ws)
-    for _ in 1:3
-        ucmc.MC_Sweep!(OverrelaxationAlgorithm(), model, geometry, state, container, T, ();
-                       rng = rng, workspace = overrelax_ws)
-    end
-    ucmc.measure!(container, state)
-end
+cycle = AlgorithmCycle(HeatbathAlgorithm(), OverrelaxationAlgorithm() => 3)
+run_simulation(cycle, model, geometry, state, container, parameters)
 ```
 
 The update is deterministic, so there is no acceptance rate to record;
@@ -158,3 +151,27 @@ The Swendsen-Wang algorithm builds all clusters before updating the state:
 
 As with Wolff, bond activation and cluster mutation are model hooks. The
 algorithm itself only handles bond traversal and connected-component finding.
+
+## Combining algorithms
+
+An [`AlgorithmCycle`](@ref) composes several algorithms into one: a sweep of
+the cycle is one sweep of each entry, in order, and every sweep driver
+(`run_simulation`, `sweep_Ts`, `tempering_sweep`, `autotune_binning`) accepts
+a cycle anywhere a single algorithm goes. Each entry's update leaves the
+Boltzmann distribution invariant, so the composition is a valid sampler as
+long as at least one entry is ergodic on its own. Typical uses:
+
+```julia
+# Interleave cluster and local updates: one Wolff cluster update, then one
+# Metropolis sweep, per cycle
+AlgorithmCycle(WolffAlgorithm(), MetropolisAlgorithm())
+
+# Alternate a thermalizing algorithm with overrelaxation: one heatbath
+# sweep, then three energy-conserving reflection sweeps, per cycle
+AlgorithmCycle(HeatbathAlgorithm(), OverrelaxationAlgorithm() => 3)
+```
+
+Per-sweep diagnostics are namespaced per entry — the first cycle above
+records `:wolff_cluster_size` and `:metropolis_acceptance_ratio` — and
+results directories are labeled with the composition (e.g.
+`WolffAlgorithm+MetropolisAlgorithm`).

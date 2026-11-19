@@ -21,6 +21,7 @@ export Geometry, initialize_state
 export IsingModel, XYModel, ClockModel, HeisenbergModel
 export MetropolisAlgorithm, GlauberAlgorithm, HeatbathAlgorithm, OverrelaxationAlgorithm
 export WolffAlgorithm, SwendsenWangAlgorithm
+export AlgorithmCycle
 export RandomProposal, SequentialProposal, CheckerboardProposal, ColoredProposal
 export SimulationParameters, MeasurementContainer
 export MC_Sweep!, run_simulation, sweep_Ts, merge_containers, analyze, autotune_binning
